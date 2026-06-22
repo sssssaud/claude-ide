@@ -70,8 +70,38 @@ Phase 0 and adjust with evidence" (spec 2.7, 6.1, risk register). Measured:
 - [x] git init + first commit; pushed to GitHub (private):
       https://github.com/shaikh-saud705/claude-ide
 
+### Phase 1 — Persistent engine + conversation pane  ·  IN PROGRESS
+Architecture decided: **Rust drives `claude` directly via a persistent
+stream-json session** (not a Node sidecar) — spec's sanctioned alternative.
+Agent SDK stays the Phase 6 fallback for `canUseTool`.
+- [x] EngineEvent contract (Rust enum + 1:1 TS mirror) over a tauri Channel.
+- [x] Conversation store + pane: id-keyed items, streaming reveal, collapsible
+      tool cards, cost/context header, working prompt bar (send + Stop).
+- [x] Mock engine proves the pipeline end-to-end (spec 6.3 "fake before real").
+- [x] Real NDJSON parser `engine::parse_events`, **8 golden tests** vs real CLI
+      output. Committed: 4c7a99a.
+- [ ] **NEXT — resume here: the real-engine swap.** Persistent `claude` child
+      per workspace (cwd-locked, handle owned only in Rust); stdout →
+      `parse_events` → per-workspace `Channel`; stdin writes each turn. Commands:
+      `open_workspace` (default cwd = launch dir for now; folder picker is
+      Phase 4), `engine_send(workspace_id, prompt)`, `engine_cancel` (interrupt),
+      `close_workspace` (kill, no-zombie). Frontend: subscribe the channel once,
+      `send` writes turns, capture `session_id` from Init. Couples backend +
+      frontend (IPC signature change) → do together, finish with a live turn.
+- [ ] Gate: tokens render ≤50ms; tool cards; cancel→clean Stopped; session_id
+      captured; zero ANSI; ParseError surfaced; no zombie on close.
+
+Resume facts (probed):
+- Spawn: `claude -p --input-format stream-json --output-format stream-json
+  --include-partial-messages --verbose --strict-mcp-config` in the workspace cwd.
+- Send a turn (one NDJSON line to stdin):
+  `{"type":"user","message":{"role":"user","content":[{"type":"text","text":"…"}]}}`
+- Events: `system`/init → Init; `stream_event` content_block_delta/text_delta →
+  AssistantDelta; `assistant` tool_use → ToolUse; `user` tool_result →
+  ToolResult; `result` → Result. (All locked by the golden tests.)
+- Cargo needs tokio features `process` + `io-util` added for the async child I/O.
+
 ### Pending (later phases)
-- Phase 1 — Persistent engine + conversation pane (L)
 - Phase 2 — Plain terminal drawer (S)
 - Phase 3 — Sessions & Timeline Rail, live (M)
 - Phase 4 — Editor surfaces: explorer, Monaco multi-tab, git, search (L)
