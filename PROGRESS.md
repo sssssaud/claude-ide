@@ -56,7 +56,7 @@ Phase 0 and adjust with evidence" (spec 2.7, 6.1, risk register). Measured:
 
 ## Roadmap status
 
-### Phase 0 — Skeleton & preflight  ·  COMPLETE (pending commit/push)
+### Phase 0 — Skeleton & preflight  ·  COMPLETE ✅
 - [x] Rust toolchain (cargo 1.96.0); Tauri deps via dnf.
 - [x] Project scaffolded: Vite+React+TS frontend, Tauri 2 backend, path alias.
 - [x] Design tokens (spec 4.3) as CSS custom properties (single source).
@@ -67,7 +67,8 @@ Phase 0 and adjust with evidence" (spec 2.7, 6.1, risk register). Measured:
 - [x] Perf instrumented (cold-start marker + RSS); budgets measured & adjusted.
 - [x] App builds + launches; shell renders; three states present.
 - [x] Zero-warning Rust build; TS typecheck clean.
-- [ ] git init + first commit; push to GitHub (private).
+- [x] git init + first commit; pushed to GitHub (private):
+      https://github.com/shaikh-saud705/claude-ide
 
 ### Pending (later phases)
 - Phase 1 — Persistent engine + conversation pane (L)
