@@ -23,6 +23,7 @@ pub enum AppError {
 #[serde(rename_all = "snake_case")]
 pub enum IpcErrorKind {
     Internal,
+    InvalidInput,
 }
 
 /// The serializable error that crosses the IPC boundary.

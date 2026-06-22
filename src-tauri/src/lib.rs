@@ -5,13 +5,16 @@
 //! reap yet, but the seam is in place for Phase 1+).
 
 mod commands;
+mod engine;
 mod error;
 mod perf;
 mod preflight;
 mod state;
 
+use std::sync::Arc;
 use std::time::Instant;
 
+use engine::EngineRegistry;
 use state::AppState;
 
 /// App entry. `startup` is captured by `main` as early as possible so the
@@ -22,10 +25,13 @@ pub fn run(startup: Instant) {
 
     tauri::Builder::default()
         .manage(AppState::new(startup))
+        .manage(Arc::new(EngineRegistry::default()))
         .invoke_handler(tauri::generate_handler![
             commands::preflight,
             commands::report_ready,
             commands::perf_stats,
+            commands::engine_send,
+            commands::engine_cancel,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

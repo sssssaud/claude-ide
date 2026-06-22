@@ -4,8 +4,8 @@
  * and errors normalize to `IpcError`.
  */
 
-import { invoke } from "@tauri-apps/api/core";
-import type { PerfStats, PreflightReport } from "./types";
+import { Channel, invoke } from "@tauri-apps/api/core";
+import type { EngineEvent, PerfStats, PreflightReport } from "./types";
 import { isIpcError } from "./types";
 
 /** Normalize any thrown value into an `IpcError`-shaped object. */
@@ -40,6 +40,32 @@ export async function reportReady(): Promise<number> {
 export async function perfStats(): Promise<PerfStats> {
   try {
     return await invoke<PerfStats>("perf_stats");
+  } catch (e) {
+    normalizeError(e);
+  }
+}
+
+/**
+ * Send a turn into the engine. `onEvent` is invoked for each streamed
+ * `EngineEvent` over a Tauri channel; resolves to the turn id (for cancel).
+ */
+export async function engineSend(
+  prompt: string,
+  onEvent: (event: EngineEvent) => void,
+): Promise<string> {
+  const channel = new Channel<EngineEvent>();
+  channel.onmessage = onEvent;
+  try {
+    return await invoke<string>("engine_send", { prompt, onEvent: channel });
+  } catch (e) {
+    normalizeError(e);
+  }
+}
+
+/** Request cancellation of an in-flight turn. */
+export async function engineCancel(turnId: string): Promise<void> {
+  try {
+    await invoke<void>("engine_cancel", { turnId });
   } catch (e) {
     normalizeError(e);
   }
