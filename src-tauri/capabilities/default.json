@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Least-privilege capability for the main window. The webview may call only the enumerated #[tauri::command]s; no generic shell or fs command is exposed (spec 2.8). Filesystem scoping to opened workspace roots is added with the workspace commands in Phase 1.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

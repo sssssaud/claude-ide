@@ -1,0 +1,113 @@
+/*
+ * Design tokens — the single source of truth (spec 4.1, 4.3).
+ *
+ * Defined as CSS custom properties via Tailwind v4 `@theme`, so each token is
+ * BOTH a `--var` (usable as `var(--token)`) AND a generated utility
+ * (e.g. `bg-bg-base`, `text-fg-secondary`). No component may hardcode a hex,
+ * px, or duration — always reference a token. WCAG-AA verified for every
+ * foreground/background pair used (Bone/Ash on Graphite/Slate, status colors,
+ * diff colors).
+ */
+
+@theme {
+  /* ===== Brand palette (named, spec 4.3) ===== */
+  --color-graphite: #15171c;
+  --color-slate: #1d2026;
+  --color-onyx: #0f1115;
+  --color-ash: #9aa1ad;
+  --color-bone: #e6e8ec;
+  --color-amber: #e9a04a;
+
+  /* ===== Functional: background layers ===== */
+  --color-bg-base: #15171c; /* Graphite — cool, not black */
+  --color-bg-raised: #1d2026; /* Slate — panels, cards */
+  --color-bg-recessed: #0f1115; /* Onyx — gutters, wells */
+  --color-bg-overlay: #22262e; /* Slate @ elevation — overlays, menus */
+
+  /* ===== Functional: foreground ===== */
+  --color-fg-primary: #e6e8ec; /* Bone — off-white, not #FFF */
+  --color-fg-secondary: #9aa1ad; /* Ash — muted/secondary */
+  --color-fg-muted: #6b7280;
+  --color-fg-disabled: #4b515b;
+
+  /* ===== Functional: borders / focus ===== */
+  --color-border-subtle: #262a31;
+  --color-border-strong: #343a44;
+  --color-focus-ring: rgba(233, 160, 74, 0.6); /* Amber @ 60% */
+
+  /* ===== Accent (warm amber, spent sparingly) ===== */
+  --color-accent: #e9a04a;
+  --color-accent-hover: #f0b067;
+  --color-accent-quiet: rgba(233, 160, 74, 0.12);
+
+  /* ===== Semantic status (mapped to the 2.2 state machine) ===== */
+  --color-status-idle: #9aa1ad;
+  --color-status-running: #e9a04a;
+  --color-status-awaiting: #e3b341;
+  --color-status-success: #5fb389;
+  --color-status-danger: #e5736b;
+  --color-status-info: #6ca0d0;
+
+  /* ===== Diff (tuned for the dark base, never neon) ===== */
+  --color-diff-add: #5fb389;
+  --color-diff-add-bg: rgba(95, 179, 137, 0.12);
+  --color-diff-del: #e5736b;
+  --color-diff-del-bg: rgba(229, 115, 107, 0.12);
+
+  /* ===== Type faces (deliberate Geist pairing, system fallbacks) ===== */
+  --font-sans: "Geist Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, "SF Mono", "JetBrains Mono", "Fira Code", monospace;
+
+  /* ===== Type scale (px + paired line-heights, IDE-dense) ===== */
+  --text-xs: 11px;
+  --text-xs--line-height: 16px;
+  --text-sm: 12px;
+  --text-sm--line-height: 18px;
+  --text-base: 13px;
+  --text-base--line-height: 20px;
+  --text-md: 14px;
+  --text-md--line-height: 21px;
+  --text-lg: 16px;
+  --text-lg--line-height: 24px;
+  --text-xl: 18px;
+  --text-xl--line-height: 26px;
+  --text-2xl: 22px;
+  --text-2xl--line-height: 30px;
+  --text-3xl: 28px;
+  --text-3xl--line-height: 36px;
+
+  /* ===== Radius (IDE feel — never pill) ===== */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+
+  /* ===== Motion easing (functional only) ===== */
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+}
+
+/*
+ * Non-namespaced design tokens: spacing steps, motion durations, and elevation.
+ * Kept as plain custom properties (consumed via `var(--token)`), since these
+ * map less cleanly onto Tailwind's single-axis utilities.
+ */
+:root {
+  /* Spacing (4px base) */
+  --space-1: 2px;
+  --space-2: 4px;
+  --space-3: 8px;
+  --space-4: 12px;
+  --space-5: 16px;
+  --space-6: 24px;
+  --space-7: 32px;
+  --space-8: 48px;
+
+  /* Motion durations (restrained) */
+  --motion-fast: 120ms;
+  --motion-base: 180ms;
+  --motion-slow: 280ms;
+
+  /* Elevation (dark UIs lean on borders + subtle shadow) */
+  --elev-1: 0 0 0 1px var(--color-border-subtle);
+  --elev-2: 0 0 0 1px var(--color-border-subtle), 0 4px 12px rgba(0, 0, 0, 0.35);
+  --elev-3: 0 0 0 1px var(--color-border-strong), 0 12px 32px rgba(0, 0, 0, 0.5);
+}

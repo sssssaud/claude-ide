@@ -1,0 +1,29 @@
+[package]
+name = "claude-ide"
+version = "0.1.0"
+description = "A native, agent-first IDE that wraps the Claude Code CLI"
+authors = ["Shaikh Saud <123188975+shaikh-saud705@users.noreply.github.com>"]
+edition = "2021"
+
+[lib]
+# The `_lib` suffix keeps the lib name distinct from the bin name (a Windows
+# cargo quirk: https://github.com/rust-lang/cargo/issues/8519).
+name = "claude_ide_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# Typed error layering (thiserror -> IpcError at the boundary; never panic across IPC).
+thiserror = "2"
+# Structured backend logging (never logs secrets; see spec 2.6).
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+# Cross-platform process RSS sampling for the Phase 0 perf budget (spec 2.7).
+sysinfo = "0.33"
+# Robust PATH lookup for the `claude` binary in preflight (spec 3.10).
+which = "7"

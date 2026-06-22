@@ -1,0 +1,69 @@
+/*
+ * Global base styles. Pulls in Tailwind v4 and the token layer, then sets
+ * document defaults, accessibility primitives, and the one signature motion
+ * (the status-lamp pulse). Everything references a token (spec 4.3).
+ */
+
+@import "tailwindcss";
+@import "./tokens.css";
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-bg-base);
+  color: var(--color-fg-primary);
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: var(--text-base--line-height);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  overflow: hidden; /* the app owns its own scroll regions */
+}
+
+/* Visible focus ring everywhere (spec 4.5, 4.7). */
+:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* Quiet, dark-tuned scrollbars. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border-strong) transparent;
+}
+
+/* The signature: the active turn's status lamp pulses softly (spec 4.2). */
+@keyframes status-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+.status-lamp-pulse {
+  animation: status-pulse var(--motion-slow) var(--ease-standard) infinite;
+}
+
+/*
+ * Reduced motion: honored app-wide (spec 4.7). The CC `prefersReducedMotion`
+ * setting is also wired to this in Phase 3; here we honor the OS preference.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

@@ -1,0 +1,37 @@
+# Dependencies
+node_modules
+
+# Build output
+dist
+dist-ssr
+*.local
+
+# Rust / Tauri
+/src-tauri/target
+/src-tauri/gen/schemas
+
+# Secrets — never commit (commit .env.example instead)
+.env
+.env.*
+!.env.example
+
+# Claude Code per-machine local settings (keep project .claude/, not .local)
+.claude/settings.local.json
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# Editor / OS
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
