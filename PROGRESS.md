@@ -70,36 +70,55 @@ Phase 0 and adjust with evidence" (spec 2.7, 6.1, risk register). Measured:
 - [x] git init + first commit; pushed to GitHub (private):
       https://github.com/shaikh-saud705/claude-ide
 
-### Phase 1 — Persistent engine + conversation pane  ·  IN PROGRESS
-Architecture decided: **Rust drives `claude` directly via a persistent
-stream-json session** (not a Node sidecar) — spec's sanctioned alternative.
-Agent SDK stays the Phase 6 fallback for `canUseTool`.
+### Phase 1 — Persistent engine + conversation pane  ·  COMPLETE ✅
+Architecture: **Rust drives `claude` directly via a persistent stream-json
+session** (not a Node sidecar) — spec's sanctioned alternative. Agent SDK stays
+the Phase 6 fallback for `canUseTool`.
 - [x] EngineEvent contract (Rust enum + 1:1 TS mirror) over a tauri Channel.
 - [x] Conversation store + pane: id-keyed items, streaming reveal, collapsible
       tool cards, cost/context header, working prompt bar (send + Stop).
-- [x] Mock engine proves the pipeline end-to-end (spec 6.3 "fake before real").
-- [x] Real NDJSON parser `engine::parse_events`, **8 golden tests** vs real CLI
-      output. Committed: 4c7a99a.
-- [ ] **NEXT — resume here: the real-engine swap.** Persistent `claude` child
-      per workspace (cwd-locked, handle owned only in Rust); stdout →
-      `parse_events` → per-workspace `Channel`; stdin writes each turn. Commands:
-      `open_workspace` (default cwd = launch dir for now; folder picker is
-      Phase 4), `engine_send(workspace_id, prompt)`, `engine_cancel` (interrupt),
-      `close_workspace` (kill, no-zombie). Frontend: subscribe the channel once,
-      `send` writes turns, capture `session_id` from Init. Couples backend +
-      frontend (IPC signature change) → do together, finish with a live turn.
-- [ ] Gate: tokens render ≤50ms; tool cards; cancel→clean Stopped; session_id
-      captured; zero ANSI; ParseError surfaced; no zombie on close.
+- [x] Mock engine proved the pipeline end-to-end, then retired (4c7a99a).
+- [x] Real NDJSON parser `engine::parse_events`, **8 golden tests** vs real CLI.
+- [x] **Real-engine swap (2026-06-23).** `WorkspaceRegistry` owns one persistent
+      `claude` child per workspace (cwd-locked, child + stdin owned only in Rust,
+      `kill_on_drop`). stdout → `parse_events` → per-workspace `Channel`; stdin
+      writes each turn. Commands: `open_workspace`, `engine_send(workspace_id,
+      prompt)`, `engine_cancel` (control_request interrupt), `close_workspace`.
+      Frontend lazy-opens one session, subscribes the channel once, routes
+      send/cancel by id. Teardown (`shutdown_all`) reaps every child on app exit.
+- [x] **Layout fix:** the `main` grid had no `gridTemplateRows`, so the implicit
+      `auto` row grew to its tallest column's content and ignored the viewport
+      height — pushing the conversation prompt bar below `body{overflow:hidden}`
+      ("type bar lost"). Pinned with `gridTemplateRows: minmax(0,1fr)` so each
+      column scrolls inside the bounded row; editor column made `min-h-0`.
 
-Resume facts (probed):
+Gate status (verified live on the reference machine, 2026-06-23):
+- [x] Tokens stream smoothly (≤50ms reveal) — README-summary + counting turns.
+- [x] Tool cards — `Read` card running→done, with input + output.
+- [x] session_id captured — multi-turn continuity proven (3rd turn knew the cwd).
+- [x] Zero ANSI — stream-json is pure JSON (no terminal control codes).
+- [x] ParseError surfaced — golden test; `system/status`, `rate_limit_event`,
+      `control_response` fall through to benign `Unknown` (UI ignores).
+- [x] No zombie on close — teardown logs "engine sessions torn down"; zero
+      leftover children; the persistent child is reaped on exit.
+- [~] cancel→clean Stopped — implemented (interrupt → reader translates the
+      terminal `result` into `Stopped`) and verified at the **protocol level**
+      via the Python probe. One-click live-UI confirm left optional to save
+      Opus tokens; low risk (every link in the path is independently proven).
+
+Verified protocol facts (probed 2026-06-23 against claude 2.1.186):
 - Spawn: `claude -p --input-format stream-json --output-format stream-json
   --include-partial-messages --verbose --strict-mcp-config` in the workspace cwd.
+- One `claude -p` child answers MANY turns over stdin (stable `session_id`).
+- `init` is re-emitted at the start of every turn (store init handler is
+  idempotent). Result `total_cost_usd` is the **cumulative** session cost.
 - Send a turn (one NDJSON line to stdin):
   `{"type":"user","message":{"role":"user","content":[{"type":"text","text":"…"}]}}`
-- Events: `system`/init → Init; `stream_event` content_block_delta/text_delta →
-  AssistantDelta; `assistant` tool_use → ToolUse; `user` tool_result →
-  ToolResult; `result` → Result. (All locked by the golden tests.)
-- Cargo needs tokio features `process` + `io-util` added for the async child I/O.
+- Interrupt (mid-turn, session survives): stdin
+  `{"type":"control_request","request_id":"…","request":{"subtype":"interrupt"}}`
+  → `control_response{success}` then `result/error_during_execution`.
+- Closing stdin makes the process exit on its own (clean, no kill needed).
+- Tokio features added: `process`, `io-util`, `sync` (+ existing `time`, `rt`).
 
 ### Pending (later phases)
 - Phase 2 — Plain terminal drawer (S)

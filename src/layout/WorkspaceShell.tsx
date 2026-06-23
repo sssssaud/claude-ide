@@ -16,15 +16,24 @@ export function WorkspaceShell() {
     <div className="flex h-full w-full flex-col">
       <TabBar />
       <main
-        className="grid min-h-0 flex-1"
+        className="grid min-h-0 flex-1 overflow-hidden"
         style={{
           // Hero (conversation) widest; sessions fixed; editor ~45% of the rest.
           gridTemplateColumns: "280px minmax(0, 1.3fr) minmax(360px, 1fr)",
+          // Pin the row to the container height. Without an explicit row, the
+          // implicit `auto` track grows to its tallest column's content and
+          // ignores this height — pushing each column's footer (e.g. the
+          // conversation prompt bar) below the clipped viewport. `minmax(0,1fr)`
+          // bounds the row so every column scrolls inside it instead.
+          gridTemplateRows: "minmax(0, 1fr)",
         }}
       >
         <SessionsPanel />
         <ConversationPane />
-        <div style={{ borderLeft: "1px solid var(--color-border-subtle)" }}>
+        <div
+          className="min-h-0 overflow-hidden"
+          style={{ borderLeft: "1px solid var(--color-border-subtle)" }}
+        >
           <EditorRegion />
         </div>
       </main>

@@ -6,7 +6,7 @@
  */
 
 import { create } from "zustand";
-import { engineCancel, engineSend } from "@/ipc/commands";
+import { closeWorkspace, engineCancel, engineSend, openWorkspace } from "@/ipc/commands";
 import type { EngineEvent, Usage } from "@/ipc/types";
 import { isIpcError } from "@/ipc/types";
 
@@ -26,7 +26,7 @@ export type ConvItem =
 interface ConversationState {
   items: ConvItem[];
   streaming: boolean;
-  activeTurnId: string | null;
+  workspaceId: string | null;
   sessionId: string | null;
   model: string | null;
   slashCommands: string[];
@@ -88,22 +88,30 @@ export const useConversation = create<ConversationState>((set, get) => {
             ),
           };
 
-        case "result":
+        case "result": {
+          // The turn's terminal event. On an error result (e.g. a mid-turn
+          // failure) mark the live bubble stopped — capture its id before reset.
+          const aid = currentAssistantId;
           currentAssistantId = null;
           return {
             streaming: false,
-            activeTurnId: null,
-            cost: ev.total_cost_usd,
+            cost: ev.total_cost_usd ?? s.cost,
             usage: ev.usage,
             sessionId: ev.session_id,
+            items:
+              ev.is_error && aid
+                ? s.items.map((it) =>
+                    it.id === aid && it.kind === "assistant" ? { ...it, stopped: true } : it,
+                  )
+                : s.items,
           };
+        }
 
         case "stopped": {
           const aid = currentAssistantId;
           currentAssistantId = null;
           return {
             streaming: false,
-            activeTurnId: null,
             items: s.items.map((it) =>
               it.id === aid && it.kind === "assistant" ? { ...it, stopped: true } : it,
             ),
@@ -119,7 +127,7 @@ export const useConversation = create<ConversationState>((set, get) => {
   return {
     items: [],
     streaming: false,
-    activeTurnId: null,
+    workspaceId: null,
     sessionId: null,
     model: null,
     slashCommands: [],
@@ -131,29 +139,40 @@ export const useConversation = create<ConversationState>((set, get) => {
       const text = prompt.trim();
       if (!text || get().streaming) return;
       currentAssistantId = null;
+      // `streaming` flips synchronously here, so a second send is blocked until
+      // the turn ends — which also prevents opening the session twice.
       set((s) => ({
         items: [...s.items, { kind: "user", id: `u-${Date.now()}`, text }],
         streaming: true,
         error: null,
       }));
       try {
-        // Events may arrive before this resolves; dispatch is turn-id-agnostic,
-        // so that is fine. The id is only needed for cancel.
-        const turnId = await engineSend(text, dispatch);
-        set({ activeTurnId: turnId });
+        // Lazily open one persistent session; subscribe `dispatch` once. Events
+        // (init, deltas, result) flow over that channel for every later turn.
+        let wsId = get().workspaceId;
+        if (!wsId) {
+          wsId = await openWorkspace(dispatch);
+          set({ workspaceId: wsId });
+        }
+        await engineSend(wsId, text);
       } catch (e) {
+        // A failed send means the session is unusable; drop it so the next
+        // attempt opens a fresh one, and reap the child if one was spawned.
+        const wsId = get().workspaceId;
+        if (wsId) void closeWorkspace(wsId).catch(() => {});
         set({
           streaming: false,
+          workspaceId: null,
           error: isIpcError(e) ? e.message : "Failed to send the turn",
         });
       }
     },
 
     cancel: async () => {
-      const id = get().activeTurnId;
-      if (!id) return;
+      const wsId = get().workspaceId;
+      if (!wsId || !get().streaming) return;
       try {
-        await engineCancel(id);
+        await engineCancel(wsId);
       } catch {
         /* best-effort; the turn will also end on its own */
       }

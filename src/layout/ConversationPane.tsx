@@ -2,8 +2,8 @@
  * Agent conversation — the hero (spec 5.A.1). Renders the live engine event
  * stream from the conversation store: streaming assistant bubbles, collapsible
  * tool cards, a cost/context header, and a working prompt bar (send + stop).
- * Phase 1 is mock-backed; the real `claude` session wires in behind the same
- * store. (Markdown/syntax rendering of assistant text is a Phase 1 follow-up.)
+ * Backed by a persistent `claude` session opened on the first turn.
+ * (Markdown/syntax rendering of assistant text is a Phase 1 follow-up.)
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -82,8 +82,8 @@ function EmptyInvite() {
         Ask Claude to…
       </p>
       <p style={{ color: "var(--color-fg-secondary)", maxWidth: "44ch" }}>
-        Type a prompt below to start a turn. Responses stream in as cards — this
-        is a mock engine until the real session is wired.
+        Type a prompt below to start a turn. The first message opens a live
+        Claude session; responses stream in as cards.
       </p>
     </div>
   );

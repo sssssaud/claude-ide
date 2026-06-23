@@ -54,8 +54,10 @@ and committed.
 - Build: `npm run tauri build`
 
 ## Current status
-- Done: **Phase 0 complete** — shell, tokens, Monaco (deferred)/xterm mounts,
-  preflight (verified live), perf measured. Production build green; budgets
-  measured and adjusted with evidence (see PROGRESS.md). Toolchain + dnf deps in.
-- Pending: Phase 1 — persistent Agent-SDK engine session + conversation pane.
+- Done: **Phase 0 + Phase 1 complete.** Phase 0: shell, tokens, Monaco
+  (deferred)/xterm, preflight, perf measured. Phase 1: persistent `claude`
+  stream-json session per workspace (Rust-owned), live conversation pane with
+  streaming + tool cards, interrupt, clean teardown. Gate met & verified live
+  (see PROGRESS.md); production build green, zero warnings, 8 parser tests pass.
+- Pending: Phase 2 — plain PTY-backed terminal drawer (no `claude`, no tokens).
 - Blockers: none.

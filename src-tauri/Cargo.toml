@@ -27,5 +27,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 sysinfo = "0.33"
 # Robust PATH lookup for the `claude` binary in preflight (spec 3.10).
 which = "7"
-# Async timers for streaming the mock turn (tauri already pulls tokio in).
-tokio = { version = "1", features = ["time"] }
+# Async child I/O for the persistent `claude` session: spawn + piped stdio
+# (process), buffered line reads + writes (io-util), the stdin/child mutexes
+# (sync), and the close-timeout (time). Tauri already pulls tokio in.
+tokio = { version = "1", features = ["process", "io-util", "sync", "time", "rt"] }

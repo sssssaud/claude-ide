@@ -1,19 +1,30 @@
-//! The engine: the typed event contract + the turn runner (spec 2.3).
+//! The engine: the typed event contract, the NDJSON parser, and the persistent
+//! `claude` session per workspace (spec 2.3, 2.5, 3.5).
 //!
-//! Phase 1 is mock-first (spec 6.3 "fake before real"): `run_mock_turn` replays
-//! a canned, id-keyed event sequence over a `Channel<EngineEvent>` so the
-//! conversation pane and the whole event pipeline can be proven before the real
-//! `claude` session is wired. The `EngineEvent` enum is the binding contract,
+//! A workspace owns one long-lived `claude -p --input-format stream-json
+//! --output-format stream-json` child, locked to a working directory. Its stdout
+//! is parsed line-by-line into `EngineEvent`s and pushed over a per-workspace
+//! `Channel`; turns are written to its stdin; cancellation is a `control_request`
+//! interrupt — the session survives, only the in-flight turn ends. The child
+//! handle and its stdin live *only* in Rust (spec 2.5): the frontend observes the
+//! session purely through events. The `EngineEvent` enum is the binding contract,
 //! mirrored 1:1 in `src/ipc/types.ts`.
 
 use std::collections::HashMap;
+use std::path::PathBuf;
+use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 
 use serde::Serialize;
 use serde_json::{json, Value};
 use tauri::ipc::Channel;
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::process::{Child, ChildStdin, Command};
+use tokio::sync::Mutex;
+
+use crate::error::{IpcError, IpcErrorKind, IpcResult};
 
 /// Token usage for a turn (subset; grows when the real parser provides more).
 #[derive(Debug, Clone, Serialize)]
@@ -24,8 +35,7 @@ pub struct Usage {
 
 /// The typed engine event (spec 2.3), serialized internally-tagged by `type`
 /// (snake_case) to match the TS mirror. Variants are added as each phase
-/// constructs them: Phase 1 streams a turn; `ParseError`/`Unknown` arrive with
-/// the real NDJSON parser; `PermissionRequest` with the review queue (Phase 6).
+/// constructs them; `PermissionRequest` arrives with the review queue (Phase 6).
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum EngineEvent {
@@ -61,118 +71,248 @@ pub enum EngineEvent {
     Unknown { kind: String },
 }
 
-/// Tracks in-flight turns so they can be cancelled. A turn checks its flag
-/// between emits and ends cleanly with `Stopped` (spec 2.3 cancellation).
+// ----- Persistent `claude` session per workspace (spec 2.5) -------------------
+
+/// One persistent `claude` session. The child handle and its stdin live only
+/// here; the frontend never touches the process (spec 2.5).
+struct Workspace {
+    /// Write turns + interrupts here. `None` once the session is closing.
+    stdin: Mutex<Option<ChildStdin>>,
+    /// The child, kept for a clean wait-on-close (no zombies).
+    child: Mutex<Option<Child>>,
+    /// Set while an interrupt is in flight, so the turn's terminal `result` is
+    /// translated into a clean `Stopped` for the UI rather than an error.
+    interrupting: Arc<AtomicBool>,
+    /// Monotonic id source for interrupt control requests.
+    next_request: AtomicU64,
+}
+
+/// Owns every open workspace's engine session (spec 2.5). Managed by Tauri as
+/// `Arc<WorkspaceRegistry>`; teardown reaps all children on app exit.
 #[derive(Default)]
-pub struct EngineRegistry {
-    next_turn: AtomicU64,
-    cancels: Mutex<HashMap<String, Arc<AtomicBool>>>,
+pub struct WorkspaceRegistry {
+    next_id: AtomicU64,
+    workspaces: Mutex<HashMap<String, Arc<Workspace>>>,
 }
 
-impl EngineRegistry {
-    /// Allocate a turn id + its cancel flag.
-    pub fn begin_turn(&self) -> (String, Arc<AtomicBool>) {
-        let n = self.next_turn.fetch_add(1, Ordering::SeqCst);
-        let turn_id = format!("turn-{n}");
-        let flag = Arc::new(AtomicBool::new(false));
-        self.cancels
-            .lock()
-            .expect("engine registry mutex poisoned")
-            .insert(turn_id.clone(), flag.clone());
-        (turn_id, flag)
+impl WorkspaceRegistry {
+    /// Spawn a persistent `claude` session in `cwd` (defaults to the launch
+    /// directory; the folder picker is Phase 4), stream its events over
+    /// `channel`, and return the new workspace id.
+    pub async fn open(
+        &self,
+        cwd: Option<String>,
+        channel: Channel<EngineEvent>,
+    ) -> IpcResult<String> {
+        let cwd = resolve_cwd(cwd)?;
+        let claude = locate_claude()?;
+
+        let mut child = Command::new(&claude)
+            .args([
+                "-p",
+                "--input-format",
+                "stream-json",
+                "--output-format",
+                "stream-json",
+                "--include-partial-messages",
+                "--verbose",
+                "--strict-mcp-config",
+            ])
+            .current_dir(&cwd)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .kill_on_drop(true)
+            .spawn()
+            .map_err(|e| {
+                IpcError::new(
+                    IpcErrorKind::Internal,
+                    format!("Failed to start the Claude session: {e}"),
+                )
+            })?;
+
+        let stdin = child.stdin.take().expect("stdin was piped");
+        let stdout = child.stdout.take().expect("stdout was piped");
+        let stderr = child.stderr.take().expect("stderr was piped");
+
+        let id = format!("ws-{}", self.next_id.fetch_add(1, Ordering::SeqCst));
+        let interrupting = Arc::new(AtomicBool::new(false));
+
+        // Reader: stdout -> parse_events -> channel. Interrupt-aware — a `result`
+        // arriving while an interrupt is pending becomes a clean `Stopped`.
+        let reader_flag = interrupting.clone();
+        let reader_id = id.clone();
+        tauri::async_runtime::spawn(async move {
+            let mut lines = BufReader::new(stdout).lines();
+            loop {
+                match lines.next_line().await {
+                    Ok(Some(line)) => {
+                        for ev in parse_events(&line) {
+                            let ev = match ev {
+                                EngineEvent::Result { .. }
+                                    if reader_flag.swap(false, Ordering::SeqCst) =>
+                                {
+                                    EngineEvent::Stopped
+                                }
+                                other => other,
+                            };
+                            let _ = channel.send(ev);
+                        }
+                    }
+                    Ok(None) => break, // stdout closed: the session ended
+                    Err(e) => {
+                        tracing::warn!(workspace = %reader_id, error = %e, "engine stdout read error");
+                        break;
+                    }
+                }
+            }
+            // Session ended (clean close or unexpected death): unfreeze the UI.
+            let _ = channel.send(EngineEvent::Stopped);
+            tracing::info!(workspace = %reader_id, "engine session reader exited");
+        });
+
+        // Stderr drains to logs only — never surfaced raw to the UI (spec 2.6).
+        let err_id = id.clone();
+        tauri::async_runtime::spawn(async move {
+            let mut lines = BufReader::new(stderr).lines();
+            while let Ok(Some(line)) = lines.next_line().await {
+                if !line.trim().is_empty() {
+                    tracing::warn!(workspace = %err_id, "claude stderr: {line}");
+                }
+            }
+        });
+
+        let ws = Arc::new(Workspace {
+            stdin: Mutex::new(Some(stdin)),
+            child: Mutex::new(Some(child)),
+            interrupting,
+            next_request: AtomicU64::new(0),
+        });
+        self.workspaces.lock().await.insert(id.clone(), ws);
+        tracing::info!(workspace = %id, cwd = %cwd.display(), "engine session opened");
+        Ok(id)
     }
 
-    /// Request cancellation of a turn (no-op if it already finished).
-    pub fn cancel(&self, turn_id: &str) {
-        if let Some(flag) = self
-            .cancels
+    /// Write one turn (a user message) to the session's stdin.
+    pub async fn send(&self, workspace_id: &str, prompt: &str) -> IpcResult<()> {
+        let ws = self.get(workspace_id).await?;
+        // Clear any stale interrupt flag so it can't bleed into this fresh turn.
+        ws.interrupting.store(false, Ordering::SeqCst);
+        let line = serde_json::to_string(&json!({
+            "type": "user",
+            "message": { "role": "user", "content": [{ "type": "text", "text": prompt }] },
+        }))
+        .expect("serialize user message")
+            + "\n";
+        let mut guard = ws.stdin.lock().await;
+        let stdin = guard.as_mut().ok_or_else(|| {
+            IpcError::new(IpcErrorKind::InvalidInput, "The Claude session is closing")
+        })?;
+        stdin.write_all(line.as_bytes()).await.map_err(stdin_err)?;
+        stdin.flush().await.map_err(stdin_err)?;
+        Ok(())
+    }
+
+    /// Interrupt the in-flight turn (the session survives, spec 2.3). The
+    /// resulting terminal `result` is translated to `Stopped` by the reader.
+    pub async fn cancel(&self, workspace_id: &str) -> IpcResult<()> {
+        let ws = self.get(workspace_id).await?;
+        ws.interrupting.store(true, Ordering::SeqCst);
+        let req_id = format!("int-{}", ws.next_request.fetch_add(1, Ordering::SeqCst));
+        let line = serde_json::to_string(&json!({
+            "type": "control_request",
+            "request_id": req_id,
+            "request": { "subtype": "interrupt" },
+        }))
+        .expect("serialize interrupt")
+            + "\n";
+        let mut guard = ws.stdin.lock().await;
+        if let Some(stdin) = guard.as_mut() {
+            stdin.write_all(line.as_bytes()).await.map_err(stdin_err)?;
+            stdin.flush().await.map_err(stdin_err)?;
+        }
+        Ok(())
+    }
+
+    /// Close a session: drop stdin (the CLI exits on EOF), then wait — killing
+    /// as a fallback — so the child is reaped with no zombie (spec 2.5).
+    pub async fn close(&self, workspace_id: &str) -> IpcResult<()> {
+        let ws = self.workspaces.lock().await.remove(workspace_id);
+        if let Some(ws) = ws {
+            shutdown_workspace(&ws).await;
+        }
+        Ok(())
+    }
+
+    /// Tear down every session on app exit (spec 2.5 "zero zombies").
+    pub async fn shutdown_all(&self) {
+        let all: Vec<Arc<Workspace>> = {
+            let mut map = self.workspaces.lock().await;
+            map.drain().map(|(_, ws)| ws).collect()
+        };
+        for ws in all {
+            shutdown_workspace(&ws).await;
+        }
+    }
+
+    async fn get(&self, workspace_id: &str) -> IpcResult<Arc<Workspace>> {
+        self.workspaces
             .lock()
-            .expect("engine registry mutex poisoned")
-            .get(turn_id)
+            .await
+            .get(workspace_id)
+            .cloned()
+            .ok_or_else(|| IpcError::new(IpcErrorKind::InvalidInput, "That workspace is not open"))
+    }
+}
+
+/// Close stdin (graceful exit on EOF), then wait with a timeout, killing and
+/// reaping as a fallback.
+async fn shutdown_workspace(ws: &Workspace) {
+    drop(ws.stdin.lock().await.take());
+    let mut guard = ws.child.lock().await;
+    if let Some(mut child) = guard.take() {
+        if tokio::time::timeout(Duration::from_secs(3), child.wait())
+            .await
+            .is_err()
         {
-            flag.store(true, Ordering::SeqCst);
+            let _ = child.start_kill();
+            let _ = child.wait().await; // reap so there is no zombie
         }
     }
-
-    fn end_turn(&self, turn_id: &str) {
-        self.cancels
-            .lock()
-            .expect("engine registry mutex poisoned")
-            .remove(turn_id);
-    }
 }
 
-/// Replay a canned turn over the channel, honoring cancellation. Stands in for
-/// the real `claude` session until step 4 of Phase 1.
-pub async fn run_mock_turn(
-    registry: Arc<EngineRegistry>,
-    turn_id: String,
-    cancel: Arc<AtomicBool>,
-    prompt: String,
-    channel: Channel<EngineEvent>,
-) {
-    let cancelled = || cancel.load(Ordering::SeqCst);
-
-    // Init — the same shape the real session reports first.
-    let _ = channel.send(EngineEvent::Init {
-        session_id: "mock-session-0001".into(),
-        model: "claude-opus-4-8 (mock)".into(),
-        slash_commands: vec!["/clear".into(), "/rewind".into(), "/branch".into()],
-        tools: vec!["Read".into(), "Edit".into(), "Bash".into()],
-    });
-
-    let intro = format!(
-        "Mock engine here. You said: \"{}\". This proves the streaming pipeline end to end — the real claude session gets wired next.",
-        prompt.trim()
-    );
-    if !stream_text(&intro, &cancel, &channel).await {
-        return finish_stopped(&registry, &turn_id, &channel);
-    }
-
-    // A tool round-trip, to exercise the tool-use / tool-result cards.
-    let _ = channel.send(EngineEvent::ToolUse {
-        id: "tool-1".into(),
-        name: "Read".into(),
-        input: json!({ "file_path": "src-tauri/src/engine.rs" }),
-    });
-    tokio::time::sleep(Duration::from_millis(250)).await;
-    if cancelled() {
-        return finish_stopped(&registry, &turn_id, &channel);
-    }
-    let _ = channel.send(EngineEvent::ToolResult {
-        id: "tool-1".into(),
-        output: json!("// engine.rs read (mock output)"),
-        is_error: false,
-    });
-
-    if !stream_text(" Done — that's the mock tool round-trip.", &cancel, &channel).await {
-        return finish_stopped(&registry, &turn_id, &channel);
-    }
-
-    let _ = channel.send(EngineEvent::Result {
-        is_error: false,
-        total_cost_usd: Some(0.0123),
-        usage: Usage { input_tokens: 1234, output_tokens: 567 },
-        session_id: "mock-session-0001".into(),
-    });
-    registry.end_turn(&turn_id);
+fn stdin_err(e: std::io::Error) -> IpcError {
+    IpcError::new(
+        IpcErrorKind::Internal,
+        format!("Failed to write to the Claude session: {e}"),
+    )
 }
 
-/// Stream `text` word-by-word as `AssistantDelta`s. Returns `false` if cancelled.
-async fn stream_text(text: &str, cancel: &Arc<AtomicBool>, channel: &Channel<EngineEvent>) -> bool {
-    for chunk in text.split_inclusive(' ') {
-        if cancel.load(Ordering::SeqCst) {
-            return false;
-        }
-        let _ = channel.send(EngineEvent::AssistantDelta { text: chunk.to_string() });
-        tokio::time::sleep(Duration::from_millis(45)).await;
+/// Resolve and validate the working directory. Phase 1 defaults to the launch
+/// directory; a caller-supplied path must already exist.
+fn resolve_cwd(cwd: Option<String>) -> IpcResult<PathBuf> {
+    let path = match cwd {
+        Some(c) if !c.trim().is_empty() => PathBuf::from(c),
+        _ => std::env::current_dir().map_err(|e| {
+            IpcError::new(
+                IpcErrorKind::Internal,
+                format!("Cannot resolve a working directory: {e}"),
+            )
+        })?,
+    };
+    if !path.is_dir() {
+        return Err(IpcError::new(
+            IpcErrorKind::InvalidInput,
+            format!("Working directory does not exist: {}", path.display()),
+        ));
     }
-    true
+    Ok(path)
 }
 
-fn finish_stopped(registry: &Arc<EngineRegistry>, turn_id: &str, channel: &Channel<EngineEvent>) {
-    let _ = channel.send(EngineEvent::Stopped);
-    registry.end_turn(turn_id);
+/// Resolve the absolute `claude` path (GUI launches may have a thin PATH).
+fn locate_claude() -> IpcResult<PathBuf> {
+    which::which("claude")
+        .map_err(|_| IpcError::new(IpcErrorKind::Internal, "`claude` was not found on PATH"))
 }
 
 // ----- Real `claude --output-format stream-json` line parser (spec 2.3, 3.5) --
@@ -261,7 +401,7 @@ pub fn parse_events(line: &str) -> Vec<EngineEvent> {
         }],
 
         "" => vec![EngineEvent::Unknown { kind: "<missing type>".into() }],
-        // rate_limit_event and any future top-level types: benign, logged.
+        // rate_limit_event, control_response, and any future top-level types: benign.
         other => vec![EngineEvent::Unknown { kind: other.to_string() }],
     }
 }

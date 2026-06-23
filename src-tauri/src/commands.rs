@@ -1,16 +1,17 @@
 //! IPC command surface (frontend -> backend).
 //!
 //! Every command is `async`, returns `Result<T, IpcError>`, and validates its
-//! inputs at the boundary (spec 2.4). Phase 0 exposes only environment preflight
-//! and perf instrumentation; the workspace/engine/pty commands arrive with their
-//! phases.
+//! inputs at the boundary (spec 2.4). Phase 0 exposes environment preflight and
+//! perf; Phase 1 adds the workspace engine session — open a persistent `claude`
+//! session, write turns, interrupt, and close it cleanly. The PTY commands
+//! arrive with their phases.
 
 use std::sync::Arc;
 
 use tauri::ipc::Channel;
 use tauri::State;
 
-use crate::engine::{self, EngineEvent, EngineRegistry};
+use crate::engine::{EngineEvent, WorkspaceRegistry};
 use crate::error::{IpcError, IpcErrorKind, IpcResult};
 use crate::perf::{self, PerfStats};
 use crate::preflight::{self, PreflightReport};
@@ -41,16 +42,27 @@ pub fn perf_stats(state: State<'_, AppState>) -> IpcResult<PerfStats> {
     Ok(perf::stats(state.cold_start_ms()))
 }
 
-/// Send a turn into the engine; events stream back over `on_event`. Returns the
-/// turn id (used to cancel). Phase 1 is mock-backed; the real `claude` session
-/// is wired in step 4. Prompt text is treated strictly as data (spec 2.4).
+/// Open a persistent `claude` engine session. Every event for the session
+/// streams back over `on_event`; returns the workspace id used by the other
+/// engine commands. `cwd` defaults to the launch directory (picker is Phase 4).
+#[tauri::command]
+pub async fn open_workspace(
+    cwd: Option<String>,
+    on_event: Channel<EngineEvent>,
+    registry: State<'_, Arc<WorkspaceRegistry>>,
+) -> IpcResult<String> {
+    registry.open(cwd, on_event).await
+}
+
+/// Send one turn into a workspace session. Prompt text is treated strictly as
+/// data (spec 2.4); responses arrive over the session's `on_event` channel.
 #[tauri::command]
 pub async fn engine_send(
+    workspace_id: String,
     prompt: String,
-    on_event: Channel<EngineEvent>,
-    registry: State<'_, Arc<EngineRegistry>>,
-) -> IpcResult<String> {
-    let prompt = prompt.trim().to_string();
+    registry: State<'_, Arc<WorkspaceRegistry>>,
+) -> IpcResult<()> {
+    let prompt = prompt.trim();
     if prompt.is_empty() {
         return Err(IpcError::new(IpcErrorKind::InvalidInput, "Prompt is empty"));
     }
@@ -60,22 +72,24 @@ pub async fn engine_send(
             "Prompt exceeds the maximum length",
         ));
     }
-
-    let (turn_id, cancel) = registry.begin_turn();
-    let reg = registry.inner().clone();
-    tauri::async_runtime::spawn(engine::run_mock_turn(
-        reg,
-        turn_id.clone(),
-        cancel,
-        prompt,
-        on_event,
-    ));
-    Ok(turn_id)
+    registry.send(&workspace_id, prompt).await
 }
 
-/// Request cancellation of an in-flight turn (resolves to a clean `Stopped`).
+/// Interrupt the in-flight turn in a workspace (resolves to a clean `Stopped`;
+/// the session itself survives).
 #[tauri::command]
-pub fn engine_cancel(turn_id: String, registry: State<'_, Arc<EngineRegistry>>) -> IpcResult<()> {
-    registry.cancel(&turn_id);
-    Ok(())
+pub async fn engine_cancel(
+    workspace_id: String,
+    registry: State<'_, Arc<WorkspaceRegistry>>,
+) -> IpcResult<()> {
+    registry.cancel(&workspace_id).await
+}
+
+/// Close a workspace session, reaping the child with no zombie (spec 2.5).
+#[tauri::command]
+pub async fn close_workspace(
+    workspace_id: String,
+    registry: State<'_, Arc<WorkspaceRegistry>>,
+) -> IpcResult<()> {
+    registry.close(&workspace_id).await
 }

@@ -46,26 +46,46 @@ export async function perfStats(): Promise<PerfStats> {
 }
 
 /**
- * Send a turn into the engine. `onEvent` is invoked for each streamed
- * `EngineEvent` over a Tauri channel; resolves to the turn id (for cancel).
+ * Open a persistent `claude` engine session. `onEvent` is invoked for every
+ * streamed `EngineEvent` for the session's whole lifetime (subscribe once);
+ * resolves to the workspace id used by the other engine commands. `cwd`
+ * defaults to the app's launch directory.
  */
-export async function engineSend(
-  prompt: string,
+export async function openWorkspace(
   onEvent: (event: EngineEvent) => void,
+  cwd?: string,
 ): Promise<string> {
   const channel = new Channel<EngineEvent>();
   channel.onmessage = onEvent;
   try {
-    return await invoke<string>("engine_send", { prompt, onEvent: channel });
+    return await invoke<string>("open_workspace", { cwd, onEvent: channel });
   } catch (e) {
     normalizeError(e);
   }
 }
 
-/** Request cancellation of an in-flight turn. */
-export async function engineCancel(turnId: string): Promise<void> {
+/** Send one turn into a workspace session; responses arrive over its channel. */
+export async function engineSend(workspaceId: string, prompt: string): Promise<void> {
   try {
-    await invoke<void>("engine_cancel", { turnId });
+    await invoke<void>("engine_send", { workspaceId, prompt });
+  } catch (e) {
+    normalizeError(e);
+  }
+}
+
+/** Interrupt the in-flight turn in a workspace (the session survives). */
+export async function engineCancel(workspaceId: string): Promise<void> {
+  try {
+    await invoke<void>("engine_cancel", { workspaceId });
+  } catch (e) {
+    normalizeError(e);
+  }
+}
+
+/** Close a workspace session, reaping its `claude` child. */
+export async function closeWorkspace(workspaceId: string): Promise<void> {
+  try {
+    await invoke<void>("close_workspace", { workspaceId });
   } catch (e) {
     normalizeError(e);
   }

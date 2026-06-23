@@ -14,8 +14,9 @@ mod state;
 use std::sync::Arc;
 use std::time::Instant;
 
-use engine::EngineRegistry;
+use engine::WorkspaceRegistry;
 use state::AppState;
+use tauri::Manager;
 
 /// App entry. `startup` is captured by `main` as early as possible so the
 /// cold-start budget measures real process-init time (spec 2.7).
@@ -25,22 +26,25 @@ pub fn run(startup: Instant) {
 
     tauri::Builder::default()
         .manage(AppState::new(startup))
-        .manage(Arc::new(EngineRegistry::default()))
+        .manage(Arc::new(WorkspaceRegistry::default()))
         .invoke_handler(tauri::generate_handler![
             commands::preflight,
             commands::report_ready,
             commands::perf_stats,
+            commands::open_workspace,
             commands::engine_send,
             commands::engine_cancel,
+            commands::close_workspace,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
-        .run(|_app_handle, event| {
+        .run(|app_handle, event| {
             if let tauri::RunEvent::ExitRequested { .. } = event {
-                // Teardown seam: Phase 1+ tears down every workspace's engine
-                // session + PTY here so the app exits with zero zombies
-                // (spec 2.5). Nothing to reap in Phase 0.
-                tracing::info!("exit requested; teardown complete");
+                // Tear down every workspace's engine session so the app exits
+                // with zero zombies (spec 2.5). Bounded by per-session timeout.
+                let registry = app_handle.state::<Arc<WorkspaceRegistry>>();
+                tauri::async_runtime::block_on(registry.shutdown_all());
+                tracing::info!("exit requested; engine sessions torn down");
             }
         });
 }
