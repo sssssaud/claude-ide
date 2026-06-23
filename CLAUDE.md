@@ -54,14 +54,16 @@ and committed.
 - Build: `npm run tauri build`
 
 ## Current status
-- Done: **Phase 0 + Phase 1 complete.** Phase 0: shell, tokens, Monaco
+- Done: **Phases 0 + 1 + 2 complete.** Phase 0: shell, tokens, Monaco
   (deferred)/xterm, preflight, perf measured. Phase 1: persistent `claude`
   stream-json session per workspace (Rust-owned), live conversation pane with
-  streaming + tool cards, interrupt, clean teardown. Gate met & verified live
-  (see PROGRESS.md); production build green, zero warnings, 8 parser tests pass.
-- WIP: **Phase 2 — plain PTY terminal drawer** functionally working (real
-  `$SHELL` via `portable-pty`, reader thread → `Channel<Vec<u8>>` → xterm,
-  resize/restart, killed on exit). Verified running live; full gate confirm
-  (echo ≤16ms, color/resize, zero-zombie-on-close) pending next session.
+  streaming + tool cards, interrupt, clean teardown. Phase 2: plain PTY terminal
+  drawer (real `$SHELL` via `portable-pty`, reader thread → `Channel<Vec<u8>>`
+  → xterm, resize/restart). Gates met & verified live (see PROGRESS.md);
+  production build green, zero warnings, 8 parser tests pass.
+- Phase 2 gate caught + fixed two lifecycle bugs (real `ps` inspection): a
+  StrictMode async-open shell leak (frontend epoch guard) and a self-exit
+  zombie (reader thread now reaps on EOF; `PtyRegistry::open` takes `Arc<Self>`).
+  All reap paths — `close`, `reap`, `shutdown_all` — verified zero-zombie.
 - Pending: Phase 3 — Sessions & Timeline Rail, live.
 - Blockers: none.

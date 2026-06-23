@@ -25,12 +25,17 @@ export function TerminalDrawer() {
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
   const ptyIdRef = useRef<string | null>(null);
+  // Bumped on every open / restart / unmount. A `ptyOpen` that resolves after
+  // its epoch is stale belongs to a superseded shell — close it, don't leak it
+  // (StrictMode remount and unmount-before-open both hit this race).
+  const epochRef = useRef(0);
 
   // Spawn a fresh shell into the existing terminal and wire its output back.
   const openShell = useCallback(async () => {
     const term = termRef.current;
     const fit = fitRef.current;
     if (!term || !fit) return;
+    const myEpoch = ++epochRef.current; // claim this open; supersedes any older
     try {
       fit.fit();
     } catch {
@@ -40,6 +45,7 @@ export function TerminalDrawer() {
     try {
       const id = await ptyOpen(
         (bytes) => {
+          if (epochRef.current !== myEpoch) return; // superseded shell; ignore
           const t = termRef.current;
           if (!t) return;
           if (bytes.length === 0) {
@@ -62,8 +68,14 @@ export function TerminalDrawer() {
         term.rows,
         term.cols,
       );
+      if (epochRef.current !== myEpoch) {
+        // Unmounted or restarted while `ptyOpen` was in flight: don't leak it.
+        void ptyClose(id);
+        return;
+      }
       ptyIdRef.current = id;
     } catch {
+      if (epochRef.current !== myEpoch) return;
       setExited(true);
       try {
         term.write("\r\n\x1b[31m[failed to start shell]\x1b[0m\r\n");
@@ -123,6 +135,7 @@ export function TerminalDrawer() {
     ro.observe(host);
 
     return () => {
+      epochRef.current++; // invalidate any in-flight open so it can't leak
       ro.disconnect();
       dataSub.dispose();
       const id = ptyIdRef.current;

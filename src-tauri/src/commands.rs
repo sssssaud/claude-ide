@@ -108,7 +108,7 @@ pub fn pty_open(
     on_data: Channel<Vec<u8>>,
     registry: State<'_, Arc<PtyRegistry>>,
 ) -> IpcResult<String> {
-    registry.open(rows, cols, on_data)
+    registry.inner().clone().open(rows, cols, on_data)
 }
 
 /// Write keystrokes into a terminal (treated strictly as bytes for the shell).

@@ -11,7 +11,7 @@
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use tauri::ipc::Channel;
@@ -39,7 +39,7 @@ impl PtyRegistry {
     /// launch directory (per-workspace cwd routing is Phase 5). Raw output is
     /// streamed over `channel`; an empty `Vec` is sent as the EOF sentinel when
     /// the shell exits, so the UI can offer a restart.
-    pub fn open(&self, rows: u16, cols: u16, channel: Channel<Vec<u8>>) -> IpcResult<String> {
+    pub fn open(self: Arc<Self>, rows: u16, cols: u16, channel: Channel<Vec<u8>>) -> IpcResult<String> {
         let cwd = std::env::current_dir()
             .map_err(|e| internal(format!("Cannot resolve a working directory: {e}")))?;
         let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string());
@@ -70,7 +70,19 @@ impl PtyRegistry {
 
         let id = format!("pty-{}", self.next_id.fetch_add(1, Ordering::SeqCst));
 
+        // Register before the reader starts, so an instant-exit shell is still
+        // found (and reaped) by the reader's EOF path below.
+        self.sessions
+            .lock()
+            .expect("pty registry mutex poisoned")
+            .insert(id.clone(), PtySession { master: pair.master, writer, child });
+        tracing::info!(pty = %id, shell = %shell, cwd = %cwd.display(), "pty opened");
+
         // Reader thread: blocking PTY reads off the async runtime (spec 2.5).
+        // On EOF the shell has exited on its own (e.g. the user typed `exit`),
+        // so reap it here — otherwise the child lingers as a zombie until app
+        // exit (spec 5.A.6 "no zombie"). Idempotent with `close`/`shutdown_all`.
+        let reaper = Arc::clone(&self);
         let reader_id = id.clone();
         std::thread::Builder::new()
             .name(format!("pty-reader-{id}"))
@@ -88,15 +100,11 @@ impl PtyRegistry {
                     }
                 }
                 let _ = channel.send(Vec::new()); // EOF sentinel -> UI shows "exited"
+                reaper.reap(&reader_id); // reap a self-exited shell (no zombie)
                 tracing::info!(pty = %reader_id, "pty reader exited");
             })
             .map_err(|e| internal(format!("Failed to start the terminal reader: {e}")))?;
 
-        self.sessions
-            .lock()
-            .expect("pty registry mutex poisoned")
-            .insert(id.clone(), PtySession { master: pair.master, writer, child });
-        tracing::info!(pty = %id, shell = %shell, cwd = %cwd.display(), "pty opened");
         Ok(id)
     }
 
@@ -135,6 +143,16 @@ impl PtyRegistry {
             let _ = session.child.wait();
         }
         Ok(())
+    }
+
+    /// Reap a shell that exited on its own (reader thread saw EOF): drop its
+    /// session and `wait()` the dead child so it leaves no zombie. A no-op if
+    /// `close`/`shutdown_all` already removed it (races resolve via the lock).
+    fn reap(&self, id: &str) {
+        let session = self.sessions.lock().expect("pty registry mutex poisoned").remove(id);
+        if let Some(mut session) = session {
+            let _ = session.child.wait();
+        }
     }
 
     /// Tear down every terminal on app exit (spec 5.A.6 "no zombie").

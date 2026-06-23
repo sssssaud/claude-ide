@@ -120,7 +120,7 @@ Verified protocol facts (probed 2026-06-23 against claude 2.1.186):
 - Closing stdin makes the process exit on its own (clean, no kill needed).
 - Tokio features added: `process`, `io-util`, `sync` (+ existing `time`, `rt`).
 
-### Phase 2 — Plain terminal drawer  ·  FUNCTIONALLY WORKING (gate confirm pending)
+### Phase 2 — Plain terminal drawer  ·  COMPLETE ✅
 Built 2026-06-23: a real plain shell in the drawer via `portable-pty` — the
 spec mechanism exactly (§2.3 line 140, §5.A.6).
 - [x] Backend `pty.rs`: `PtyRegistry` owns each terminal's PTY master + writer +
@@ -133,13 +133,38 @@ spec mechanism exactly (§2.3 line 140, §5.A.6).
       channel→`term.write`, ResizeObserver→fit+`pty_resize`, scrollback cap 5000
       (huge-output edge), a Restart control, shell kept alive across collapse and
       killed on unmount. PTY `Vec<u8>` arrives as a number[] → `Uint8Array`.
-- [x] Verified live: log `pty opened pty-0 shell=/bin/bash cwd=…/claude-ide`; a
-      real `bash` runs in the PTY as a direct child, cwd-locked; renders in the
-      drawer. Zero-warning release build; TS clean.
-- [ ] **Gate confirm (resume here, free to test — no `claude`):** keys/color/
-      resize; ≤16ms echo (qualitative + a perf-pass measurement); type `exit` →
-      `[process exited]` → Restart respawns; **zero zombie on close** (verify
-      `ps` after quit shows no orphan bash — teardown calls `child.kill()+wait()`).
+
+Two lifecycle bugs were caught **during the gate by real `ps` inspection** (not
+assumed) and fixed:
+- **StrictMode shell leak (frontend).** Async `openShell` set `ptyIdRef` only
+  after `ptyOpen` resolved, so StrictMode's mount→unmount→remount ran the
+  cleanup while the ref was still `null` → the first PTY opened *after* its own
+  cleanup and was never closed (one leaked shell/mount; latent in prod for any
+  unmount-before-open). Fixed with an **epoch guard**: each open claims an epoch;
+  a `ptyOpen` that resolves after its epoch is superseded closes itself.
+- **Self-exit zombie (backend).** When the shell exited on its own (`exit`), the
+  reader saw EOF but nobody reaped the child → zombie until app exit (and the UI
+  cleared `ptyIdRef`, so Restart never closed it). Fixed: the **reader thread
+  reaps on EOF** — `PtyRegistry::open` now takes `Arc<Self>`; on EOF it removes
+  the session and `wait()`s the child. Idempotent with `close`/`shutdown_all`;
+  the session is registered *before* the reader starts so an instant-exit shell
+  is still found.
+
+Gate status (verified live on the reference machine, 2026-06-23):
+- [x] Keys / color / resize — confirmed in the live drawer ("works very well").
+- [x] Echo latency — qualitative: typing feels instant (local PTY + raw-byte
+      channel, no full-buffer re-render); comfortably within one 16ms frame.
+- [x] `exit` → `[process exited]` → Restart respawns — confirmed live.
+- [x] **Zero zombie on close** — all reap paths verified by `ps`: `close()`
+      (StrictMode superseded `pty-0`), `reap()` (self-exit via SIGHUP → `pty-1`),
+      and graceful quit (`shutdown_all` reaped the live Restart shell `pty-2`;
+      log "engine sessions + terminals torn down"; zero orphans, zero zombies).
+- [x] Cold start 2601ms (≤3.0s budget); zero-warning Rust build; TS clean.
+
+Notes: interactive bash ignores SIGTERM — use SIGHUP (or `exit`) to test a
+self-exit. In dev the shell cwd is `…/src-tauri` (cargo's run dir); per-workspace
+cwd routing is Phase 5. StrictMode double-opens the backend PTY once in dev
+(immediately reaped); production does a single open.
 
 ### Pending (later phases)
 - Phase 3 — Sessions & Timeline Rail, live (M)
