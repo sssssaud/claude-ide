@@ -291,22 +291,9 @@ fn stdin_err(e: std::io::Error) -> IpcError {
 /// Resolve and validate the working directory. Phase 1 defaults to the launch
 /// directory; a caller-supplied path must already exist.
 fn resolve_cwd(cwd: Option<String>) -> IpcResult<PathBuf> {
-    let path = match cwd {
-        Some(c) if !c.trim().is_empty() => PathBuf::from(c),
-        _ => std::env::current_dir().map_err(|e| {
-            IpcError::new(
-                IpcErrorKind::Internal,
-                format!("Cannot resolve a working directory: {e}"),
-            )
-        })?,
-    };
-    if !path.is_dir() {
-        return Err(IpcError::new(
-            IpcErrorKind::InvalidInput,
-            format!("Working directory does not exist: {}", path.display()),
-        ));
-    }
-    Ok(path)
+    // Shared with the Sessions rail (spec 3.2) so the session this engine
+    // creates lands in the project dir the rail watches.
+    crate::workspace::resolve_cwd(cwd)
 }
 
 /// Resolve the absolute `claude` path (GUI launches may have a thin PATH).

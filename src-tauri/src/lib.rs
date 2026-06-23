@@ -10,13 +10,16 @@ mod error;
 mod perf;
 mod preflight;
 mod pty;
+mod sessions;
 mod state;
+mod workspace;
 
 use std::sync::Arc;
 use std::time::Instant;
 
 use engine::WorkspaceRegistry;
 use pty::PtyRegistry;
+use sessions::SessionsRegistry;
 use state::AppState;
 use tauri::Manager;
 
@@ -30,6 +33,7 @@ pub fn run(startup: Instant) {
         .manage(AppState::new(startup))
         .manage(Arc::new(WorkspaceRegistry::default()))
         .manage(Arc::new(PtyRegistry::default()))
+        .manage(Arc::new(SessionsRegistry::default()))
         .invoke_handler(tauri::generate_handler![
             commands::preflight,
             commands::report_ready,
@@ -42,6 +46,8 @@ pub fn run(startup: Instant) {
             commands::pty_write,
             commands::pty_resize,
             commands::pty_close,
+            commands::list_sessions,
+            commands::watch_sessions,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
@@ -52,7 +58,8 @@ pub fn run(startup: Instant) {
                 let engines = app_handle.state::<Arc<WorkspaceRegistry>>();
                 tauri::async_runtime::block_on(engines.shutdown_all());
                 app_handle.state::<Arc<PtyRegistry>>().shutdown_all();
-                tracing::info!("exit requested; engine sessions + terminals torn down");
+                app_handle.state::<Arc<SessionsRegistry>>().shutdown_all();
+                tracing::info!("exit requested; engine sessions + terminals + watchers torn down");
             }
         });
 }

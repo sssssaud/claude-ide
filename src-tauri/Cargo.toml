@@ -35,3 +35,7 @@ tokio = { version = "1", features = ["process", "io-util", "sync", "time", "rt"]
 # real pseudo-terminal so full-screen TUIs, color, and resize work. Linux-first
 # but portable (macOS/Windows) per the cross-platform-from-the-start rule.
 portable-pty = "0.9"
+# Native filesystem watcher (inotify/FSEvents/ReadDirectoryChanges) for the
+# Sessions rail (spec 3.2): notice a new `<uuid>.jsonl` (or a new project dir)
+# the moment the CLI writes it, so a fresh session appears live — no polling.
+notify = "8"

@@ -5,7 +5,7 @@
  */
 
 import { Channel, invoke } from "@tauri-apps/api/core";
-import type { EngineEvent, PerfStats, PreflightReport } from "./types";
+import type { EngineEvent, PerfStats, PreflightReport, SessionMeta } from "./types";
 import { isIpcError } from "./types";
 
 /** Normalize any thrown value into an `IpcError`-shaped object. */
@@ -142,6 +142,35 @@ export async function ptyResize(ptyId: string, rows: number, cols: number): Prom
 export async function ptyClose(ptyId: string): Promise<void> {
   try {
     await invoke<void>("pty_close", { ptyId });
+  } catch (e) {
+    normalizeError(e);
+  }
+}
+
+/**
+ * List the workspace's `claude` sessions (read-only), newest activity first.
+ * `cwd` defaults to the launch / `CLAUDE_IDE_WORKSPACE` directory.
+ */
+export async function listSessions(cwd?: string): Promise<SessionMeta[]> {
+  try {
+    return await invoke<SessionMeta[]>("list_sessions", { cwd });
+  } catch (e) {
+    normalizeError(e);
+  }
+}
+
+/**
+ * Watch for new/removed sessions; `onChange` receives the refreshed list each
+ * time the project's session set changes (subscribe once for the app's life).
+ */
+export async function watchSessions(
+  onChange: (sessions: SessionMeta[]) => void,
+  cwd?: string,
+): Promise<void> {
+  const channel = new Channel<SessionMeta[]>();
+  channel.onmessage = onChange;
+  try {
+    await invoke<void>("watch_sessions", { cwd, onChange: channel });
   } catch (e) {
     normalizeError(e);
   }

@@ -1,25 +1,27 @@
 /*
- * Sessions panel + Timeline Rail (spec 4.2 — the signature). Phase 0 renders
- * the rail's visual language (checkpoint nodes, a branch fork, a softly pulsing
- * active head) with dummy data. Real session resolution from the ~/.claude.json
- * registry and live `/branch` `/rewind` structure land in Phase 3.
+ * Sessions panel + Timeline Rail (spec 4.2 — the signature). Phase 3 (basic)
+ * renders the workspace's real `claude` sessions, resolved on open from the
+ * CLI's own transcripts (spec 3.2) and kept live by a backend FsWatcher. The
+ * session the engine is currently driving pulses as the active head. Per-session
+ * branch/checkpoint structure (full `/rewind` rail) is Phase 7.
  */
 
-interface RailNode {
-  id: string;
-  label: string;
-  meta: string;
-  kind: "checkpoint" | "branch" | "active";
-}
-
-const DUMMY_NODES: RailNode[] = [
-  { id: "n1", label: "Initial prompt", meta: "main · 3 msgs", kind: "checkpoint" },
-  { id: "n2", label: "Add parser", meta: "main · 11 msgs", kind: "checkpoint" },
-  { id: "n3", label: "Try alt approach", meta: "branch · fork", kind: "branch" },
-  { id: "n4", label: "Current turn", meta: "running…", kind: "active" },
-];
+import { useEffect } from "react";
+import { useSessions } from "@/store/sessions";
+import { useConversation } from "@/store/conversation";
+import type { SessionMeta } from "@/ipc/types";
 
 export function SessionsPanel() {
+  const sessions = useSessions((s) => s.sessions);
+  const loaded = useSessions((s) => s.loaded);
+  const error = useSessions((s) => s.error);
+  const init = useSessions((s) => s.init);
+  const activeId = useConversation((s) => s.sessionId);
+
+  useEffect(() => {
+    void init();
+  }, [init]);
+
   return (
     <aside
       className="flex h-full flex-col"
@@ -30,38 +32,55 @@ export function SessionsPanel() {
     >
       <PanelHeader label="SESSIONS" />
       <div className="min-h-0 flex-1 overflow-y-auto" style={{ padding: "var(--space-4)" }}>
-        <ol className="flex flex-col">
-          {DUMMY_NODES.map((node, i) => (
-            <RailItem key={node.id} node={node} last={i === DUMMY_NODES.length - 1} />
-          ))}
-        </ol>
+        {error ? (
+          <StateNote text={error} tone="error" />
+        ) : !loaded ? (
+          <StateNote text="Loading sessions…" />
+        ) : sessions.length === 0 ? (
+          <StateNote text="No sessions yet — start a turn to begin one." />
+        ) : (
+          <ol className="flex flex-col">
+            {sessions.map((session, i) => (
+              <RailItem
+                key={session.id}
+                session={session}
+                active={session.id === activeId}
+                last={i === sessions.length - 1}
+              />
+            ))}
+          </ol>
+        )}
       </div>
     </aside>
   );
 }
 
-function RailItem({ node, last }: { node: RailNode; last: boolean }) {
-  const isActive = node.kind === "active";
-  const isBranch = node.kind === "branch";
-  const dotColor = isActive
-    ? "var(--color-status-running)"
-    : isBranch
-      ? "var(--color-status-info)"
-      : "var(--color-fg-secondary)";
+function RailItem({
+  session,
+  active,
+  last,
+}: {
+  session: SessionMeta;
+  active: boolean;
+  last: boolean;
+}) {
+  const dotColor = active ? "var(--color-status-running)" : "var(--color-fg-secondary)";
+  const meta = [session.gitBranch, relativeTime(session.lastActiveMs)]
+    .filter(Boolean)
+    .join(" · ");
 
   return (
     <li className="flex gap-[var(--space-4)]" style={{ minHeight: "var(--space-8)" }}>
-      {/* Rail column: connector line + node dot */}
+      {/* Rail column: node dot + connector line */}
       <div className="relative flex w-[14px] shrink-0 flex-col items-center">
         <span
-          className={isActive ? "status-lamp-pulse" : undefined}
+          className={active ? "status-lamp-pulse" : undefined}
           style={{
             width: "10px",
             height: "10px",
             marginTop: "2px",
             borderRadius: "50%",
             background: dotColor,
-            boxShadow: isBranch ? "0 0 0 3px var(--color-bg-raised)" : undefined,
             zIndex: 1,
           }}
           aria-hidden="true"
@@ -79,29 +98,59 @@ function RailItem({ node, last }: { node: RailNode; last: boolean }) {
         )}
       </div>
       {/* Node content */}
-      <div style={{ paddingBottom: "var(--space-5)" }}>
+      <div style={{ paddingBottom: "var(--space-5)", minWidth: 0 }}>
         <div
           style={{
             fontSize: "var(--text-sm)",
-            color: "var(--color-fg-primary)",
-            marginLeft: isBranch ? "var(--space-3)" : 0,
+            color: active ? "var(--color-fg-primary)" : "var(--color-fg-secondary)",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
           }}
+          title={session.label}
         >
-          {node.label}
+          {session.label}
         </div>
         <div
           style={{
             fontFamily: "var(--font-mono)",
             fontSize: "var(--text-xs)",
-            color: isActive ? "var(--color-status-running)" : "var(--color-fg-muted)",
-            marginLeft: isBranch ? "var(--space-3)" : 0,
+            color: active ? "var(--color-status-running)" : "var(--color-fg-muted)",
           }}
         >
-          {node.meta}
+          {active ? `${meta || "active"} · active` : meta}
         </div>
       </div>
     </li>
   );
+}
+
+function StateNote({ text, tone }: { text: string; tone?: "error" }) {
+  return (
+    <p
+      style={{
+        fontSize: "var(--text-sm)",
+        color: tone === "error" ? "var(--color-status-danger)" : "var(--color-fg-muted)",
+        lineHeight: 1.5,
+      }}
+    >
+      {text}
+    </p>
+  );
+}
+
+/** Compact relative time for the rail meta line. */
+function relativeTime(ms: number): string {
+  if (!ms) return "";
+  const seconds = Math.floor((Date.now() - ms) / 1000);
+  if (seconds < 60) return "just now";
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d ago`;
+  return new Date(ms).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
 function PanelHeader({ label }: { label: string }) {

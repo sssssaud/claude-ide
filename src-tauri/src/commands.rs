@@ -16,6 +16,7 @@ use crate::error::{IpcError, IpcErrorKind, IpcResult};
 use crate::perf::{self, PerfStats};
 use crate::preflight::{self, PreflightReport};
 use crate::pty::PtyRegistry;
+use crate::sessions::{SessionMeta, SessionsRegistry};
 use crate::state::AppState;
 
 /// Upper bound on a single prompt (defensive; treats prompt strictly as data).
@@ -136,4 +137,24 @@ pub fn pty_resize(
 #[tauri::command]
 pub fn pty_close(pty_id: String, registry: State<'_, Arc<PtyRegistry>>) -> IpcResult<()> {
     registry.close(&pty_id)
+}
+
+// ----- Sessions rail (spec 3.2, 3.3) -----------------------------------------
+
+/// List the workspace's `claude` sessions (read-only), newest activity first.
+/// Populates the rail **on open** with no forced turn (spec 3.2).
+#[tauri::command]
+pub fn list_sessions(cwd: Option<String>) -> IpcResult<Vec<SessionMeta>> {
+    crate::sessions::list(cwd)
+}
+
+/// Watch `~/.claude/projects/` so a newly-created session appears in the rail
+/// live (spec 3.2). The refreshed list streams over `on_change`.
+#[tauri::command]
+pub fn watch_sessions(
+    cwd: Option<String>,
+    on_change: Channel<Vec<SessionMeta>>,
+    registry: State<'_, Arc<SessionsRegistry>>,
+) -> IpcResult<()> {
+    registry.watch(cwd, on_change)
 }

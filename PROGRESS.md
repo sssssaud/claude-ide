@@ -166,8 +166,35 @@ self-exit. In dev the shell cwd is `…/src-tauri` (cargo's run dir); per-worksp
 cwd routing is Phase 5. StrictMode double-opens the backend PTY once in dev
 (immediately reaped); production does a single open.
 
+### Phase 3 — Sessions & Timeline Rail (basic)  ·  3a BACKBONE BUILT (gate confirm pending)
+3a = the real session list + live file-watch (all disk-read, ~no tokens). Built
+2026-06-23. Sequenced 3a → 3b (resume) → 3c (slash actions) per user's choice.
+- [x] Shared `workspace::resolve_cwd` (explicit → `CLAUDE_IDE_WORKSPACE` → launch
+      dir); the engine uses it too, so the engine's session lands in the same
+      project dir the rail watches. Dev launches with
+      `CLAUDE_IDE_WORKSPACE=/home/saud/Desktop/claude-ide`.
+- [x] `sessions.rs`: `list(cwd)` reads the CLI's own `~/.claude/projects/<slug>/
+      <uuid>.jsonl` **read-only, head+tail only** (never whole transcripts). The
+      project dir is matched by the `cwd` recorded *inside* transcripts — never by
+      recomputing the slug (spec 3.2 truncation/hash risk). Label = ai-title →
+      last-prompt → first user msg → short id. 5 golden tests; a real-fs isolation
+      check returned 5 sessions newest-first with good labels (throwaway, removed).
+- [x] `SessionsRegistry` FsWatcher (`notify` v8) on `~/.claude/projects/`,
+      **create/remove events only** (active-transcript appends ignored), 300ms
+      coalesce → pushes the refreshed list over a Channel. Torn down on exit.
+- [x] Commands `list_sessions` / `watch_sessions`; sessions store (StrictMode-safe
+      single init) + real `SessionsPanel` (live list, active-session pulse,
+      branch · relative-time, loading/empty/error states). TS clean; 13 tests
+      pass; zero-warning build; cold start 1685ms.
+- [ ] **Gate confirm (UI, with user):** rail populates on open & matches the CLI's
+      sessions; a new turn makes a session appear **live** at the top, pulsing.
+- [ ] 3b — resume / fork via `--resume` / `--fork-session` (deterministic).
+- [ ] 3c — `/rename` `/clear` `/branch` `/rewind` via structured input (needs a
+      delivery probe — the thinly-documented stream-json slash path).
+- Follow-up: point the PTY at the workspace root too (one-liner; it still uses
+  `current_dir()` = `src-tauri` in dev).
+
 ### Pending (later phases)
-- Phase 3 — Sessions & Timeline Rail, live (M)
 - Phase 4 — Editor surfaces: explorer, Monaco multi-tab, git, search (L)
 - Phase 5 — Multi-workspace routing & hardening (M) → **v1 ships**
 - Phases 6–10 — P1 review queue, checkpoint timeline + permission manager,

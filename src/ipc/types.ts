@@ -39,6 +39,14 @@ export interface Usage {
   output_tokens: number;
 }
 
+/** Mirror of Rust `SessionMeta` (spec 3.2) — one session in the rail. */
+export interface SessionMeta {
+  id: string;
+  label: string;
+  gitBranch: string | null;
+  lastActiveMs: number;
+}
+
 /**
  * Mirror of Rust `EngineEvent` (spec 2.3) — internally tagged by `type`.
  * Render by `type`, never by position; tolerate unknown `type`s from a newer
