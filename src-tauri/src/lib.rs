@@ -7,6 +7,7 @@
 mod commands;
 mod engine;
 mod error;
+mod files;
 mod perf;
 mod preflight;
 mod pty;
@@ -48,6 +49,8 @@ pub fn run(startup: Instant) {
             commands::pty_close,
             commands::list_sessions,
             commands::watch_sessions,
+            commands::list_dir,
+            commands::read_file,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

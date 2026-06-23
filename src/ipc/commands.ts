@@ -5,7 +5,14 @@
  */
 
 import { Channel, invoke } from "@tauri-apps/api/core";
-import type { EngineEvent, PerfStats, PreflightReport, SessionMeta } from "./types";
+import type {
+  DirEntry,
+  EngineEvent,
+  FileContents,
+  PerfStats,
+  PreflightReport,
+  SessionMeta,
+} from "./types";
 import { isIpcError } from "./types";
 
 /** Normalize any thrown value into an `IpcError`-shaped object. */
@@ -171,6 +178,24 @@ export async function watchSessions(
   channel.onmessage = onChange;
   try {
     await invoke<void>("watch_sessions", { cwd, onChange: channel });
+  } catch (e) {
+    normalizeError(e);
+  }
+}
+
+/** List a workspace directory for the file explorer (`path` relative to root). */
+export async function listDir(path?: string): Promise<DirEntry[]> {
+  try {
+    return await invoke<DirEntry[]>("list_dir", { path });
+  } catch (e) {
+    normalizeError(e);
+  }
+}
+
+/** Read a workspace file's text for the editor (size-capped, binary-guarded). */
+export async function readFile(path: string): Promise<FileContents> {
+  try {
+    return await invoke<FileContents>("read_file", { path });
   } catch (e) {
     normalizeError(e);
   }

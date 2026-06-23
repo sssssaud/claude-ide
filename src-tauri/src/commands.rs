@@ -13,6 +13,7 @@ use tauri::State;
 
 use crate::engine::{EngineEvent, WorkspaceRegistry};
 use crate::error::{IpcError, IpcErrorKind, IpcResult};
+use crate::files::{DirEntry, FileContents};
 use crate::perf::{self, PerfStats};
 use crate::preflight::{self, PreflightReport};
 use crate::pty::PtyRegistry;
@@ -157,4 +158,19 @@ pub fn watch_sessions(
     registry: State<'_, Arc<SessionsRegistry>>,
 ) -> IpcResult<()> {
     registry.watch(cwd, on_change)
+}
+
+// ----- Editor file surface (spec 5.A.3, Phase 4) -----------------------------
+// Both confined to the workspace root in `files.rs`.
+
+/// List a workspace directory for the file explorer (dirs first, lazy).
+#[tauri::command]
+pub fn list_dir(path: Option<String>) -> IpcResult<Vec<DirEntry>> {
+    crate::files::list_dir(path)
+}
+
+/// Read a workspace file for the editor (UTF-8 text, size-capped, binary-guarded).
+#[tauri::command]
+pub fn read_file(path: String) -> IpcResult<FileContents> {
+    crate::files::read_file(path)
 }

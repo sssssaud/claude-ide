@@ -47,6 +47,22 @@ export interface SessionMeta {
   lastActiveMs: number;
 }
 
+/** Mirror of Rust `DirEntry` (Phase 4) — one file-explorer node. */
+export interface DirEntry {
+  name: string;
+  /** Path relative to the workspace root, forward-slashed. */
+  path: string;
+  isDir: boolean;
+}
+
+/** Mirror of Rust `FileContents` (Phase 4) — a file opened in the editor. */
+export interface FileContents {
+  path: string;
+  text: string;
+  truncated: boolean;
+  binary: boolean;
+}
+
 /**
  * Mirror of Rust `EngineEvent` (spec 2.3) — internally tagged by `type`.
  * Render by `type`, never by position; tolerate unknown `type`s from a newer

@@ -18,8 +18,9 @@ export function WorkspaceShell() {
       <main
         className="grid min-h-0 flex-1 overflow-hidden"
         style={{
-          // Hero (conversation) widest; sessions fixed; editor ~45% of the rest.
-          gridTemplateColumns: "280px minmax(0, 1.3fr) minmax(360px, 1fr)",
+          // Hero (conversation) widest; sessions fixed; editor region holds the
+          // file explorer + Monaco, so it needs room for both (min 500px).
+          gridTemplateColumns: "260px minmax(0, 1.2fr) minmax(500px, 1fr)",
           // Pin the row to the container height. Without an explicit row, the
           // implicit `auto` track grows to its tallest column's content and
           // ignores this height — pushing each column's footer (e.g. the

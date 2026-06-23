@@ -186,13 +186,33 @@ cwd routing is Phase 5. StrictMode double-opens the backend PTY once in dev
       single init) + real `SessionsPanel` (live list, active-session pulse,
       branch · relative-time, loading/empty/error states). TS clean; 13 tests
       pass; zero-warning build; cold start 1685ms.
-- [ ] **Gate confirm (UI, with user):** rail populates on open & matches the CLI's
-      sessions; a new turn makes a session appear **live** at the top, pulsing.
+- [x] **Gate PASSED (2026-06-24, live):** rail populated on open and matched the
+      CLI's 5 sessions; sending one turn made a new session appear **live** at the
+      top, pulsing (active head) — no restart. Confirmed on the reference machine.
 - [ ] 3b — resume / fork via `--resume` / `--fork-session` (deterministic).
 - [ ] 3c — `/rename` `/clear` `/branch` `/rewind` via structured input (needs a
       delivery probe — the thinly-documented stream-json slash path).
 - Follow-up: point the PTY at the workspace root too (one-liner; it still uses
   `current_dir()` = `src-tauri` in dev).
+
+### Phase 4 — Editor surfaces  ·  SLICE 1 (file tree + view code) DONE ✅
+Phase 4 only depends on Phase 0, so we pivoted here from Phase 3 (3b/3c deferred)
+because "can't see the code" was the biggest visible gap. Built slice-by-slice.
+- [x] **Slice 1 — file explorer + view file (2026-06-24).** Backend `files.rs`:
+      `list_dir` (dirs-first, lazy) + `read_file` (UTF-8, 2 MB cap, binary guard),
+      both **confined to the workspace root** by canonicalize + `starts_with`
+      (the one path-escape guard; 2 unit tests: in-root ok, `..`/symlink/missing
+      rejected). Frontend: lazy `FileExplorer` tree in the editor region + Monaco
+      shows the picked file (language-by-extension, model disposed per file — no
+      leak). Editor stays lazy until a file opens (idle memory lean). Gate PASSED
+      live: tree browses the project, click opens code highlighted; terminal +
+      conversation unaffected. TS clean; 15 Rust tests; zero-warning build.
+- [ ] Slice 2 — **save** (write file back, dirty indicator, Ctrl/Cmd-S),
+      root-confined.
+- [ ] Slice 3 — git: status / unified+side-by-side diff / stage / commit / branch
+      (no destructive op without confirm).
+- [ ] Slice 4 — global search (ripgrep), workspace-scoped.
+- [ ] Slice 5 — multi-tab + dispose-on-close (the full Phase 4 leak gate).
 
 ### Pending (later phases)
 - Phase 4 — Editor surfaces: explorer, Monaco multi-tab, git, search (L)
