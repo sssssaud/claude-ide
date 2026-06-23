@@ -9,12 +9,14 @@ mod engine;
 mod error;
 mod perf;
 mod preflight;
+mod pty;
 mod state;
 
 use std::sync::Arc;
 use std::time::Instant;
 
 use engine::WorkspaceRegistry;
+use pty::PtyRegistry;
 use state::AppState;
 use tauri::Manager;
 
@@ -27,6 +29,7 @@ pub fn run(startup: Instant) {
     tauri::Builder::default()
         .manage(AppState::new(startup))
         .manage(Arc::new(WorkspaceRegistry::default()))
+        .manage(Arc::new(PtyRegistry::default()))
         .invoke_handler(tauri::generate_handler![
             commands::preflight,
             commands::report_ready,
@@ -35,16 +38,21 @@ pub fn run(startup: Instant) {
             commands::engine_send,
             commands::engine_cancel,
             commands::close_workspace,
+            commands::pty_open,
+            commands::pty_write,
+            commands::pty_resize,
+            commands::pty_close,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app_handle, event| {
             if let tauri::RunEvent::ExitRequested { .. } = event {
-                // Tear down every workspace's engine session so the app exits
-                // with zero zombies (spec 2.5). Bounded by per-session timeout.
-                let registry = app_handle.state::<Arc<WorkspaceRegistry>>();
-                tauri::async_runtime::block_on(registry.shutdown_all());
-                tracing::info!("exit requested; engine sessions torn down");
+                // Tear down every workspace's engine session + terminal so the
+                // app exits with zero zombies (spec 2.5, 5.A.6).
+                let engines = app_handle.state::<Arc<WorkspaceRegistry>>();
+                tauri::async_runtime::block_on(engines.shutdown_all());
+                app_handle.state::<Arc<PtyRegistry>>().shutdown_all();
+                tracing::info!("exit requested; engine sessions + terminals torn down");
             }
         });
 }

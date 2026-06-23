@@ -31,3 +31,7 @@ which = "7"
 # (process), buffered line reads + writes (io-util), the stdin/child mutexes
 # (sync), and the close-timeout (time). Tauri already pulls tokio in.
 tokio = { version = "1", features = ["process", "io-util", "sync", "time", "rt"] }
+# Cross-platform PTY for the plain-shell terminal drawer (spec 2.3, 5.A.6): a
+# real pseudo-terminal so full-screen TUIs, color, and resize work. Linux-first
+# but portable (macOS/Windows) per the cross-platform-from-the-start rule.
+portable-pty = "0.9"

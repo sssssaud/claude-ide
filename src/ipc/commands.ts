@@ -90,3 +90,59 @@ export async function closeWorkspace(workspaceId: string): Promise<void> {
     normalizeError(e);
   }
 }
+
+/**
+ * Open a plain shell in a PTY sized `rows`x`cols`. `onData` receives raw shell
+ * output as bytes (write straight to xterm); a zero-length chunk is the EOF
+ * sentinel (the shell exited). Resolves to the opaque terminal id.
+ */
+export async function ptyOpen(
+  onData: (bytes: Uint8Array) => void,
+  rows: number,
+  cols: number,
+): Promise<string> {
+  const channel = new Channel<number[]>();
+  channel.onmessage = (msg) => {
+    // Rust sends `Vec<u8>`; serde gives a number[]. Tolerate ArrayBuffer/typed
+    // arrays in case the transport optimizes binary in a newer Tauri.
+    const bytes =
+      msg instanceof ArrayBuffer
+        ? new Uint8Array(msg)
+        : ArrayBuffer.isView(msg as unknown as ArrayBufferView)
+          ? new Uint8Array((msg as unknown as ArrayBufferView).buffer)
+          : new Uint8Array(msg);
+    onData(bytes);
+  };
+  try {
+    return await invoke<string>("pty_open", { rows, cols, onData: channel });
+  } catch (e) {
+    normalizeError(e);
+  }
+}
+
+/** Send keystrokes into a terminal. */
+export async function ptyWrite(ptyId: string, data: string): Promise<void> {
+  try {
+    await invoke<void>("pty_write", { ptyId, data });
+  } catch (e) {
+    normalizeError(e);
+  }
+}
+
+/** Resize a terminal's PTY to match the drawer. */
+export async function ptyResize(ptyId: string, rows: number, cols: number): Promise<void> {
+  try {
+    await invoke<void>("pty_resize", { ptyId, rows, cols });
+  } catch (e) {
+    normalizeError(e);
+  }
+}
+
+/** Close a terminal, reaping its shell. */
+export async function ptyClose(ptyId: string): Promise<void> {
+  try {
+    await invoke<void>("pty_close", { ptyId });
+  } catch (e) {
+    normalizeError(e);
+  }
+}

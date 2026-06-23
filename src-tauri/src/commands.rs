@@ -15,6 +15,7 @@ use crate::engine::{EngineEvent, WorkspaceRegistry};
 use crate::error::{IpcError, IpcErrorKind, IpcResult};
 use crate::perf::{self, PerfStats};
 use crate::preflight::{self, PreflightReport};
+use crate::pty::PtyRegistry;
 use crate::state::AppState;
 
 /// Upper bound on a single prompt (defensive; treats prompt strictly as data).
@@ -92,4 +93,47 @@ pub async fn close_workspace(
     registry: State<'_, Arc<WorkspaceRegistry>>,
 ) -> IpcResult<()> {
     registry.close(&workspace_id).await
+}
+
+// ----- Terminal drawer PTY (spec 5.A.6) --------------------------------------
+// Sync commands: each does a quick, non-blocking PTY syscall (the blocking
+// reads run on a dedicated thread in `pty.rs`). Raw output streams over the
+// `on_data` channel.
+
+/// Open a plain shell in a PTY sized `rows`x`cols`; output streams over `on_data`.
+#[tauri::command]
+pub fn pty_open(
+    rows: u16,
+    cols: u16,
+    on_data: Channel<Vec<u8>>,
+    registry: State<'_, Arc<PtyRegistry>>,
+) -> IpcResult<String> {
+    registry.open(rows, cols, on_data)
+}
+
+/// Write keystrokes into a terminal (treated strictly as bytes for the shell).
+#[tauri::command]
+pub fn pty_write(
+    pty_id: String,
+    data: String,
+    registry: State<'_, Arc<PtyRegistry>>,
+) -> IpcResult<()> {
+    registry.write(&pty_id, data.as_bytes())
+}
+
+/// Resize a terminal's PTY to match the drawer.
+#[tauri::command]
+pub fn pty_resize(
+    pty_id: String,
+    rows: u16,
+    cols: u16,
+    registry: State<'_, Arc<PtyRegistry>>,
+) -> IpcResult<()> {
+    registry.resize(&pty_id, rows, cols)
+}
+
+/// Close a terminal, reaping its shell with no zombie (spec 5.A.6).
+#[tauri::command]
+pub fn pty_close(pty_id: String, registry: State<'_, Arc<PtyRegistry>>) -> IpcResult<()> {
+    registry.close(&pty_id)
 }

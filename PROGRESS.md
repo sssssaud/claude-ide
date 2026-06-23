@@ -120,8 +120,28 @@ Verified protocol facts (probed 2026-06-23 against claude 2.1.186):
 - Closing stdin makes the process exit on its own (clean, no kill needed).
 - Tokio features added: `process`, `io-util`, `sync` (+ existing `time`, `rt`).
 
+### Phase 2 — Plain terminal drawer  ·  FUNCTIONALLY WORKING (gate confirm pending)
+Built 2026-06-23: a real plain shell in the drawer via `portable-pty` — the
+spec mechanism exactly (§2.3 line 140, §5.A.6).
+- [x] Backend `pty.rs`: `PtyRegistry` owns each terminal's PTY master + writer +
+      child (Rust-only, spec 2.5 handle ownership). `$SHELL` (=/bin/bash here)
+      spawned cwd-locked; a dedicated **reader thread** pumps raw bytes over a
+      `Channel<Vec<u8>>`; an empty `Vec` is the EOF sentinel. Commands:
+      `pty_open(rows,cols)`, `pty_write`, `pty_resize`, `pty_close`.
+      `shutdown_all` reaps every shell on app exit.
+- [x] Frontend `TerminalDrawer`: xterm bridged to the PTY — onData→`pty_write`,
+      channel→`term.write`, ResizeObserver→fit+`pty_resize`, scrollback cap 5000
+      (huge-output edge), a Restart control, shell kept alive across collapse and
+      killed on unmount. PTY `Vec<u8>` arrives as a number[] → `Uint8Array`.
+- [x] Verified live: log `pty opened pty-0 shell=/bin/bash cwd=…/claude-ide`; a
+      real `bash` runs in the PTY as a direct child, cwd-locked; renders in the
+      drawer. Zero-warning release build; TS clean.
+- [ ] **Gate confirm (resume here, free to test — no `claude`):** keys/color/
+      resize; ≤16ms echo (qualitative + a perf-pass measurement); type `exit` →
+      `[process exited]` → Restart respawns; **zero zombie on close** (verify
+      `ps` after quit shows no orphan bash — teardown calls `child.kill()+wait()`).
+
 ### Pending (later phases)
-- Phase 2 — Plain terminal drawer (S)
 - Phase 3 — Sessions & Timeline Rail, live (M)
 - Phase 4 — Editor surfaces: explorer, Monaco multi-tab, git, search (L)
 - Phase 5 — Multi-workspace routing & hardening (M) → **v1 ships**

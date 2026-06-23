@@ -59,5 +59,9 @@ and committed.
   stream-json session per workspace (Rust-owned), live conversation pane with
   streaming + tool cards, interrupt, clean teardown. Gate met & verified live
   (see PROGRESS.md); production build green, zero warnings, 8 parser tests pass.
-- Pending: Phase 2 — plain PTY-backed terminal drawer (no `claude`, no tokens).
+- WIP: **Phase 2 — plain PTY terminal drawer** functionally working (real
+  `$SHELL` via `portable-pty`, reader thread → `Channel<Vec<u8>>` → xterm,
+  resize/restart, killed on exit). Verified running live; full gate confirm
+  (echo ≤16ms, color/resize, zero-zombie-on-close) pending next session.
+- Pending: Phase 3 — Sessions & Timeline Rail, live.
 - Blockers: none.
