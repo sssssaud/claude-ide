@@ -101,6 +101,18 @@ pub fn read_file(rel: String) -> IpcResult<FileContents> {
     })
 }
 
+/// Overwrite an existing workspace file with `contents` (editor save). Confined
+/// to the workspace root; only files that already exist may be written (the
+/// editor only saves files it opened). Creating new files is a later slice.
+pub fn write_file(rel: String, contents: String) -> IpcResult<()> {
+    let root = root_canon()?;
+    let path = resolve_within(&root, &rel)?;
+    if !path.is_file() {
+        return Err(invalid("Not a file"));
+    }
+    fs::write(&path, contents).map_err(|e| internal(format!("Could not save the file: {e}")))
+}
+
 fn root_canon() -> IpcResult<PathBuf> {
     let root = crate::workspace::resolve_cwd(None)?;
     fs::canonicalize(&root).map_err(|e| internal(format!("Cannot resolve the workspace root: {e}")))

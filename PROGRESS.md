@@ -207,8 +207,18 @@ because "can't see the code" was the biggest visible gap. Built slice-by-slice.
       leak). Editor stays lazy until a file opens (idle memory lean). Gate PASSED
       live: tree browses the project, click opens code highlighted; terminal +
       conversation unaffected. TS clean; 15 Rust tests; zero-warning build.
-- [ ] Slice 2 — **save** (write file back, dirty indicator, Ctrl/Cmd-S),
-      root-confined.
+- [x] **Slice 2 — save (2026-06-24).** Backend `write_file` (root-confined,
+      existing files only). Frontend: dirty dot + Ctrl/Cmd-S + Save button;
+      truncated (>2 MB) files stay **read-only** so a partial buffer can't clobber
+      the original. Gate PASSED live (save persists; verified via `git diff`).
+      Two bugs found + fixed during the gate:
+      • **Save reloaded the whole webview** (dev only): writing a workspace file
+        tripped Vite's watcher → full reload → open file + explorer reset. Root
+        cause confirmed from the log (re-init on each save, no Rust rebuild).
+        Fixed in `vite.config.ts`: watch only `./src` (+ html/config), ignore the
+        open workspace's files. Verified: a workspace write no longer reloads.
+      • **Autocomplete popup clipped** in a narrow editor pane → Monaco
+        `fixedOverflowWidgets: true` (popups render in a fixed layer).
 - [ ] Slice 3 — git: status / unified+side-by-side diff / stage / commit / branch
       (no destructive op without confirm).
 - [ ] Slice 4 — global search (ripgrep), workspace-scoped.

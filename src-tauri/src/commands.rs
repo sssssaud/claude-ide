@@ -174,3 +174,9 @@ pub fn list_dir(path: Option<String>) -> IpcResult<Vec<DirEntry>> {
 pub fn read_file(path: String) -> IpcResult<FileContents> {
     crate::files::read_file(path)
 }
+
+/// Save (overwrite) an existing workspace file. Confined to the workspace root.
+#[tauri::command]
+pub fn write_file(path: String, contents: String) -> IpcResult<()> {
+    crate::files::write_file(path, contents)
+}

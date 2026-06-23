@@ -51,6 +51,7 @@ pub fn run(startup: Instant) {
             commands::watch_sessions,
             commands::list_dir,
             commands::read_file,
+            commands::write_file,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

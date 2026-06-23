@@ -200,3 +200,12 @@ export async function readFile(path: string): Promise<FileContents> {
     normalizeError(e);
   }
 }
+
+/** Save (overwrite) an existing workspace file. Confined to the workspace root. */
+export async function writeFile(path: string, contents: string): Promise<void> {
+  try {
+    await invoke<void>("write_file", { path, contents });
+  } catch (e) {
+    normalizeError(e);
+  }
+}
