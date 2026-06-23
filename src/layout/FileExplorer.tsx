@@ -50,9 +50,9 @@ function TreeNode({ entry, depth }: { entry: DirEntry; depth: number }) {
   const [expanded, setExpanded] = useState(false);
   const [children, setChildren] = useState<DirEntry[] | null>(null);
   const [loading, setLoading] = useState(false);
-  const openPath = useEditor((s) => s.openPath);
+  const activePath = useEditor((s) => s.activePath);
   const open = useEditor((s) => s.open);
-  const active = !entry.isDir && openPath === entry.path;
+  const active = !entry.isDir && activePath === entry.path;
 
   const onClick = async () => {
     if (!entry.isDir) {

@@ -219,10 +219,20 @@ because "can't see the code" was the biggest visible gap. Built slice-by-slice.
         open workspace's files. Verified: a workspace write no longer reloads.
       • **Autocomplete popup clipped** in a narrow editor pane → Monaco
         `fixedOverflowWidgets: true` (popups render in a fixed layer).
-- [ ] Slice 3 — git: status / unified+side-by-side diff / stage / commit / branch
+- [x] **Multi-tab editing (2026-06-24), built to VS Code depth.** One Monaco
+      editor, **one model per open file** — switching tabs preserves
+      content/scroll/cursor/undo; dirty is **undo-aware** (editing back to the
+      saved state clears it). Tab strip: active highlight, dirty-dot→✕ on hover,
+      middle-click + ✕ close, horizontal overflow scroll, path breadcrumb,
+      explorer highlights the active file. Each model **disposed on tab close**
+      + all on unmount — **the Phase 4 "no leak on close" gate**. Binary →
+      notice; >2 MB → read-only. New files: `store/editor.ts` (tabs),
+      `EditorTabs.tsx`, `editor/language.ts`; `EditorPane` is now the model host.
+      Gate PASSED live ("well done"). TS clean.
+- [ ] Git panel: status / unified+side-by-side diff / stage / commit / branch
       (no destructive op without confirm).
-- [ ] Slice 4 — global search (ripgrep), workspace-scoped.
-- [ ] Slice 5 — multi-tab + dispose-on-close (the full Phase 4 leak gate).
+- [ ] Global search (ripgrep), workspace-scoped.
+- Note: resizable panels (Phase 5) was the user's other pick — natural next.
 
 ### Pending (later phases)
 - Phase 4 — Editor surfaces: explorer, Monaco multi-tab, git, search (L)

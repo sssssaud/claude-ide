@@ -1,22 +1,23 @@
 /*
- * Editor region (spec 5.A.3, 4.6). The file explorer (always visible, cheap)
- * beside the Monaco pane. Monaco stays OUT of the initial bundle and unloaded
- * until a file is opened, so idle memory stays lean (spec 2.7) — opening a file
- * from the explorer lazy-mounts it. Multi-tab + save build on this next.
+ * Editor region (spec 5.A.3, 4.6). The file explorer beside the editor surface:
+ * a tab strip over the Monaco host. Monaco stays OUT of the initial bundle and
+ * unloaded until the first file is opened (idle memory stays lean, spec 2.7);
+ * with no tabs open it shows the empty state and the host isn't mounted.
  */
 
 import { lazy, Suspense } from "react";
 import { EmptyState, LoadingState } from "@/components/states";
+import { EditorTabs } from "@/layout/EditorTabs";
 import { FileExplorer } from "@/layout/FileExplorer";
 import { useEditor } from "@/store/editor";
 
-// The lazy boundary keeps Monaco out of the initial chunk until a file opens.
+// Lazy boundary keeps Monaco out of the initial chunk until a file opens.
 const EditorPane = lazy(() =>
   import("@/layout/EditorPane").then((m) => ({ default: m.EditorPane })),
 );
 
 export function EditorRegion() {
-  const openPath = useEditor((s) => s.openPath);
+  const hasTabs = useEditor((s) => s.tabs.length > 0);
 
   return (
     <div
@@ -28,13 +29,18 @@ export function EditorRegion() {
     >
       <FileExplorer />
       <div
-        className="min-h-0 overflow-hidden"
+        className="flex min-h-0 flex-col overflow-hidden"
         style={{ borderLeft: "1px solid var(--color-border-subtle)" }}
       >
-        {openPath ? (
-          <Suspense fallback={<LoadingState label="Loading editor…" />}>
-            <EditorPane path={openPath} />
-          </Suspense>
+        {hasTabs ? (
+          <>
+            <EditorTabs />
+            <div className="min-h-0 flex-1">
+              <Suspense fallback={<LoadingState label="Loading editor…" />}>
+                <EditorPane />
+              </Suspense>
+            </div>
+          </>
         ) : (
           <EmptyState
             title="No file open"
