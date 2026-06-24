@@ -25,10 +25,7 @@ export function SessionsPanel() {
   return (
     <aside
       className="flex h-full flex-col"
-      style={{
-        background: "var(--color-bg-raised)",
-        borderRight: "1px solid var(--color-border-subtle)",
-      }}
+      style={{ background: "var(--color-bg-raised)" }}
     >
       <PanelHeader label="SESSIONS" />
       <div className="min-h-0 flex-1 overflow-y-auto" style={{ padding: "var(--space-4)" }}>

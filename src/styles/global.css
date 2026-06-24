@@ -54,6 +54,32 @@ body {
 }
 
 /*
+ * Resizable panel dividers (react-resizable-panels `Separator`, see
+ * ResizeSeparator.tsx). The line itself is 1px to match panel borders; the
+ * pointer hit area is widened with a transparent `::after` so it's easy to
+ * grab, and the line tints to the accent colour while hovered or dragged.
+ */
+.resize-sep {
+  outline: none;
+  transition: background-color 120ms var(--ease-standard);
+}
+.resize-sep::after {
+  content: "";
+  position: absolute;
+  z-index: 5;
+}
+.resize-sep[data-axis="x"]::after {
+  inset: 0 -3px;
+}
+.resize-sep[data-axis="y"]::after {
+  inset: -3px 0;
+}
+.resize-sep:hover,
+.resize-sep:active {
+  background: var(--color-accent);
+}
+
+/*
  * Reduced motion: honored app-wide (spec 4.7). The CC `prefersReducedMotion`
  * setting is also wired to this in Phase 3; here we honor the OS preference.
  */

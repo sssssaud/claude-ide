@@ -1,42 +1,62 @@
 /*
  * Workspace shell (spec 4.4). The three-region layout — Sessions + Timeline
  * Rail / Conversation hero (widest) / Editor — over a collapsible Terminal
- * drawer, under a workspace tab bar. Phase 0 establishes the structure with
- * dummy data; resizable/dockable panels and live multi-workspace routing land
- * in Phase 5.
+ * drawer, under a workspace tab bar. The three columns are drag-resizable
+ * (react-resizable-panels): the sidebar and editor hold their pixel width when
+ * the window resizes while the hero absorbs the slack, and the user's chosen
+ * split is remembered across reloads via `useDefaultLayout` (localStorage).
  */
 
+import type { CSSProperties } from "react";
+import { Group, Panel, useDefaultLayout } from "react-resizable-panels";
 import { SessionsPanel } from "@/layout/SessionsPanel";
 import { ConversationPane } from "@/layout/ConversationPane";
 import { EditorRegion } from "@/layout/EditorRegion";
+import { ResizeSeparator } from "@/layout/ResizeSeparator";
 import { TerminalDrawer } from "@/layout/TerminalDrawer";
 
+// Each panel's content fills it and clips internally (the regions own their own
+// scroll); applied to the nested content div the library renders.
+const PANEL: CSSProperties = { height: "100%", overflow: "hidden" };
+
 export function WorkspaceShell() {
+  const layout = useDefaultLayout({ id: "ide:workspace" });
+
   return (
     <div className="flex h-full w-full flex-col">
       <TabBar />
-      <main
-        className="grid min-h-0 flex-1 overflow-hidden"
-        style={{
-          // Hero (conversation) widest; sessions fixed; editor region holds the
-          // file explorer + Monaco, so it needs room for both (min 500px).
-          gridTemplateColumns: "260px minmax(0, 1.2fr) minmax(500px, 1fr)",
-          // Pin the row to the container height. Without an explicit row, the
-          // implicit `auto` track grows to its tallest column's content and
-          // ignores this height — pushing each column's footer (e.g. the
-          // conversation prompt bar) below the clipped viewport. `minmax(0,1fr)`
-          // bounds the row so every column scrolls inside it instead.
-          gridTemplateRows: "minmax(0, 1fr)",
-        }}
-      >
-        <SessionsPanel />
-        <ConversationPane />
-        <div
-          className="min-h-0 overflow-hidden"
-          style={{ borderLeft: "1px solid var(--color-border-subtle)" }}
+      <main className="min-h-0 flex-1 overflow-hidden">
+        <Group
+          orientation="horizontal"
+          defaultLayout={layout.defaultLayout}
+          onLayoutChanged={layout.onLayoutChanged}
+          style={{ height: "100%", width: "100%" }}
         >
-          <EditorRegion />
-        </div>
+          <Panel
+            id="sessions"
+            defaultSize="260px"
+            minSize="180px"
+            maxSize="40%"
+            groupResizeBehavior="preserve-pixel-size"
+            style={PANEL}
+          >
+            <SessionsPanel />
+          </Panel>
+          <ResizeSeparator orientation="horizontal" />
+          <Panel id="conversation" minSize="320px" style={PANEL}>
+            <ConversationPane />
+          </Panel>
+          <ResizeSeparator orientation="horizontal" />
+          <Panel
+            id="editor"
+            defaultSize="560px"
+            minSize="380px"
+            groupResizeBehavior="preserve-pixel-size"
+            style={PANEL}
+          >
+            <EditorRegion />
+          </Panel>
+        </Group>
       </main>
       <TerminalDrawer />
     </div>

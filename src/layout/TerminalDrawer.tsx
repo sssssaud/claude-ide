@@ -8,6 +8,7 @@
  * `claude` passthrough (§2.2) is deferred.
  */
 
+import type { PointerEvent as ReactPointerEvent } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
@@ -18,9 +19,21 @@ function token(name: string): string {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 }
 
+const TERM_HEIGHT_KEY = "ide:term-h";
+const MIN_TERM_HEIGHT = 100;
+
 export function TerminalDrawer() {
   const [collapsed, setCollapsed] = useState(false);
   const [exited, setExited] = useState(false);
+  // Drag-resizable body height (the xterm area); the header stays fixed. The
+  // ResizeObserver below refits xterm whenever this changes. Persisted so the
+  // chosen height survives reloads, like VS Code's panel.
+  const [bodyHeight, setBodyHeight] = useState<number>(() => {
+    const saved = Number(localStorage.getItem(TERM_HEIGHT_KEY));
+    return Number.isFinite(saved) && saved >= MIN_TERM_HEIGHT ? saved : 180;
+  });
+  const dragRef = useRef<{ startY: number; startH: number } | null>(null);
+  const latestHeightRef = useRef(bodyHeight);
   const hostRef = useRef<HTMLDivElement | null>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
@@ -157,8 +170,50 @@ export function TerminalDrawer() {
     await openShell();
   }, [openShell]);
 
+  // Drag the top edge to resize the drawer. Pointer capture keeps the drag on
+  // the handle (so it never selects terminal text), and the new height is
+  // clamped to [MIN, 60% of window] and persisted on release.
+  const onResizeDown = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    dragRef.current = { startY: e.clientY, startH: latestHeightRef.current };
+  }, []);
+
+  const onResizeMove = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = dragRef.current;
+    if (!drag) return;
+    const max = Math.max(MIN_TERM_HEIGHT, Math.round(window.innerHeight * 0.6));
+    const next = Math.min(max, Math.max(MIN_TERM_HEIGHT, drag.startH + (drag.startY - e.clientY)));
+    latestHeightRef.current = next;
+    setBodyHeight(next);
+  }, []);
+
+  const onResizeUp = useCallback((e: ReactPointerEvent<HTMLDivElement>) => {
+    if (!dragRef.current) return;
+    dragRef.current = null;
+    e.currentTarget.releasePointerCapture(e.pointerId);
+    localStorage.setItem(TERM_HEIGHT_KEY, String(latestHeightRef.current));
+  }, []);
+
   return (
-    <div className="flex shrink-0 flex-col" style={{ borderTop: "1px solid var(--color-border-subtle)" }}>
+    <div className="flex shrink-0 flex-col">
+      {/* Drag handle on the drawer's top edge; also serves as the divider line. */}
+      <div
+        className="resize-sep"
+        data-axis="y"
+        onPointerDown={onResizeDown}
+        onPointerMove={onResizeMove}
+        onPointerUp={onResizeUp}
+        style={{
+          position: "relative",
+          flexShrink: 0,
+          height: "1px",
+          background: "var(--color-border-subtle)",
+          cursor: collapsed ? "default" : "row-resize",
+          pointerEvents: collapsed ? "none" : "auto",
+          touchAction: "none",
+        }}
+      />
       <div
         className="flex shrink-0 items-center justify-between"
         style={{
@@ -193,7 +248,7 @@ export function TerminalDrawer() {
       <div
         ref={hostRef}
         style={{
-          height: collapsed ? 0 : "180px",
+          height: collapsed ? 0 : bodyHeight,
           overflow: "hidden",
           background: "var(--color-bg-recessed)",
           padding: collapsed ? 0 : "var(--space-3)",

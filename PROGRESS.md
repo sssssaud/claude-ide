@@ -229,14 +229,29 @@ because "can't see the code" was the biggest visible gap. Built slice-by-slice.
       notice; >2 MB → read-only. New files: `store/editor.ts` (tabs),
       `EditorTabs.tsx`, `editor/language.ts`; `EditorPane` is now the model host.
       Gate PASSED live ("well done"). TS clean.
+- [x] **Resizable panels (2026-06-24)** — pulled forward from Phase 5. Drag-resize
+      the 3 main columns (sessions ▏ conversation ▏ editor) + the explorer ▏ code
+      split via `react-resizable-panels` v4 (`Group`/`Panel`/`Separator` — the v4
+      API was verified against the installed `.d.ts`, not assumed), and the
+      terminal height via a hand-rolled top-edge drag handle (**PTY lifecycle left
+      untouched**; the existing ResizeObserver refits xterm as it drags). Sidebar +
+      editor keep pixel width on window resize while the hero absorbs slack; sizes
+      persist (localStorage via `useDefaultLayout` + a terminal-height key);
+      double-click a divider resets it; min-sizes prevent crushing. Shared
+      `ResizeSeparator` (1px line, widened hit area, accent on hover/drag). Gate
+      PASSED live ("everything is check"); TS + production build clean.
 - [ ] Git panel: status / unified+side-by-side diff / stage / commit / branch
       (no destructive op without confirm).
 - [ ] Global search (ripgrep), workspace-scoped.
-- Note: resizable panels (Phase 5) was the user's other pick — natural next.
 
 ### Pending (later phases)
 - Phase 4 — Editor surfaces: explorer, Monaco multi-tab, git, search (L)
-- Phase 5 — Multi-workspace routing & hardening (M) → **v1 ships**
+- Phase 5 — Multi-workspace routing, hardening, **dockable/collapsible panels**
+  (M) → **v1 ships**. *Panel hide/show (user idea, 2026-06-24):* let the dev close
+  any region they don't want (sidebar/explorer, editor, terminal, sessions) and
+  reopen it from a toggle button + shortcut — VS Code-style (Ctrl+B sidebar,
+  Ctrl+J panel). The resizable-panels lib already exposes `collapse()`/`expand()`
+  on a Panel ref, so this is a small add on the layout just built.
 - Phases 6–10 — P1 review queue, checkpoint timeline + permission manager,
   cost + cross-session search, agents dashboard, cross-platform/theming/release.
 
