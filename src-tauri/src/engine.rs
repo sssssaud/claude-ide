@@ -104,20 +104,48 @@ impl WorkspaceRegistry {
         cwd: Option<String>,
         channel: Channel<EngineEvent>,
     ) -> IpcResult<String> {
+        self.open_with(cwd, None, false, channel).await
+    }
+
+    /// Spawn a session, optionally resuming an existing conversation by id
+    /// (`--resume`) or forking it into a new branch (`--fork-session`, only with
+    /// resume). The resumed model carries full prior context, but the stream does
+    /// **not** replay past turns (verified against the installed CLI) — the UI
+    /// renders that history from the transcript separately (`read_session`).
+    pub async fn open_with(
+        &self,
+        cwd: Option<String>,
+        resume: Option<String>,
+        fork: bool,
+        channel: Channel<EngineEvent>,
+    ) -> IpcResult<String> {
         let cwd = resolve_cwd(cwd)?;
         let claude = locate_claude()?;
 
+        let mut args: Vec<String> = [
+            "-p",
+            "--input-format",
+            "stream-json",
+            "--output-format",
+            "stream-json",
+            "--include-partial-messages",
+            "--verbose",
+            "--strict-mcp-config",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+        if let Some(ref id) = resume {
+            crate::sessions::validate_session_id(id)?;
+            args.push("--resume".to_string());
+            args.push(id.clone());
+            if fork {
+                args.push("--fork-session".to_string());
+            }
+        }
+
         let mut child = Command::new(&claude)
-            .args([
-                "-p",
-                "--input-format",
-                "stream-json",
-                "--output-format",
-                "stream-json",
-                "--include-partial-messages",
-                "--verbose",
-                "--strict-mcp-config",
-            ])
+            .args(&args)
             .current_dir(&cwd)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -189,7 +217,13 @@ impl WorkspaceRegistry {
             next_request: AtomicU64::new(0),
         });
         self.workspaces.lock().await.insert(id.clone(), ws);
-        tracing::info!(workspace = %id, cwd = %cwd.display(), "engine session opened");
+        tracing::info!(
+            workspace = %id,
+            cwd = %cwd.display(),
+            resume = resume.as_deref().unwrap_or("-"),
+            fork,
+            "engine session opened"
+        );
         Ok(id)
     }
 

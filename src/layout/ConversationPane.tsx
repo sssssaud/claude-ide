@@ -14,6 +14,7 @@ export function ConversationPane() {
   const items = useConversation((s) => s.items);
   const streaming = useConversation((s) => s.streaming);
   const error = useConversation((s) => s.error);
+  const truncated = useConversation((s) => s.truncated);
   const bottomRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -28,6 +29,19 @@ export function ConversationPane() {
           <EmptyInvite />
         ) : (
           <div className="mx-auto flex flex-col gap-[var(--space-6)]" style={{ maxWidth: "760px" }}>
+            {truncated && (
+              <p
+                role="note"
+                style={{
+                  fontFamily: "var(--font-mono)",
+                  fontSize: "var(--text-xs)",
+                  color: "var(--color-fg-muted)",
+                  textAlign: "center",
+                }}
+              >
+                — earlier history trimmed; showing the most recent messages —
+              </p>
+            )}
             {items.map((item) => (
               <ConversationItem key={item.id} item={item} streaming={streaming} />
             ))}

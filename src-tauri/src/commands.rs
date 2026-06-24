@@ -18,7 +18,7 @@ use crate::git::{GitDiff, GitStatus};
 use crate::perf::{self, PerfStats};
 use crate::preflight::{self, PreflightReport};
 use crate::pty::PtyRegistry;
-use crate::sessions::{SessionMeta, SessionsRegistry};
+use crate::sessions::{SessionMeta, SessionTranscript, SessionsRegistry};
 use crate::state::AppState;
 
 /// Upper bound on a single prompt (defensive; treats prompt strictly as data).
@@ -87,6 +87,28 @@ pub async fn engine_cancel(
     registry: State<'_, Arc<WorkspaceRegistry>>,
 ) -> IpcResult<()> {
     registry.cancel(&workspace_id).await
+}
+
+/// Open a session that resumes an existing `claude` conversation by id
+/// (`--resume`), or forks it into a new branch (`--fork-session`). Events stream
+/// over `on_event`; returns the new workspace id. History is loaded separately
+/// via `read_session` (the resume stream does not replay prior turns).
+#[tauri::command]
+pub async fn resume_workspace(
+    cwd: Option<String>,
+    session_id: String,
+    fork: bool,
+    on_event: Channel<EngineEvent>,
+    registry: State<'_, Arc<WorkspaceRegistry>>,
+) -> IpcResult<String> {
+    registry.open_with(cwd, Some(session_id), fork, on_event).await
+}
+
+/// Read a past session's transcript into renderable conversation items so a
+/// resumed session shows its full history. Read-only.
+#[tauri::command]
+pub fn read_session(cwd: Option<String>, session_id: String) -> IpcResult<SessionTranscript> {
+    crate::sessions::read_transcript(cwd, &session_id)
 }
 
 /// Close a workspace session, reaping the child with no zombie (spec 2.5).

@@ -6,7 +6,7 @@
  * branch/checkpoint structure (full `/rewind` rail) is Phase 7.
  */
 
-import { useEffect } from "react";
+import { useEffect, type ReactNode } from "react";
 import { useSessions } from "@/store/sessions";
 import { useConversation } from "@/store/conversation";
 import type { SessionMeta } from "@/ipc/types";
@@ -17,6 +17,9 @@ export function SessionsPanel() {
   const error = useSessions((s) => s.error);
   const init = useSessions((s) => s.init);
   const activeId = useConversation((s) => s.sessionId);
+  const streaming = useConversation((s) => s.streaming);
+  const resume = useConversation((s) => s.resume);
+  const newSession = useConversation((s) => s.newSession);
 
   useEffect(() => {
     void init();
@@ -27,7 +30,31 @@ export function SessionsPanel() {
       className="flex h-full flex-col"
       style={{ background: "var(--color-bg-raised)" }}
     >
-      <PanelHeader label="SESSIONS" />
+      <PanelHeader
+        label="SESSIONS"
+        action={
+          <button
+            type="button"
+            onClick={() => newSession()}
+            disabled={streaming}
+            title="Start a new session"
+            aria-label="Start a new session"
+            className="cursor-pointer"
+            style={{
+              background: "transparent",
+              border: "none",
+              padding: 0,
+              fontFamily: "var(--font-mono)",
+              fontSize: "var(--text-xs)",
+              letterSpacing: "0.04em",
+              color: streaming ? "var(--color-fg-muted)" : "var(--color-fg-secondary)",
+              cursor: streaming ? "default" : "pointer",
+            }}
+          >
+            + NEW
+          </button>
+        }
+      />
       <div className="min-h-0 flex-1 overflow-y-auto" style={{ padding: "var(--space-4)" }}>
         {error ? (
           <StateNote text={error} tone="error" />
@@ -43,6 +70,9 @@ export function SessionsPanel() {
                 session={session}
                 active={session.id === activeId}
                 last={i === sessions.length - 1}
+                disabled={streaming}
+                onResume={() => void resume(session.id)}
+                onFork={() => void resume(session.id, true)}
               />
             ))}
           </ol>
@@ -56,10 +86,16 @@ function RailItem({
   session,
   active,
   last,
+  disabled,
+  onResume,
+  onFork,
 }: {
   session: SessionMeta;
   active: boolean;
   last: boolean;
+  disabled: boolean;
+  onResume: () => void;
+  onFork: () => void;
 }) {
   const dotColor = active ? "var(--color-status-running)" : "var(--color-fg-secondary)";
   const meta = [session.gitBranch, relativeTime(session.lastActiveMs)]
@@ -67,7 +103,7 @@ function RailItem({
     .join(" · ");
 
   return (
-    <li className="flex gap-[var(--space-4)]" style={{ minHeight: "var(--space-8)" }}>
+    <li className="group/rail flex gap-[var(--space-4)]" style={{ minHeight: "var(--space-8)" }}>
       {/* Rail column: node dot + connector line */}
       <div className="relative flex w-[14px] shrink-0 flex-col items-center">
         <span
@@ -94,29 +130,70 @@ function RailItem({
           />
         )}
       </div>
-      {/* Node content */}
-      <div style={{ paddingBottom: "var(--space-5)", minWidth: 0 }}>
-        <div
+      {/* Node content: the row resumes; fork is a hover/focus affordance. */}
+      <div
+        className="relative flex min-w-0 flex-1 items-start gap-[var(--space-2)]"
+        style={{ paddingBottom: "var(--space-5)" }}
+      >
+        <button
+          type="button"
+          onClick={onResume}
+          disabled={disabled}
+          title={active ? `${session.label} (active)` : `Resume: ${session.label}`}
+          aria-label={
+            active ? `Active session: ${session.label}` : `Resume session: ${session.label}`
+          }
+          className="min-w-0 flex-1 text-left"
           style={{
-            fontSize: "var(--text-sm)",
-            color: active ? "var(--color-fg-primary)" : "var(--color-fg-secondary)",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap",
-          }}
-          title={session.label}
-        >
-          {session.label}
-        </div>
-        <div
-          style={{
-            fontFamily: "var(--font-mono)",
-            fontSize: "var(--text-xs)",
-            color: active ? "var(--color-status-running)" : "var(--color-fg-muted)",
+            background: "transparent",
+            border: "none",
+            padding: 0,
+            cursor: disabled ? "default" : "pointer",
+            opacity: disabled && !active ? 0.5 : 1,
           }}
         >
-          {active ? `${meta || "active"} · active` : meta}
-        </div>
+          <div
+            style={{
+              fontSize: "var(--text-sm)",
+              color: active ? "var(--color-fg-primary)" : "var(--color-fg-secondary)",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {session.label}
+          </div>
+          <div
+            style={{
+              fontFamily: "var(--font-mono)",
+              fontSize: "var(--text-xs)",
+              color: active ? "var(--color-status-running)" : "var(--color-fg-muted)",
+            }}
+          >
+            {active ? `${meta || "active"} · active` : meta}
+          </div>
+        </button>
+        {!active && (
+          <button
+            type="button"
+            onClick={onFork}
+            disabled={disabled}
+            title={`Fork into a new branch: ${session.label}`}
+            aria-label={`Fork session into a new branch: ${session.label}`}
+            className="shrink-0 opacity-0 transition-opacity focus:opacity-100 group-hover/rail:opacity-100"
+            style={{
+              background: "transparent",
+              border: "none",
+              padding: "0 var(--space-1)",
+              fontFamily: "var(--font-mono)",
+              fontSize: "var(--text-sm)",
+              color: "var(--color-fg-muted)",
+              cursor: disabled ? "default" : "pointer",
+            }}
+          >
+            ⑂
+          </button>
+        )}
       </div>
     </li>
   );
@@ -150,10 +227,10 @@ function relativeTime(ms: number): string {
   return new Date(ms).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
-function PanelHeader({ label }: { label: string }) {
+function PanelHeader({ label, action }: { label: string; action?: ReactNode }) {
   return (
     <div
-      className="flex shrink-0 items-center"
+      className="flex shrink-0 items-center justify-between"
       style={{
         height: "var(--space-7)",
         padding: "0 var(--space-4)",
@@ -164,7 +241,8 @@ function PanelHeader({ label }: { label: string }) {
         color: "var(--color-fg-secondary)",
       }}
     >
-      {label}
+      <span>{label}</span>
+      {action}
     </div>
   );
 }

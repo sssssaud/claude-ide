@@ -13,6 +13,7 @@
 //! (an active transcript being appended) are ignored so a live session doesn't
 //! cause churn.
 
+use std::collections::HashMap;
 use std::fs;
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
@@ -41,6 +42,46 @@ pub struct SessionMeta {
     /// File mtime (ms since epoch) — used to sort by most-recent activity.
     pub last_active_ms: u64,
 }
+
+/// One rendered conversation item from a past transcript. Serializes to exactly
+/// the frontend's `ConvItem` shape (`store/conversation.ts`) so a resumed
+/// session's history renders through the same pane as live turns. Tagged by
+/// `kind` (not `type`) to match that union.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(tag = "kind", rename_all = "lowercase")]
+pub enum ConvItem {
+    User {
+        id: String,
+        text: String,
+    },
+    Assistant {
+        id: String,
+        text: String,
+    },
+    Tool {
+        id: String,
+        name: String,
+        input: Value,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        output: Option<Value>,
+        #[serde(rename = "isError")]
+        is_error: bool,
+        status: &'static str,
+    },
+}
+
+/// A resumed session's full conversation history. `truncated` is set when the
+/// transcript was longer than the render cap and only the most-recent items are
+/// returned (virtualized full history is a later refinement).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionTranscript {
+    pub items: Vec<ConvItem>,
+    pub truncated: bool,
+}
+
+/// Cap on items returned for a resumed session; the most-recent are kept.
+const MAX_TRANSCRIPT_ITEMS: usize = 2000;
 
 /// Owns the workspace's session FsWatcher (kept alive here; dropping it stops
 /// watching). Managed by Tauri as `Arc<SessionsRegistry>`.
@@ -142,6 +183,206 @@ pub fn list(cwd: Option<String>) -> IpcResult<Vec<SessionMeta>> {
     }
     out.sort_by(|a, b| b.last_active_ms.cmp(&a.last_active_ms));
     Ok(out)
+}
+
+// ----- full transcript -> renderable history (spec 3.3 "resume") -------------
+
+/// Validate a session id used both as a `--resume` argument and as a
+/// `<id>.jsonl` filename. Rejects anything that isn't a plain id token so it can
+/// never escape the project dir or smuggle in a flag.
+pub(crate) fn validate_session_id(id: &str) -> IpcResult<()> {
+    let ok = !id.is_empty()
+        && id.len() <= 64
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_');
+    if ok {
+        Ok(())
+    } else {
+        Err(IpcError::new(IpcErrorKind::InvalidInput, "Invalid session id"))
+    }
+}
+
+/// Read a past session's full transcript into renderable conversation items, so
+/// a resumed session shows its history (the live `--resume` stream does not
+/// replay prior turns — verified against the installed CLI).
+pub fn read_transcript(cwd: Option<String>, session_id: &str) -> IpcResult<SessionTranscript> {
+    validate_session_id(session_id)?;
+    let target = crate::workspace::resolve_cwd(cwd)?;
+    let projects = claude_projects_dir()
+        .ok_or_else(|| IpcError::new(IpcErrorKind::InvalidInput, "No Claude sessions on disk"))?;
+    let dir = resolve_project_dir(&projects, &target).ok_or_else(|| {
+        IpcError::new(IpcErrorKind::InvalidInput, "This workspace has no Claude sessions yet")
+    })?;
+    let path = dir.join(format!("{session_id}.jsonl"));
+    if !path.is_file() {
+        return Err(IpcError::new(IpcErrorKind::InvalidInput, "That session was not found"));
+    }
+    let file = fs::File::open(&path)
+        .map_err(|e| internal(format!("Could not open the session transcript: {e}")))?;
+    let lines = BufReader::new(file).lines().map_while(Result::ok);
+    Ok(parse_transcript(lines))
+}
+
+/// Fold transcript lines into ordered conversation items. Pure (no IO) so it is
+/// golden-tested below. User/assistant text become bubbles; `tool_use` becomes a
+/// card whose output is filled in by the matching `tool_result`; `thinking`,
+/// meta and sidechain records are skipped (parity with the live pane).
+fn parse_transcript<I: IntoIterator<Item = String>>(lines: I) -> SessionTranscript {
+    let mut items: Vec<ConvItem> = Vec::new();
+    let mut tool_index: HashMap<String, usize> = HashMap::new();
+    let mut seq: u64 = 0;
+
+    for line in lines {
+        let v: Value = match serde_json::from_str(&line) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        // System reminders, command echoes (`isMeta`) and sub-agent threads
+        // (`isSidechain`) are not part of the visible conversation.
+        if v.get("isMeta").and_then(Value::as_bool) == Some(true)
+            || v.get("isSidechain").and_then(Value::as_bool) == Some(true)
+        {
+            continue;
+        }
+        let uuid = v.get("uuid").and_then(Value::as_str);
+        match v.get("type").and_then(Value::as_str).unwrap_or("") {
+            "user" => append_user(&v, &mut items, &tool_index, uuid, &mut seq),
+            "assistant" => append_assistant(&v, &mut items, &mut tool_index, uuid, &mut seq),
+            _ => {}
+        }
+    }
+
+    let truncated = items.len() > MAX_TRANSCRIPT_ITEMS;
+    if truncated {
+        let drop = items.len() - MAX_TRANSCRIPT_ITEMS;
+        items.drain(0..drop);
+    }
+    SessionTranscript { items, truncated }
+}
+
+/// A `user` record: text blocks (or a string body) become a user bubble;
+/// `tool_result` blocks fill the output of the matching earlier tool card.
+fn append_user(
+    v: &Value,
+    items: &mut Vec<ConvItem>,
+    tool_index: &HashMap<String, usize>,
+    uuid: Option<&str>,
+    seq: &mut u64,
+) {
+    let content = match v.get("message").and_then(|m| m.get("content")) {
+        Some(c) => c,
+        None => return,
+    };
+    match content {
+        Value::String(s) => push_text(items, ConvKind::User, s, uuid, seq),
+        Value::Array(blocks) => {
+            let mut text = String::new();
+            for b in blocks {
+                match b.get("type").and_then(Value::as_str) {
+                    Some("text") => append_block_text(&mut text, b),
+                    Some("tool_result") => {
+                        if let Some(id) = b.get("tool_use_id").and_then(Value::as_str) {
+                            if let Some(&idx) = tool_index.get(id) {
+                                if let ConvItem::Tool { output, is_error, status, .. } =
+                                    &mut items[idx]
+                                {
+                                    *output =
+                                        Some(b.get("content").cloned().unwrap_or(Value::Null));
+                                    *is_error =
+                                        b.get("is_error").and_then(Value::as_bool).unwrap_or(false);
+                                    *status = "done";
+                                }
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            push_text(items, ConvKind::User, &text, uuid, seq);
+        }
+        _ => {}
+    }
+}
+
+/// An `assistant` record: text blocks become a bubble; each `tool_use` becomes a
+/// card. A bubble is flushed before a following tool card so order is preserved.
+fn append_assistant(
+    v: &Value,
+    items: &mut Vec<ConvItem>,
+    tool_index: &mut HashMap<String, usize>,
+    uuid: Option<&str>,
+    seq: &mut u64,
+) {
+    let blocks = match v.get("message").and_then(|m| m.get("content")).and_then(Value::as_array) {
+        Some(b) => b,
+        None => return,
+    };
+    let mut text = String::new();
+    for b in blocks {
+        match b.get("type").and_then(Value::as_str) {
+            Some("text") => append_block_text(&mut text, b),
+            Some("tool_use") => {
+                push_text(items, ConvKind::Assistant, &text, uuid, seq);
+                text.clear();
+                let id = b.get("id").and_then(Value::as_str).unwrap_or("").to_string();
+                let name =
+                    b.get("name").and_then(Value::as_str).unwrap_or("tool").to_string();
+                let input = b.get("input").cloned().unwrap_or(Value::Null);
+                let key = if id.is_empty() { item_id("t", uuid, seq) } else { id };
+                items.push(ConvItem::Tool {
+                    id: key.clone(),
+                    name,
+                    input,
+                    output: None,
+                    is_error: false,
+                    status: "done",
+                });
+                tool_index.insert(key, items.len() - 1);
+            }
+            _ => {} // `thinking` and any other block: skipped (parity with live)
+        }
+    }
+    push_text(items, ConvKind::Assistant, &text, uuid, seq);
+}
+
+enum ConvKind {
+    User,
+    Assistant,
+}
+
+/// Append a text block's `text` to the running buffer, newline-separated.
+fn append_block_text(buf: &mut String, block: &Value) {
+    if let Some(t) = block.get("text").and_then(Value::as_str) {
+        if !buf.is_empty() {
+            buf.push('\n');
+        }
+        buf.push_str(t);
+    }
+}
+
+/// Push a user/assistant bubble for `text` if it is non-empty (trimmed).
+fn push_text(items: &mut Vec<ConvItem>, kind: ConvKind, text: &str, uuid: Option<&str>, seq: &mut u64) {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return;
+    }
+    let text = trimmed.to_string();
+    items.push(match kind {
+        ConvKind::User => ConvItem::User { id: item_id("u", uuid, seq), text },
+        ConvKind::Assistant => ConvItem::Assistant { id: item_id("a", uuid, seq), text },
+    });
+}
+
+/// A stable, unique React key: `h-<kind>-<uuid>-<n>` (counter guarantees
+/// uniqueness when one record yields several bubbles or omits its uuid).
+fn item_id(kind: &str, uuid: Option<&str>, seq: &mut u64) -> String {
+    let n = *seq;
+    *seq += 1;
+    match uuid {
+        Some(u) => format!("h-{kind}-{u}-{n}"),
+        None => format!("h-{kind}-{n}"),
+    }
 }
 
 // ----- project-dir resolution (match by recorded cwd, never by slug) ---------
@@ -451,5 +692,60 @@ mod tests {
             &mut p,
         );
         assert_eq!(build_label(&p, "id"), "survives the junk");
+    }
+
+    #[test]
+    fn transcript_renders_user_assistant_and_merged_tools() {
+        let raw = lines(&[
+            // meta + sidechain records are not part of the visible conversation
+            r#"{"type":"user","isMeta":true,"message":{"role":"user","content":"<system-reminder>"}}"#,
+            r#"{"type":"assistant","isSidechain":true,"message":{"role":"assistant","content":[{"type":"text","text":"subagent"}]}}"#,
+            // a real user turn (string body)
+            r#"{"type":"user","uuid":"u1","message":{"role":"user","content":"read the file"}}"#,
+            // assistant: thinking (dropped), text, then a tool_use
+            r#"{"type":"assistant","uuid":"a1","message":{"role":"assistant","content":[{"type":"thinking","thinking":"hmm"},{"type":"text","text":"Let me look."},{"type":"tool_use","id":"toolu_1","name":"Read","input":{"file_path":"a.rs"}}]}}"#,
+            // the tool_result fills that card (carried in a user record, no bubble)
+            r#"{"type":"user","uuid":"u2","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"file body","is_error":false}]}}"#,
+            r#"{"type":"assistant","uuid":"a2","message":{"role":"assistant","content":[{"type":"text","text":"Done."}]}}"#,
+            // unrelated record types are ignored
+            r#"{"type":"ai-title","title":"x"}"#,
+        ]);
+        let t = parse_transcript(raw);
+        assert!(!t.truncated);
+        assert_eq!(t.items.len(), 4, "user, assistant text, tool card, assistant text");
+        assert!(matches!(&t.items[0], ConvItem::User { text, .. } if text == "read the file"));
+        assert!(matches!(&t.items[1], ConvItem::Assistant { text, .. } if text == "Let me look."));
+        match &t.items[2] {
+            ConvItem::Tool { name, output, is_error, status, .. } => {
+                assert_eq!(name, "Read");
+                assert_eq!(output.as_ref().and_then(Value::as_str), Some("file body"));
+                assert!(!is_error);
+                assert_eq!(*status, "done");
+            }
+            other => panic!("expected a Tool card, got {other:?}"),
+        }
+        assert!(matches!(&t.items[3], ConvItem::Assistant { text, .. } if text == "Done."));
+    }
+
+    #[test]
+    fn transcript_caps_to_most_recent_items() {
+        let raw: Vec<String> = (0..MAX_TRANSCRIPT_ITEMS + 5)
+            .map(|i| format!(r#"{{"type":"user","message":{{"role":"user","content":"m{i}"}}}}"#))
+            .collect();
+        let t = parse_transcript(raw);
+        assert!(t.truncated);
+        assert_eq!(t.items.len(), MAX_TRANSCRIPT_ITEMS);
+        // oldest dropped; the newest message survives as the last item
+        let last = format!("m{}", MAX_TRANSCRIPT_ITEMS + 4);
+        assert!(matches!(t.items.last(), Some(ConvItem::User { text, .. }) if text == &last));
+    }
+
+    #[test]
+    fn session_id_validation_rejects_path_escape() {
+        assert!(validate_session_id("9e81602b-8acf-48a2-b03b-769ba6830e2e").is_ok());
+        assert!(validate_session_id("../../etc/passwd").is_err());
+        assert!(validate_session_id("a/b").is_err());
+        assert!(validate_session_id("").is_err());
+        assert!(validate_session_id(&"x".repeat(65)).is_err());
     }
 }

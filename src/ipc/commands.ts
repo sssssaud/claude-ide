@@ -5,6 +5,9 @@
  */
 
 import { Channel, invoke } from "@tauri-apps/api/core";
+// Type-only: the resumed-session history mirrors the conversation store's item
+// shape. Erased at build time, so no runtime import cycle with the store.
+import type { ConvItem } from "@/store/conversation";
 import type {
   DirEntry,
   EngineEvent,
@@ -86,6 +89,41 @@ export async function engineSend(workspaceId: string, prompt: string): Promise<v
 export async function engineCancel(workspaceId: string): Promise<void> {
   try {
     await invoke<void>("engine_cancel", { workspaceId });
+  } catch (e) {
+    normalizeError(e);
+  }
+}
+
+/**
+ * Open a session that resumes (or, with `fork`, branches) a past `claude`
+ * conversation by id. Events stream over `onEvent` like `openWorkspace`;
+ * resolves to the workspace id. History is loaded separately (`readSession`).
+ */
+export async function resumeWorkspace(
+  onEvent: (event: EngineEvent) => void,
+  sessionId: string,
+  fork: boolean,
+  cwd?: string,
+): Promise<string> {
+  const channel = new Channel<EngineEvent>();
+  channel.onmessage = onEvent;
+  try {
+    return await invoke<string>("resume_workspace", { cwd, sessionId, fork, onEvent: channel });
+  } catch (e) {
+    normalizeError(e);
+  }
+}
+
+/** A past session's rendered history (the resume stream does not replay turns). */
+export interface SessionTranscript {
+  items: ConvItem[];
+  truncated: boolean;
+}
+
+/** Read a past session's transcript into renderable conversation items. */
+export async function readSession(sessionId: string, cwd?: string): Promise<SessionTranscript> {
+  try {
+    return await invoke<SessionTranscript>("read_session", { cwd, sessionId });
   } catch (e) {
     normalizeError(e);
   }

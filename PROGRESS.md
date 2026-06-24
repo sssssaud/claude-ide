@@ -166,7 +166,7 @@ self-exit. In dev the shell cwd is `…/src-tauri` (cargo's run dir); per-worksp
 cwd routing is Phase 5. StrictMode double-opens the backend PTY once in dev
 (immediately reaped); production does a single open.
 
-### Phase 3 — Sessions & Timeline Rail (basic)  ·  3a BACKBONE BUILT (gate confirm pending)
+### Phase 3 — Sessions & Timeline Rail (basic)  ·  3a DONE ✅ · 3b BUILT (live gate pending)
 3a = the real session list + live file-watch (all disk-read, ~no tokens). Built
 2026-06-23. Sequenced 3a → 3b (resume) → 3c (slash actions) per user's choice.
 - [x] Shared `workspace::resolve_cwd` (explicit → `CLAUDE_IDE_WORKSPACE` → launch
@@ -189,7 +189,23 @@ cwd routing is Phase 5. StrictMode double-opens the backend PTY once in dev
 - [x] **Gate PASSED (2026-06-24, live):** rail populated on open and matched the
       CLI's 5 sessions; sending one turn made a new session appear **live** at the
       top, pulsing (active head) — no restart. Confirmed on the reference machine.
-- [ ] 3b — resume / fork via `--resume` / `--fork-session` (deterministic).
+- [~] **3b — resume / fork (2026-06-24) — built, LIVE GATE PENDING.** Click a rail
+      session to **resume** it, or its `⑂` (hover) to **fork** into a new branch;
+      a `+ NEW` header button starts a fresh session. Backend: `engine::open_with
+      (resume, fork)` adds `--resume <id>` / `--fork-session`; `read_session`
+      reads the full transcript into renderable `ConvItem`s (merges
+      tool_use+tool_result, skips meta/sidechain/thinking, caps to the
+      most-recent 2000 with a `truncated` flag), plus a `validate_session_id`
+      path/flag guard. This history read is **required** because the resume stream
+      does NOT replay past turns — probed live against **2.1.187**: resume + one
+      turn emitted only `init→assistant→result`, the prior turn appeared **0×**
+      (and `init` fires on the first turn, not on spawn). Frontend: conversation
+      store `resume()` / `newSession()` tear down the live child, load history,
+      and queue a resume-open for the next `send`; an **epoch guard** drops the
+      stale `Stopped` a closing child emits on EOF so it can't end the new turn.
+      3 new Rust tests (transcript render, cap, id-escape) → 20 pass; TS clean;
+      zero-warning build. **Verify live on return:** resume shows history +
+      continues context; fork makes a new session (new id in rail); `+ NEW` clears.
 - [ ] 3c — `/rename` `/clear` `/branch` `/rewind` via structured input (needs a
       delivery probe — the thinly-documented stream-json slash path).
 - Follow-up: point the PTY at the workspace root too (one-liner; it still uses
@@ -267,9 +283,9 @@ because "can't see the code" was the biggest visible gap. Built slice-by-slice.
       stage-all/unstage-all, a commit box (message + ✓ Commit, Ctrl/Cmd-Enter,
       enabled only with staged changes + a message; empty/nothing-staged errors
       surface). Stage/unstage CLI round-trip verified (git 2.54.0); TS clean;
-      prod build green; backend recompiled + relaunched. **Committed early to
-      protect work before going offline — verify the UI live on return** (＋/－,
-      group actions, a real commit; then mark done).
+      prod build green; backend recompiled + relaunched. **Committed (8636059) +
+      pushed — verify the UI live on return** (＋/－, group actions, a real
+      commit; then mark done).
 - [ ] Git panel — slice C: branch show/switch/create + guarded discard (confirm).
 - [ ] Global search (ripgrep), workspace-scoped.
 
