@@ -20,6 +20,7 @@ import { isIpcError } from "@/ipc/types";
 export type ConvItem =
   | { kind: "user"; id: string; text: string }
   | { kind: "assistant"; id: string; text: string; stopped?: boolean }
+  | { kind: "notice"; id: string; text: string }
   | {
       kind: "tool";
       id: string;
@@ -61,6 +62,13 @@ export const useConversation = create<ConversationState>((set, get) => {
   // session (e.g. the late `Stopped` a closing child emits on EOF) carry a stale
   // epoch and are dropped, so they can't bleed into the new session's turn.
   let epoch = 0;
+  // A slash-command turn often produces no visible output (an empty synthetic
+  // assistant message). We track that per turn so it leaves a `✓ ran /cmd` trace
+  // rather than looking like nothing happened.
+  let turnIsCommand = false;
+  let turnProducedOutput = false;
+  let lastCommand: string | null = null;
+  let noticeSeq = 0;
 
   const dispatch = (ev: EngineEvent) => {
     set((s) => {
@@ -73,6 +81,7 @@ export const useConversation = create<ConversationState>((set, get) => {
           };
 
         case "assistant_delta": {
+          turnProducedOutput = true;
           let items = s.items;
           if (!currentAssistantId) {
             currentAssistantId = `a-${assistantSeq++}`;
@@ -89,6 +98,7 @@ export const useConversation = create<ConversationState>((set, get) => {
         }
 
         case "tool_use":
+          turnProducedOutput = true;
           currentAssistantId = null; // next deltas start a fresh bubble
           return {
             items: [
@@ -111,35 +121,44 @@ export const useConversation = create<ConversationState>((set, get) => {
           // failure) mark the live bubble stopped — capture its id before reset.
           const aid = currentAssistantId;
           currentAssistantId = null;
+          const base =
+            ev.is_error && aid
+              ? s.items.map((it) =>
+                  it.id === aid && it.kind === "assistant" ? { ...it, stopped: true } : it,
+                )
+              : s.items;
           return {
             streaming: false,
             cost: ev.total_cost_usd ?? s.cost,
             usage: ev.usage,
             sessionId: ev.session_id,
-            items:
-              ev.is_error && aid
-                ? s.items.map((it) =>
-                    it.id === aid && it.kind === "assistant" ? { ...it, stopped: true } : it,
-                  )
-                : s.items,
+            items: withCommandNotice(base),
           };
         }
 
         case "stopped": {
           const aid = currentAssistantId;
           currentAssistantId = null;
-          return {
-            streaming: false,
-            items: s.items.map((it) =>
-              it.id === aid && it.kind === "assistant" ? { ...it, stopped: true } : it,
-            ),
-          };
+          const base = s.items.map((it) =>
+            it.id === aid && it.kind === "assistant" ? { ...it, stopped: true } : it,
+          );
+          return { streaming: false, items: withCommandNotice(base) };
         }
 
         default:
           return {}; // unknown event type from a newer CLI: ignore, never crash
       }
     });
+  };
+
+  // At a turn boundary, append a `✓ ran /cmd` trace if the turn was a slash
+  // command that produced no visible output. Resets the per-turn command flag.
+  const withCommandNotice = (items: ConvItem[]): ConvItem[] => {
+    const silent = turnIsCommand && !turnProducedOutput && lastCommand;
+    turnIsCommand = false;
+    return silent
+      ? [...items, { kind: "notice", id: `n-${noticeSeq++}`, text: `ran ${lastCommand}` }]
+      : items;
   };
 
   // Wrap `dispatch` so only events from the still-current session are applied.
@@ -164,6 +183,10 @@ export const useConversation = create<ConversationState>((set, get) => {
       const text = prompt.trim();
       if (!text || get().streaming) return;
       currentAssistantId = null;
+      // Track slash-command turns so a no-output command still leaves a trace.
+      turnIsCommand = text.startsWith("/");
+      turnProducedOutput = false;
+      lastCommand = turnIsCommand ? text.split(/\s+/)[0] : null;
       // `streaming` flips synchronously here, so a second send is blocked until
       // the turn ends — which also prevents opening the session twice.
       set((s) => ({
@@ -218,6 +241,8 @@ export const useConversation = create<ConversationState>((set, get) => {
       epoch += 1;
       if (cur.workspaceId) void closeWorkspace(cur.workspaceId).catch(() => {});
       currentAssistantId = null;
+      turnIsCommand = false;
+      turnProducedOutput = false;
       set({
         items: [],
         streaming: false,
@@ -250,6 +275,8 @@ export const useConversation = create<ConversationState>((set, get) => {
       epoch += 1;
       if (cur.workspaceId) void closeWorkspace(cur.workspaceId).catch(() => {});
       currentAssistantId = null;
+      turnIsCommand = false;
+      turnProducedOutput = false;
       set({
         items: [],
         streaming: false,

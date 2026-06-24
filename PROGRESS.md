@@ -166,7 +166,7 @@ self-exit. In dev the shell cwd is `…/src-tauri` (cargo's run dir); per-worksp
 cwd routing is Phase 5. StrictMode double-opens the backend PTY once in dev
 (immediately reaped); production does a single open.
 
-### Phase 3 — Sessions & Timeline Rail (basic)  ·  3a DONE ✅ · 3b DONE ✅
+### Phase 3 — Sessions & Timeline Rail (basic)  ·  3a DONE ✅ · 3b DONE ✅ · 3c BUILT (gate pending)
 3a = the real session list + live file-watch (all disk-read, ~no tokens). Built
 2026-06-23. Sequenced 3a → 3b (resume) → 3c (slash actions) per user's choice.
 - [x] Shared `workspace::resolve_cwd` (explicit → `CLAUDE_IDE_WORKSPACE` → launch
@@ -207,8 +207,26 @@ cwd routing is Phase 5. StrictMode double-opens the backend PTY once in dev
       3 new Rust tests (transcript render, cap, id-escape) → 20 pass; TS clean;
       zero-warning build. Gate PASSED live (889c60b): resume shows history +
       continues context; fork branches to a new session; `+ NEW` clears.
-- [ ] 3c — `/rename` `/clear` `/branch` `/rewind` via structured input (needs a
-      delivery probe — the thinly-documented stream-json slash path).
+- [~] **3c — slash commands (2026-06-24) — built, live gate pending.** Probed the
+      thinly-documented path FIRST; findings reshaped the slice:
+      • Delivery **works**: sending `"/cmd"` as a normal user turn over stream-json
+        is intercepted + run by the CLI (verified live — user ran `/compact`).
+      • `/rename` `/branch` `/rewind` **don't exist** in 2.1.190; the real session
+        built-ins are `/clear` `/compact` `/context` `/config` `/usage` `/status`
+        (+ ~300 skills in `init.slash_commands`). So 3c = a **menu**, not buttons.
+      • A slash command usually returns an **empty synthetic assistant + empty
+        `result`**; the only faithful effect signals are `system/status` /
+        `system/compact_boundary` (today parsed as `Unknown` → dropped). The model
+        does NOT reliably see a command's internal result — asking it can yield a
+        confident *guess* (the test's "Not enough messages to compact" was inferred,
+        not in the stream).
+      Built: (1) **slash autocomplete** in the prompt bar from the live
+      `slash_commands` (6 built-in fallbacks pre-init); ↑↓/Enter/Tab/Esc/click.
+      (2) **`✓ ran /cmd` trace** so a no-output command never looks silent. TS
+      clean. **Verify live:** `/` filters the menu; `/compact` shows `✓ ran
+      /compact` instead of nothing.
+- Follow-up (3c+): surface `compact_boundary` as a real "context compacted
+      (N→M tok)" line; the structured `/rewind` checkpoint rail is Phase 7.
 - Follow-up: point the PTY at the workspace root too (one-liner; it still uses
   `current_dir()` = `src-tauri` in dev).
 

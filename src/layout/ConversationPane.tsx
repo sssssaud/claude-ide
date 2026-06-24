@@ -128,6 +128,20 @@ function ConversationItem({ item, streaming }: { item: ConvItem; streaming: bool
           </p>
         </div>
       );
+    case "notice":
+      return (
+        <p
+          role="status"
+          style={{
+            fontFamily: "var(--font-mono)",
+            fontSize: "var(--text-xs)",
+            color: "var(--color-fg-muted)",
+            textAlign: "center",
+          }}
+        >
+          ✓ {item.text}
+        </p>
+      );
     case "tool":
       return <ToolCard item={item} defaultOpen={streaming} />;
   }
