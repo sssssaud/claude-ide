@@ -7,18 +7,31 @@
  */
 
 import { create } from "zustand";
-import { gitStage, gitStageAll, gitStatus, gitUnstage, gitUnstageAll } from "@/ipc/commands";
-import { isIpcError, type GitStatus } from "@/ipc/types";
+import {
+  gitBranches,
+  gitCreateBranch,
+  gitStage,
+  gitStageAll,
+  gitStatus,
+  gitSwitchBranch,
+  gitUnstage,
+  gitUnstageAll,
+} from "@/ipc/commands";
+import { isIpcError, type GitBranches, type GitStatus } from "@/ipc/types";
 
 interface GitState {
   status: GitStatus | null;
+  branches: GitBranches | null;
   loading: boolean;
   error: string | null;
   refresh: () => Promise<void>;
+  loadBranches: () => Promise<void>;
   stage: (path: string) => Promise<void>;
   unstage: (path: string) => Promise<void>;
   stageAll: () => Promise<void>;
   unstageAll: () => Promise<void>;
+  switchBranch: (name: string) => Promise<void>;
+  createBranch: (name: string) => Promise<void>;
 }
 
 export const useGit = create<GitState>((set, get) => {
@@ -34,8 +47,15 @@ export const useGit = create<GitState>((set, get) => {
     await get().refresh();
   };
 
+  // A branch op also moves HEAD, so refresh the branch list alongside status.
+  const mutateBranch = async (op: () => Promise<unknown>) => {
+    await mutate(op);
+    await get().loadBranches();
+  };
+
   return {
     status: null,
+    branches: null,
     loading: false,
     error: null,
     refresh: async () => {
@@ -49,9 +69,18 @@ export const useGit = create<GitState>((set, get) => {
         });
       }
     },
+    loadBranches: async () => {
+      try {
+        set({ branches: await gitBranches() });
+      } catch (e) {
+        set({ error: isIpcError(e) ? e.message : "Could not read branches" });
+      }
+    },
     stage: (path) => mutate(() => gitStage(path)),
     unstage: (path) => mutate(() => gitUnstage(path)),
     stageAll: () => mutate(() => gitStageAll()),
     unstageAll: () => mutate(() => gitUnstageAll()),
+    switchBranch: (name) => mutateBranch(() => gitSwitchBranch(name)),
+    createBranch: (name) => mutateBranch(() => gitCreateBranch(name)),
   };
 });

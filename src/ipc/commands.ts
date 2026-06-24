@@ -12,6 +12,7 @@ import type {
   DirEntry,
   EngineEvent,
   FileContents,
+  GitBranches,
   GitDiff,
   GitStatus,
   PerfStats,
@@ -308,6 +309,33 @@ export async function gitUnstageAll(cwd?: string): Promise<void> {
 export async function gitCommit(message: string, cwd?: string): Promise<string> {
   try {
     return await invoke<string>("git_commit", { cwd, message });
+  } catch (e) {
+    normalizeError(e);
+  }
+}
+
+/** Local branches + the checked-out one, for the branch switcher. */
+export async function gitBranches(cwd?: string): Promise<GitBranches> {
+  try {
+    return await invoke<GitBranches>("git_branches", { cwd });
+  } catch (e) {
+    normalizeError(e);
+  }
+}
+
+/** Switch to an existing local branch (git refuses if it would lose changes). */
+export async function gitSwitchBranch(name: string, cwd?: string): Promise<void> {
+  try {
+    await invoke<void>("git_switch_branch", { cwd, name });
+  } catch (e) {
+    normalizeError(e);
+  }
+}
+
+/** Create a new branch from HEAD and switch to it. */
+export async function gitCreateBranch(name: string, cwd?: string): Promise<void> {
+  try {
+    await invoke<void>("git_create_branch", { cwd, name });
   } catch (e) {
     normalizeError(e);
   }

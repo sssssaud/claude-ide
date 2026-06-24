@@ -93,6 +93,12 @@ export interface GitDiff {
   binary: boolean;
 }
 
+/** Mirror of Rust `GitBranches` (Phase 4) — local branches + the current one. */
+export interface GitBranches {
+  current: string | null;
+  branches: string[];
+}
+
 /**
  * Mirror of Rust `EngineEvent` (spec 2.3) — internally tagged by `type`.
  * Render by `type`, never by position; tolerate unknown `type`s from a newer

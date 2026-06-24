@@ -14,7 +14,7 @@ use tauri::State;
 use crate::engine::{EngineEvent, WorkspaceRegistry};
 use crate::error::{IpcError, IpcErrorKind, IpcResult};
 use crate::files::{DirEntry, FileContents};
-use crate::git::{GitDiff, GitStatus};
+use crate::git::{GitBranches, GitDiff, GitStatus};
 use crate::perf::{self, PerfStats};
 use crate::preflight::{self, PreflightReport};
 use crate::pty::PtyRegistry;
@@ -249,4 +249,23 @@ pub fn git_unstage_all(cwd: Option<String>) -> IpcResult<()> {
 #[tauri::command]
 pub fn git_commit(cwd: Option<String>, message: String) -> IpcResult<String> {
     crate::git::commit(cwd, message)
+}
+
+/// Local branches + the current one, for the branch switcher.
+#[tauri::command]
+pub fn git_branches(cwd: Option<String>) -> IpcResult<GitBranches> {
+    crate::git::branches(cwd)
+}
+
+/// Switch to an existing local branch. Non-destructive (git refuses if it would
+/// overwrite uncommitted changes; the error surfaces to the UI).
+#[tauri::command]
+pub fn git_switch_branch(cwd: Option<String>, name: String) -> IpcResult<()> {
+    crate::git::switch_branch(cwd, name)
+}
+
+/// Create a new branch from HEAD and switch to it. Non-destructive.
+#[tauri::command]
+pub fn git_create_branch(cwd: Option<String>, name: String) -> IpcResult<()> {
+    crate::git::create_branch(cwd, name)
 }

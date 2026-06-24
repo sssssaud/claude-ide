@@ -60,6 +60,15 @@ pub struct GitDiff {
     pub binary: bool,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GitBranches {
+    /// The checked-out branch, or None when detached / not a repo.
+    pub current: Option<String>,
+    /// Local branch names, sorted.
+    pub branches: Vec<String>,
+}
+
 /// Working-tree status for the source-control panel. Newest git semantics:
 /// staged changes (index) and unstaged changes (working tree) are separate
 /// groups; untracked files are unstaged; conflicts are their own group.
@@ -152,6 +161,51 @@ pub fn commit(cwd: Option<String>, message: String) -> IpcResult<String> {
     }
     let out = run_bytes(&root, &["commit", "-m", msg])?;
     Ok(String::from_utf8_lossy(&out).trim().to_string())
+}
+
+// ----- branches: list / switch / create (slice C; non-destructive) -----------
+// Switch and create can't lose work: git refuses a switch that would overwrite
+// uncommitted changes (the error is surfaced), and create only adds a ref.
+
+/// Local branches (+ the checked-out one) for the branch switcher.
+pub fn branches(cwd: Option<String>) -> IpcResult<GitBranches> {
+    let root = crate::workspace::resolve_cwd(cwd)?;
+    if !is_repo(&root) {
+        return Ok(GitBranches { current: None, branches: Vec::new() });
+    }
+    let current = run(&root, &["branch", "--show-current"])
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+    let out = run(
+        &root,
+        &["for-each-ref", "--format=%(refname:short)", "--sort=refname", "refs/heads"],
+    )?;
+    let branches = out
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .map(str::to_string)
+        .collect();
+    Ok(GitBranches { current, branches })
+}
+
+/// Switch to an existing local branch. Non-destructive: git refuses (the error
+/// surfaces to the UI) if uncommitted changes would be overwritten.
+pub fn switch_branch(cwd: Option<String>, name: String) -> IpcResult<()> {
+    let root = crate::workspace::resolve_cwd(cwd)?;
+    let name = valid_branch_name(&name)?;
+    run_bytes(&root, &["switch", name.as_str()])?;
+    Ok(())
+}
+
+/// Create a new branch from HEAD and switch to it (`git switch -c`). Fails
+/// (surfaced) if the name already exists or is invalid.
+pub fn create_branch(cwd: Option<String>, name: String) -> IpcResult<()> {
+    let root = crate::workspace::resolve_cwd(cwd)?;
+    let name = valid_branch_name(&name)?;
+    run_bytes(&root, &["switch", "-c", name.as_str()])?;
+    Ok(())
 }
 
 // ----- porcelain parsing (pure; unit-tested) ---------------------------------
@@ -313,6 +367,25 @@ fn safe_rel(path: &str) -> IpcResult<String> {
     Ok(normalized)
 }
 
+/// Validate a branch name before it reaches `git`: blocks argument injection (a
+/// leading '-') and obviously-bad refs; git's own ref-format check rejects the
+/// rest with a clear, surfaced error.
+fn valid_branch_name(name: &str) -> IpcResult<String> {
+    let n = name.trim();
+    let ok = !n.is_empty()
+        && n.len() <= 200
+        && !n.starts_with('-')
+        && !n.contains("..")
+        && n
+            .chars()
+            .all(|c| !c.is_control() && !matches!(c, ' ' | '~' | '^' | ':' | '?' | '*' | '[' | '\\'));
+    if ok {
+        Ok(n.to_string())
+    } else {
+        Err(invalid("Invalid branch name"))
+    }
+}
+
 fn internal(message: String) -> IpcError {
     IpcError::new(IpcErrorKind::Internal, message)
 }
@@ -362,5 +435,16 @@ mod tests {
         assert!(safe_rel("../secret").is_err());
         assert!(safe_rel("a/../../b").is_err());
         assert!(safe_rel("").is_err());
+    }
+
+    #[test]
+    fn valid_branch_name_accepts_good_rejects_injection_and_junk() {
+        assert_eq!(valid_branch_name("feature/login").unwrap(), "feature/login");
+        assert_eq!(valid_branch_name("  fix-123  ").unwrap(), "fix-123"); // trimmed
+        assert!(valid_branch_name("-force").is_err()); // looks like a flag
+        assert!(valid_branch_name("a b").is_err()); // space
+        assert!(valid_branch_name("re..lease").is_err()); // ".." is illegal in refs
+        assert!(valid_branch_name("bad~name").is_err());
+        assert!(valid_branch_name("").is_err());
     }
 }

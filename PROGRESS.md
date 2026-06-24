@@ -305,7 +305,18 @@ because "can't see the code" was the biggest visible gap. Built slice-by-slice.
       prod build green; backend recompiled + relaunched. **Committed (8636059) +
       pushed — verify the UI live on return** (＋/－, group actions, a real
       commit; then mark done).
-- [ ] Git panel — slice C: branch show/switch/create + guarded discard (confirm).
+- [~] **Git panel — slice C1: branches (2026-06-25) — built, gate pending.** A
+      branch switcher in the panel header: lists local branches (current marked
+      ●), click to **switch** (`git switch`), or **create** a new one
+      (`git switch -c`) via an inline name input + a click-away menu. All
+      non-destructive — git refuses a switch that would overwrite uncommitted
+      changes (error surfaced). Backend `branches` / `switch_branch` /
+      `create_branch` with a `valid_branch_name` guard (blocks `-`-injection and
+      bad refs; git's own ref-format check does the rest). 21 lib tests; TS clean;
+      zero-warning build. **Verify live:** open Source Control → branch dropdown
+      lists/switches; create makes + checks out a new branch.
+- [ ] Git panel — slice C2: **guarded discard** (restore working-tree changes) —
+      destructive, so behind an explicit confirm dialog. NOT yet built.
 - [ ] Global search (ripgrep), workspace-scoped.
 
 ### Pending (later phases)

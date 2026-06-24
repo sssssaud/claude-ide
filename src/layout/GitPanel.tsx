@@ -18,12 +18,14 @@ export function GitPanel() {
   const loading = useGit((s) => s.loading);
   const error = useGit((s) => s.error);
   const refresh = useGit((s) => s.refresh);
+  const loadBranches = useGit((s) => s.loadBranches);
   const stageAll = useGit((s) => s.stageAll);
   const unstageAll = useGit((s) => s.unstageAll);
 
   useEffect(() => {
     void refresh();
-  }, [refresh]);
+    void loadBranches();
+  }, [refresh, loadBranches]);
 
   const changes = status?.changes ?? [];
   const conflicts = changes.filter((c) => c.status === "conflicted");
@@ -337,14 +339,7 @@ function Header({
         color: "var(--color-fg-secondary)",
       }}
     >
-      <span
-        className="flex items-center gap-[var(--space-2)]"
-        style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
-      >
-        <span aria-hidden="true">⎇</span>
-        <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{branch ?? "—"}</span>
-        {sync && <span style={{ color: "var(--color-fg-muted)" }}>{sync}</span>}
-      </span>
+      <BranchSwitcher branch={branch} sync={sync} />
       <button
         type="button"
         onClick={onRefresh}
@@ -364,6 +359,193 @@ function Header({
     </div>
   );
 }
+
+/** Branch label that opens a switch/create menu (VS Code's status-bar branch). */
+function BranchSwitcher({ branch, sync }: { branch: string | null; sync: string }) {
+  const data = useGit((s) => s.branches);
+  const switchBranch = useGit((s) => s.switchBranch);
+  const createBranch = useGit((s) => s.createBranch);
+  const loadBranches = useGit((s) => s.loadBranches);
+  const [open, setOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [name, setName] = useState("");
+
+  const list = data?.branches ?? [];
+  const current = data?.current ?? branch;
+
+  const close = () => {
+    setOpen(false);
+    setCreating(false);
+    setName("");
+  };
+  const toggle = () => {
+    const next = !open;
+    close();
+    setOpen(next);
+    if (next) void loadBranches();
+  };
+  const pick = (b: string) => {
+    if (b !== current) void switchBranch(b);
+    close();
+  };
+  const create = () => {
+    const n = name.trim();
+    if (!n) return;
+    void createBranch(n);
+    close();
+  };
+
+  return (
+    <span className="relative flex min-w-0 items-center">
+      <button
+        type="button"
+        onClick={toggle}
+        title="Switch or create branch"
+        aria-label={`Branch ${branch ?? "none"}. Switch or create a branch.`}
+        aria-expanded={open}
+        className="flex min-w-0 cursor-pointer items-center gap-[var(--space-2)]"
+        style={{
+          border: "none",
+          background: "transparent",
+          color: "var(--color-fg-secondary)",
+          fontFamily: "var(--font-mono)",
+          fontSize: "var(--text-xs)",
+          padding: 0,
+          overflow: "hidden",
+        }}
+      >
+        <span aria-hidden="true">⎇</span>
+        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {branch ?? "—"}
+        </span>
+        {sync && <span style={{ color: "var(--color-fg-muted)" }}>{sync}</span>}
+        <span aria-hidden="true" style={{ color: "var(--color-fg-muted)" }}>
+          ▾
+        </span>
+      </button>
+      {open && (
+        <>
+          <div onClick={close} className="fixed inset-0" style={{ zIndex: 30 }} aria-hidden="true" />
+          <div
+            role="menu"
+            className="absolute overflow-y-auto"
+            style={{
+              top: "calc(100% + var(--space-2))",
+              left: 0,
+              minWidth: "220px",
+              maxHeight: "280px",
+              zIndex: 31,
+              background: "var(--color-bg-raised)",
+              border: "1px solid var(--color-border-strong)",
+              borderRadius: "var(--radius-md)",
+              padding: "var(--space-2)",
+              boxShadow: "0 8px 24px rgba(0, 0, 0, 0.4)",
+            }}
+          >
+            {list.length === 0 ? (
+              <p style={{ ...menuText, color: "var(--color-fg-muted)" }}>No local branches.</p>
+            ) : (
+              list.map((b) => (
+                <button
+                  key={b}
+                  type="button"
+                  role="menuitem"
+                  onClick={() => pick(b)}
+                  className="flex w-full cursor-pointer items-center gap-[var(--space-2)] text-left"
+                  style={{ ...menuItem, color: "var(--color-fg-primary)" }}
+                >
+                  <span style={{ width: "1em", color: "var(--color-status-running)" }}>
+                    {b === current ? "●" : ""}
+                  </span>
+                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {b}
+                  </span>
+                </button>
+              ))
+            )}
+            <div
+              style={{ borderTop: "1px solid var(--color-border-subtle)", margin: "var(--space-2) 0" }}
+            />
+            {creating ? (
+              <div className="flex items-center gap-[var(--space-2)]" style={{ padding: "0 var(--space-2)" }}>
+                <input
+                  autoFocus
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      create();
+                    }
+                    if (e.key === "Escape") {
+                      e.preventDefault();
+                      setCreating(false);
+                      setName("");
+                    }
+                  }}
+                  placeholder="new-branch-name"
+                  spellCheck={false}
+                  aria-label="New branch name"
+                  className="min-w-0 flex-1"
+                  style={{
+                    background: "var(--color-bg-recessed)",
+                    border: "1px solid var(--color-border-subtle)",
+                    borderRadius: "var(--radius-sm)",
+                    color: "var(--color-fg-primary)",
+                    fontFamily: "var(--font-mono)",
+                    fontSize: "var(--text-xs)",
+                    padding: "3px var(--space-2)",
+                    outline: "none",
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={create}
+                  disabled={!name.trim()}
+                  className={name.trim() ? "cursor-pointer" : undefined}
+                  style={{
+                    padding: "3px var(--space-2)",
+                    border: "1px solid var(--color-border-subtle)",
+                    borderRadius: "var(--radius-sm)",
+                    background: name.trim() ? "var(--color-accent-quiet)" : "transparent",
+                    color: name.trim() ? "var(--color-fg-primary)" : "var(--color-fg-muted)",
+                    fontFamily: "var(--font-mono)",
+                    fontSize: "var(--text-xs)",
+                  }}
+                >
+                  Create
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setCreating(true)}
+                className="flex w-full cursor-pointer items-center gap-[var(--space-2)] text-left"
+                style={{ ...menuItem, color: "var(--color-fg-secondary)" }}
+              >
+                <span aria-hidden="true">＋</span> Create new branch…
+              </button>
+            )}
+          </div>
+        </>
+      )}
+    </span>
+  );
+}
+
+const menuItem = {
+  border: "none",
+  background: "transparent",
+  padding: "var(--space-2) var(--space-3)",
+  borderRadius: "var(--radius-sm)",
+  fontFamily: "var(--font-mono)",
+  fontSize: "var(--text-xs)",
+} as const;
+const menuText = {
+  padding: "var(--space-2) var(--space-3)",
+  fontFamily: "var(--font-mono)",
+  fontSize: "var(--text-xs)",
+} as const;
 
 function Note({ text, tone }: { text: string; tone?: "error" }) {
   return (
