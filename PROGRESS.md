@@ -230,7 +230,7 @@ cwd routing is Phase 5. StrictMode double-opens the backend PTY once in dev
 - Follow-up: point the PTY at the workspace root too (one-liner; it still uses
   `current_dir()` = `src-tauri` in dev).
 
-### Phase 4 — Editor surfaces  ·  explorer · multi-tab · save · git · search — FEATURE-COMPLETE (search gate pending)
+### Phase 4 — Editor surfaces  ·  explorer · multi-tab · save · git · search — COMPLETE ✅
 Phase 4 only depends on Phase 0, so we pivoted here from Phase 3 (3b/3c deferred)
 because "can't see the code" was the biggest visible gap. Built slice-by-slice.
 - [x] **Slice 1 — file explorer + view file (2026-06-24).** Backend `files.rs`:
@@ -326,7 +326,8 @@ because "can't see the code" was the biggest visible gap. Built slice-by-slice.
       clean; zero-warning build. **Gate on a THROWAWAY file only** — never real
       uncommitted work (e.g. CLAUDE.md). With this, the git panel is feature-complete
       bar polish.
-- [~] **Global search (2026-06-25) — built, gate pending.** A third sidebar view
+- [x] **Global search (2026-06-25) — DONE ✅ (gate passed live — searched, results
+      shown, working).** A third sidebar view
       (Files · Search · Source Control). Backend `search.rs` drives `rg --json
       --fixed-strings --smart-case` from the workspace root (respects `.gitignore`;
       the literal query is passed after `--`, so no regex surprise or flag
@@ -341,8 +342,7 @@ because "can't see the code" was the biggest visible gap. Built slice-by-slice.
       feature-complete** (explorer · multi-tab · save · git · search).
 
 ### Pending (later phases)
-- Phase 4 — Editor surfaces: explorer, Monaco multi-tab, git, search (L)
-- Phase 5 — Multi-workspace routing, hardening, **dockable/collapsible panels**
+- **NEXT → Phase 5** — Multi-workspace routing, hardening, **dockable/collapsible panels**
   (M) → **v1 ships**. *Panel hide/show (user idea, 2026-06-24):* let the dev close
   any region they don't want (sidebar/explorer, editor, terminal, sessions) and
   reopen it from a toggle button + shortcut — VS Code-style (Ctrl+B sidebar,
