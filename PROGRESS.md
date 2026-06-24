@@ -166,7 +166,7 @@ self-exit. In dev the shell cwd is `…/src-tauri` (cargo's run dir); per-worksp
 cwd routing is Phase 5. StrictMode double-opens the backend PTY once in dev
 (immediately reaped); production does a single open.
 
-### Phase 3 — Sessions & Timeline Rail (basic)  ·  3a DONE ✅ · 3b BUILT (live gate pending)
+### Phase 3 — Sessions & Timeline Rail (basic)  ·  3a DONE ✅ · 3b DONE ✅
 3a = the real session list + live file-watch (all disk-read, ~no tokens). Built
 2026-06-23. Sequenced 3a → 3b (resume) → 3c (slash actions) per user's choice.
 - [x] Shared `workspace::resolve_cwd` (explicit → `CLAUDE_IDE_WORKSPACE` → launch
@@ -189,8 +189,9 @@ cwd routing is Phase 5. StrictMode double-opens the backend PTY once in dev
 - [x] **Gate PASSED (2026-06-24, live):** rail populated on open and matched the
       CLI's 5 sessions; sending one turn made a new session appear **live** at the
       top, pulsing (active head) — no restart. Confirmed on the reference machine.
-- [~] **3b — resume / fork (2026-06-24) — built, LIVE GATE PENDING.** Click a rail
-      session to **resume** it, or its `⑂` (hover) to **fork** into a new branch;
+- [x] **3b — resume / fork (2026-06-24) — DONE ✅ (gate PASSED live: "work very
+      well").** Click a rail session to **resume** it, or its `⑂` (hover) to
+      **fork** into a new branch;
       a `+ NEW` header button starts a fresh session. Backend: `engine::open_with
       (resume, fork)` adds `--resume <id>` / `--fork-session`; `read_session`
       reads the full transcript into renderable `ConvItem`s (merges
@@ -204,8 +205,8 @@ cwd routing is Phase 5. StrictMode double-opens the backend PTY once in dev
       and queue a resume-open for the next `send`; an **epoch guard** drops the
       stale `Stopped` a closing child emits on EOF so it can't end the new turn.
       3 new Rust tests (transcript render, cap, id-escape) → 20 pass; TS clean;
-      zero-warning build. **Verify live on return:** resume shows history +
-      continues context; fork makes a new session (new id in rail); `+ NEW` clears.
+      zero-warning build. Gate PASSED live (889c60b): resume shows history +
+      continues context; fork branches to a new session; `+ NEW` clears.
 - [ ] 3c — `/rename` `/clear` `/branch` `/rewind` via structured input (needs a
       delivery probe — the thinly-documented stream-json slash path).
 - Follow-up: point the PTY at the workspace root too (one-liner; it still uses
