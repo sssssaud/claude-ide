@@ -340,3 +340,12 @@ export async function gitCreateBranch(name: string, cwd?: string): Promise<void>
     normalizeError(e);
   }
 }
+
+/** Discard a single path's working-tree changes — DESTRUCTIVE. Confirm first. */
+export async function gitDiscard(path: string, cwd?: string): Promise<void> {
+  try {
+    await invoke<void>("git_discard", { cwd, path });
+  } catch (e) {
+    normalizeError(e);
+  }
+}

@@ -269,3 +269,11 @@ pub fn git_switch_branch(cwd: Option<String>, name: String) -> IpcResult<()> {
 pub fn git_create_branch(cwd: Option<String>, name: String) -> IpcResult<()> {
     crate::git::create_branch(cwd, name)
 }
+
+/// Discard a single path's working-tree changes — DESTRUCTIVE and irreversible.
+/// The frontend gates this behind an explicit confirm dialog (spec: no
+/// destructive op without confirmation).
+#[tauri::command]
+pub fn git_discard(cwd: Option<String>, path: String) -> IpcResult<()> {
+    crate::git::discard(cwd, path)
+}

@@ -208,6 +208,41 @@ pub fn create_branch(cwd: Option<String>, name: String) -> IpcResult<()> {
     Ok(())
 }
 
+// ----- discard: the one DESTRUCTIVE op (slice C2) ----------------------------
+// This is the only command here that can lose work, so the UI gates it behind an
+// explicit confirm dialog and only offers it on unstaged / untracked rows. A
+// tracked file is reverted from the index (`git restore`); an untracked file is
+// deleted (`git clean -f`). Both are confined to a single, path-guarded file.
+
+/// Discard a single path's working-tree changes — IRREVERSIBLE.
+pub fn discard(cwd: Option<String>, path: String) -> IpcResult<()> {
+    let root = crate::workspace::resolve_cwd(cwd)?;
+    let rel = safe_rel(&path)?;
+    discard_in(&root, &rel)
+}
+
+/// Inner discard (root + validated rel), split out so it can be tested against a
+/// real temp repo without going through `resolve_cwd`.
+fn discard_in(root: &Path, rel: &str) -> IpcResult<()> {
+    if is_tracked(root, rel) {
+        run_bytes(root, &["restore", "--", rel])?; // revert worktree from the index
+    } else {
+        run_bytes(root, &["clean", "-f", "--", rel])?; // remove the untracked file
+    }
+    Ok(())
+}
+
+/// Whether `rel` is tracked in the index (decides restore vs clean).
+fn is_tracked(root: &Path, rel: &str) -> bool {
+    Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .args(["ls-files", "--error-unmatch", "--", rel])
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
 // ----- porcelain parsing (pure; unit-tested) ---------------------------------
 
 /// Parse `git status --porcelain=v1 -z` output. Records are NUL-separated;
@@ -435,6 +470,34 @@ mod tests {
         assert!(safe_rel("../secret").is_err());
         assert!(safe_rel("a/../../b").is_err());
         assert!(safe_rel("").is_err());
+    }
+
+    #[test]
+    fn discard_reverts_tracked_and_deletes_untracked() {
+        // A real temp repo: prove the destructive op restores a tracked file and
+        // deletes an untracked one (the two paths the UI's discard exercises).
+        let dir = std::env::temp_dir().join(format!("claude-ide-discard-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let git = |args: &[&str]| {
+            Command::new("git").arg("-C").arg(&dir).args(args).output().unwrap()
+        };
+        git(&["init", "-q"]);
+        git(&["config", "user.email", "t@example.com"]);
+        git(&["config", "user.name", "Test"]);
+        std::fs::write(dir.join("a.txt"), "original\n").unwrap();
+        git(&["add", "-A"]);
+        git(&["commit", "-qm", "init"]);
+
+        // Modify the tracked file and add an untracked one, then discard both.
+        std::fs::write(dir.join("a.txt"), "changed\n").unwrap();
+        std::fs::write(dir.join("b.txt"), "new\n").unwrap();
+        discard_in(&dir, "a.txt").unwrap();
+        discard_in(&dir, "b.txt").unwrap();
+
+        assert_eq!(std::fs::read_to_string(dir.join("a.txt")).unwrap(), "original\n");
+        assert!(!dir.join("b.txt").exists(), "untracked file should be removed");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

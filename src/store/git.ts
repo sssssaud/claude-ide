@@ -10,6 +10,7 @@ import { create } from "zustand";
 import {
   gitBranches,
   gitCreateBranch,
+  gitDiscard,
   gitStage,
   gitStageAll,
   gitStatus,
@@ -32,6 +33,8 @@ interface GitState {
   unstageAll: () => Promise<void>;
   switchBranch: (name: string) => Promise<void>;
   createBranch: (name: string) => Promise<void>;
+  /** DESTRUCTIVE — only call after an explicit user confirm. */
+  discard: (path: string) => Promise<void>;
 }
 
 export const useGit = create<GitState>((set, get) => {
@@ -82,5 +85,6 @@ export const useGit = create<GitState>((set, get) => {
     unstageAll: () => mutate(() => gitUnstageAll()),
     switchBranch: (name) => mutateBranch(() => gitSwitchBranch(name)),
     createBranch: (name) => mutateBranch(() => gitCreateBranch(name)),
+    discard: (path) => mutate(() => gitDiscard(path)),
   };
 });

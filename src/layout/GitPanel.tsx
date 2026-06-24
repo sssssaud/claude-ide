@@ -21,6 +21,8 @@ export function GitPanel() {
   const loadBranches = useGit((s) => s.loadBranches);
   const stageAll = useGit((s) => s.stageAll);
   const unstageAll = useGit((s) => s.unstageAll);
+  const discard = useGit((s) => s.discard);
+  const [discardTarget, setDiscardTarget] = useState<GitChange | null>(null);
 
   useEffect(() => {
     void refresh();
@@ -55,10 +57,130 @@ export function GitPanel() {
         ) : (
           <>
             <Group title="Merge changes" items={conflicts} />
-            <Group title="Staged changes" items={staged} action="unstage" onAction={() => void unstageAll()} />
-            <Group title="Changes" items={unstaged} action="stage" onAction={() => void stageAll()} />
+            <Group
+              title="Staged changes"
+              items={staged}
+              action="unstage"
+              onAction={() => void unstageAll()}
+              onDiscard={setDiscardTarget}
+            />
+            <Group
+              title="Changes"
+              items={unstaged}
+              action="stage"
+              onAction={() => void stageAll()}
+              onDiscard={setDiscardTarget}
+            />
           </>
         )}
+      </div>
+      {discardTarget && (
+        <DiscardConfirm
+          change={discardTarget}
+          onCancel={() => setDiscardTarget(null)}
+          onConfirm={() => {
+            void discard(discardTarget.path);
+            setDiscardTarget(null);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+/** Modal confirm for the one destructive action — discard is irreversible, so it
+ * never runs on a single click. Escape cancels; the danger button needs a click. */
+function DiscardConfirm({
+  change,
+  onCancel,
+  onConfirm,
+}: {
+  change: GitChange;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  const name = change.path.slice(change.path.lastIndexOf("/") + 1);
+  const untracked = change.status === "untracked";
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onCancel();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onCancel]);
+
+  return (
+    <div
+      className="fixed inset-0 flex items-center justify-center"
+      style={{ zIndex: 40, background: "rgba(0, 0, 0, 0.5)" }}
+      onClick={onCancel}
+      role="presentation"
+    >
+      <div
+        role="alertdialog"
+        aria-modal="true"
+        aria-label="Confirm discard"
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          maxWidth: "360px",
+          margin: "0 var(--space-4)",
+          padding: "var(--space-5)",
+          background: "var(--color-bg-raised)",
+          border: "1px solid var(--color-border-strong)",
+          borderRadius: "var(--radius-md)",
+          boxShadow: "0 12px 32px rgba(0, 0, 0, 0.5)",
+        }}
+      >
+        <p style={{ color: "var(--color-fg-primary)", fontSize: "var(--text-sm)" }}>
+          Discard changes to <strong>{name}</strong>?
+        </p>
+        <p
+          style={{
+            marginTop: "var(--space-2)",
+            color: "var(--color-fg-muted)",
+            fontSize: "var(--text-xs)",
+            lineHeight: 1.5,
+          }}
+        >
+          {untracked
+            ? "This permanently deletes the untracked file. It cannot be undone."
+            : "This reverts the file to the last committed/staged version. It cannot be undone."}
+        </p>
+        <div className="flex justify-end gap-[var(--space-2)]" style={{ marginTop: "var(--space-4)" }}>
+          <button
+            type="button"
+            onClick={onCancel}
+            className="cursor-pointer"
+            style={{
+              padding: "var(--space-2) var(--space-3)",
+              border: "1px solid var(--color-border-strong)",
+              borderRadius: "var(--radius-sm)",
+              background: "transparent",
+              color: "var(--color-fg-primary)",
+              fontFamily: "var(--font-sans)",
+              fontSize: "var(--text-sm)",
+            }}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            className="cursor-pointer"
+            style={{
+              padding: "var(--space-2) var(--space-3)",
+              border: "1px solid var(--color-status-danger)",
+              borderRadius: "var(--radius-sm)",
+              background: "var(--color-status-danger)",
+              color: "var(--color-bg-base)",
+              fontFamily: "var(--font-sans)",
+              fontSize: "var(--text-sm)",
+              fontWeight: 500,
+            }}
+          >
+            {untracked ? "Delete file" : "Discard changes"}
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -161,11 +283,13 @@ function Group({
   items,
   action,
   onAction,
+  onDiscard,
 }: {
   title: string;
   items: GitChange[];
   action?: "stage" | "unstage";
   onAction?: () => void;
+  onDiscard?: (change: GitChange) => void;
 }) {
   if (items.length === 0) return null;
   return (
@@ -204,13 +328,19 @@ function Group({
         </span>
       </div>
       {items.map((c) => (
-        <ChangeRow key={`${c.staged ? "s" : "w"}:${c.path}`} change={c} />
+        <ChangeRow key={`${c.staged ? "s" : "w"}:${c.path}`} change={c} onDiscard={onDiscard} />
       ))}
     </section>
   );
 }
 
-function ChangeRow({ change }: { change: GitChange }) {
+function ChangeRow({
+  change,
+  onDiscard,
+}: {
+  change: GitChange;
+  onDiscard?: (change: GitChange) => void;
+}) {
   const openDiff = useEditor((s) => s.openDiff);
   const activePath = useEditor((s) => s.activePath);
   const stage = useGit((s) => s.stage);
@@ -221,6 +351,9 @@ function ChangeRow({ change }: { change: GitChange }) {
   const dir = change.path.includes("/") ? change.path.slice(0, change.path.lastIndexOf("/")) : "";
   const name = change.path.slice(change.path.lastIndexOf("/") + 1);
   const { letter, color } = badge(change.status);
+  // Discard is offered only on working-tree (unstaged) and untracked rows —
+  // never staged or conflicted. It always routes through the confirm dialog.
+  const canDiscard = onDiscard && !change.staged && change.status !== "conflicted";
 
   return (
     <div
@@ -263,6 +396,25 @@ function ChangeRow({ change }: { change: GitChange }) {
           </span>
         )}
       </button>
+      {canDiscard && (
+        <button
+          type="button"
+          onClick={() => onDiscard?.(change)}
+          title="Discard changes"
+          aria-label={`Discard changes to ${name}`}
+          className="shrink-0 cursor-pointer opacity-0 group-hover/row:opacity-100"
+          style={{
+            border: "none",
+            background: "transparent",
+            color: "var(--color-fg-secondary)",
+            fontSize: "var(--text-sm)",
+            lineHeight: 1,
+            padding: "0 var(--space-2)",
+          }}
+        >
+          ↩
+        </button>
+      )}
       <button
         type="button"
         onClick={() => void (change.staged ? unstage(change.path) : stage(change.path))}
