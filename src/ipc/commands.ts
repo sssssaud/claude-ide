@@ -229,3 +229,48 @@ export async function gitDiff(path: string, staged: boolean, cwd?: string): Prom
     normalizeError(e);
   }
 }
+
+/** Stage one path (modification / addition / deletion). */
+export async function gitStage(path: string, cwd?: string): Promise<void> {
+  try {
+    await invoke<void>("git_stage", { cwd, path });
+  } catch (e) {
+    normalizeError(e);
+  }
+}
+
+/** Unstage one path (working tree untouched). */
+export async function gitUnstage(path: string, cwd?: string): Promise<void> {
+  try {
+    await invoke<void>("git_unstage", { cwd, path });
+  } catch (e) {
+    normalizeError(e);
+  }
+}
+
+/** Stage every change (incl. untracked + deletions). */
+export async function gitStageAll(cwd?: string): Promise<void> {
+  try {
+    await invoke<void>("git_stage_all", { cwd });
+  } catch (e) {
+    normalizeError(e);
+  }
+}
+
+/** Unstage everything (reset index to HEAD; working tree untouched). */
+export async function gitUnstageAll(cwd?: string): Promise<void> {
+  try {
+    await invoke<void>("git_unstage_all", { cwd });
+  } catch (e) {
+    normalizeError(e);
+  }
+}
+
+/** Commit the staged changes with `message`; resolves to git's summary line. */
+export async function gitCommit(message: string, cwd?: string): Promise<string> {
+  try {
+    return await invoke<string>("git_commit", { cwd, message });
+  } catch (e) {
+    normalizeError(e);
+  }
+}

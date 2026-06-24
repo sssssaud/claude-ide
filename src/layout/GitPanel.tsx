@@ -1,21 +1,25 @@
 /*
- * Source Control panel (spec 5.A.3, Phase 4). Read-only this slice: the current
- * branch (+ ahead/behind), a Refresh, and the working-tree changes grouped like
- * VS Code — Merge Changes (conflicts), Staged Changes, Changes. Clicking a row
- * opens that file's diff in a read-only diff tab. Stage / unstage / commit and
- * guarded discard arrive in the next slice.
+ * Source Control panel (spec 5.A.3, Phase 4). Slice A + B: the current branch
+ * (+ ahead/behind), a Refresh, a commit box, and the working-tree changes
+ * grouped like VS Code — Merge Changes (conflicts), Staged Changes, Changes —
+ * with per-row stage/unstage (＋ / －) and per-group stage-all/unstage-all.
+ * Clicking a row opens that file's diff. All mutations here are non-destructive
+ * (staging never loses work); discard lands in slice C behind a confirm.
  */
 
-import { useEffect } from "react";
-import { useGit } from "@/store/git";
+import { useEffect, useState } from "react";
+import { gitCommit } from "@/ipc/commands";
+import { isIpcError, type GitChange } from "@/ipc/types";
 import { useEditor } from "@/store/editor";
-import type { GitChange } from "@/ipc/types";
+import { useGit } from "@/store/git";
 
 export function GitPanel() {
   const status = useGit((s) => s.status);
   const loading = useGit((s) => s.loading);
   const error = useGit((s) => s.error);
   const refresh = useGit((s) => s.refresh);
+  const stageAll = useGit((s) => s.stageAll);
+  const unstageAll = useGit((s) => s.unstageAll);
 
   useEffect(() => {
     void refresh();
@@ -36,6 +40,7 @@ export function GitPanel() {
         busy={loading}
         onRefresh={() => void refresh()}
       />
+      {status?.isRepo && <CommitBox stagedCount={staged.length} />}
       <div className="min-h-0 flex-1 overflow-y-auto" style={{ padding: "var(--space-2) 0" }}>
         {error ? (
           <Note text={error} tone="error" />
@@ -48,8 +53,8 @@ export function GitPanel() {
         ) : (
           <>
             <Group title="Merge changes" items={conflicts} />
-            <Group title="Staged changes" items={staged} />
-            <Group title="Changes" items={unstaged} />
+            <Group title="Staged changes" items={staged} action="unstage" onAction={() => void unstageAll()} />
+            <Group title="Changes" items={unstaged} action="stage" onAction={() => void stageAll()} />
           </>
         )}
       </div>
@@ -57,12 +62,114 @@ export function GitPanel() {
   );
 }
 
-function Group({ title, items }: { title: string; items: GitChange[] }) {
+function CommitBox({ stagedCount }: { stagedCount: number }) {
+  const refresh = useGit((s) => s.refresh);
+  const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [feedback, setFeedback] = useState<{ tone: "ok" | "error"; text: string } | null>(null);
+
+  const canCommit = stagedCount > 0 && message.trim().length > 0 && !busy;
+
+  const commit = async () => {
+    if (!canCommit) return;
+    setBusy(true);
+    setFeedback(null);
+    try {
+      await gitCommit(message);
+      setMessage("");
+      setFeedback({ tone: "ok", text: "Committed." });
+      await refresh();
+    } catch (e) {
+      setFeedback({ tone: "error", text: isIpcError(e) ? e.message : "Commit failed" });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div
+      className="flex shrink-0 flex-col gap-[var(--space-2)]"
+      style={{
+        padding: "var(--space-3) var(--space-4)",
+        borderBottom: "1px solid var(--color-border-subtle)",
+      }}
+    >
+      <textarea
+        value={message}
+        onChange={(e) => setMessage(e.target.value)}
+        onKeyDown={(e) => {
+          if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+            e.preventDefault();
+            void commit();
+          }
+        }}
+        rows={2}
+        placeholder={
+          stagedCount > 0 ? "Message (Ctrl/Cmd-Enter to commit)" : "Stage changes to commit"
+        }
+        spellCheck={false}
+        style={{
+          resize: "none",
+          width: "100%",
+          padding: "var(--space-2)",
+          background: "var(--color-bg-recessed)",
+          border: "1px solid var(--color-border-subtle)",
+          borderRadius: "var(--radius-sm)",
+          color: "var(--color-fg-primary)",
+          fontFamily: "var(--font-mono)",
+          fontSize: "var(--text-xs)",
+        }}
+      />
+      <div className="flex items-center justify-between gap-[var(--space-2)]">
+        <span
+          style={{
+            fontFamily: "var(--font-mono)",
+            fontSize: "var(--text-xs)",
+            color: feedback?.tone === "error" ? "var(--color-status-danger)" : "var(--color-fg-muted)",
+          }}
+        >
+          {feedback?.text ?? (stagedCount > 0 ? `${stagedCount} staged` : "")}
+        </span>
+        <button
+          type="button"
+          onClick={() => void commit()}
+          disabled={!canCommit}
+          title="Commit staged changes (Ctrl/Cmd-Enter)"
+          className={canCommit ? "cursor-pointer" : undefined}
+          style={{
+            padding: "3px var(--space-3)",
+            border: "1px solid var(--color-border-subtle)",
+            borderRadius: "var(--radius-sm)",
+            background: canCommit ? "var(--color-accent-quiet)" : "transparent",
+            color: canCommit ? "var(--color-fg-primary)" : "var(--color-fg-muted)",
+            fontFamily: "var(--font-mono)",
+            fontSize: "var(--text-xs)",
+            opacity: canCommit ? 1 : 0.6,
+          }}
+        >
+          {busy ? "Committing…" : "✓ Commit"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function Group({
+  title,
+  items,
+  action,
+  onAction,
+}: {
+  title: string;
+  items: GitChange[];
+  action?: "stage" | "unstage";
+  onAction?: () => void;
+}) {
   if (items.length === 0) return null;
   return (
     <section style={{ marginBottom: "var(--space-2)" }}>
       <div
-        className="flex items-center justify-between"
+        className="group/header flex items-center justify-between"
         style={{
           padding: "var(--space-1) var(--space-4)",
           fontFamily: "var(--font-mono)",
@@ -72,7 +179,27 @@ function Group({ title, items }: { title: string; items: GitChange[] }) {
         }}
       >
         <span>{title.toUpperCase()}</span>
-        <span style={{ color: "var(--color-fg-muted)" }}>{items.length}</span>
+        <span className="flex items-center gap-[var(--space-2)]">
+          {action && onAction && (
+            <button
+              type="button"
+              onClick={onAction}
+              title={action === "stage" ? "Stage all changes" : "Unstage all"}
+              aria-label={action === "stage" ? "Stage all changes" : "Unstage all"}
+              className="cursor-pointer opacity-0 group-hover/header:opacity-100"
+              style={{
+                border: "none",
+                background: "transparent",
+                color: "var(--color-fg-secondary)",
+                fontSize: "var(--text-sm)",
+                lineHeight: 1,
+              }}
+            >
+              {action === "stage" ? "＋" : "－"}
+            </button>
+          )}
+          <span style={{ color: "var(--color-fg-muted)" }}>{items.length}</span>
+        </span>
       </div>
       {items.map((c) => (
         <ChangeRow key={`${c.staged ? "s" : "w"}:${c.path}`} change={c} />
@@ -84,45 +211,81 @@ function Group({ title, items }: { title: string; items: GitChange[] }) {
 function ChangeRow({ change }: { change: GitChange }) {
   const openDiff = useEditor((s) => s.openDiff);
   const activePath = useEditor((s) => s.activePath);
+  const stage = useGit((s) => s.stage);
+  const unstage = useGit((s) => s.unstage);
+
   const id = `diff:${change.staged ? "staged" : "working"}:${change.path}`;
   const active = activePath === id;
-
   const dir = change.path.includes("/") ? change.path.slice(0, change.path.lastIndexOf("/")) : "";
   const name = change.path.slice(change.path.lastIndexOf("/") + 1);
   const { letter, color } = badge(change.status);
 
   return (
-    <button
-      type="button"
-      onClick={() => openDiff(change.path, change.staged)}
-      title={`${change.path} — ${change.status}`}
-      className="flex w-full cursor-pointer items-center gap-[var(--space-2)]"
+    <div
+      className="group/row flex items-center"
       style={{
-        border: "none",
         background: active ? "var(--color-accent-quiet)" : "transparent",
-        padding: "3px var(--space-4)",
-        fontFamily: "var(--font-mono)",
-        fontSize: "var(--text-xs)",
-        textAlign: "left",
+        padding: "0 var(--space-4)",
       }}
     >
-      <span
-        className="shrink-0"
-        style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 }}
+      <button
+        type="button"
+        onClick={() => openDiff(change.path, change.staged)}
+        title={`${change.path} — ${change.status}`}
+        className="flex min-w-0 flex-1 cursor-pointer items-center"
+        style={{
+          border: "none",
+          background: "transparent",
+          padding: "3px 0",
+          fontFamily: "var(--font-mono)",
+          fontSize: "var(--text-xs)",
+          textAlign: "left",
+          overflow: "hidden",
+        }}
       >
-        <span style={{ color: active ? "var(--color-fg-primary)" : "var(--color-fg-secondary)" }}>
+        <span
+          style={{
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+            color: active ? "var(--color-fg-primary)" : "var(--color-fg-secondary)",
+          }}
+        >
           {name}
         </span>
-        {dir && <span style={{ marginLeft: "var(--space-2)", color: "var(--color-fg-muted)" }}>{dir}</span>}
-      </span>
+        {dir && (
+          <span
+            style={{ marginLeft: "var(--space-2)", color: "var(--color-fg-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+          >
+            {dir}
+          </span>
+        )}
+      </button>
+      <button
+        type="button"
+        onClick={() => void (change.staged ? unstage(change.path) : stage(change.path))}
+        title={change.staged ? "Unstage" : "Stage"}
+        aria-label={change.staged ? `Unstage ${name}` : `Stage ${name}`}
+        className="shrink-0 cursor-pointer opacity-0 group-hover/row:opacity-100"
+        style={{
+          border: "none",
+          background: "transparent",
+          color: "var(--color-fg-secondary)",
+          fontSize: "var(--text-sm)",
+          lineHeight: 1,
+          padding: "0 var(--space-2)",
+        }}
+      >
+        {change.staged ? "－" : "＋"}
+      </button>
       <span
         aria-hidden="true"
-        className="ml-auto shrink-0"
-        style={{ color, width: "1em", textAlign: "center", fontWeight: 600 }}
+        className="shrink-0"
+        style={{ color, width: "1em", textAlign: "center", fontWeight: 600, fontFamily: "var(--font-mono)", fontSize: "var(--text-xs)" }}
       >
         {letter}
       </span>
-    </button>
+    </div>
   );
 }
 

@@ -198,3 +198,33 @@ pub fn git_status(cwd: Option<String>) -> IpcResult<GitStatus> {
 pub fn git_diff(cwd: Option<String>, path: String, staged: bool) -> IpcResult<GitDiff> {
     crate::git::diff(cwd, path, staged)
 }
+
+/// Stage one path (modification / addition / deletion). Non-destructive.
+#[tauri::command]
+pub fn git_stage(cwd: Option<String>, path: String) -> IpcResult<()> {
+    crate::git::stage(cwd, path)
+}
+
+/// Unstage one path (working tree untouched). Non-destructive.
+#[tauri::command]
+pub fn git_unstage(cwd: Option<String>, path: String) -> IpcResult<()> {
+    crate::git::unstage(cwd, path)
+}
+
+/// Stage every change (incl. untracked + deletions). Non-destructive.
+#[tauri::command]
+pub fn git_stage_all(cwd: Option<String>) -> IpcResult<()> {
+    crate::git::stage_all(cwd)
+}
+
+/// Unstage everything (reset index to HEAD; working tree untouched). Non-destructive.
+#[tauri::command]
+pub fn git_unstage_all(cwd: Option<String>) -> IpcResult<()> {
+    crate::git::unstage_all(cwd)
+}
+
+/// Commit the staged changes with `message`; returns git's summary line.
+#[tauri::command]
+pub fn git_commit(cwd: Option<String>, message: String) -> IpcResult<String> {
+    crate::git::commit(cwd, message)
+}

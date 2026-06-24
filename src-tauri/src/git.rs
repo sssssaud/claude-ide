@@ -105,6 +105,55 @@ pub fn diff(cwd: Option<String>, path: String, staged: bool) -> IpcResult<GitDif
     Ok(GitDiff { path: rel, original, modified, staged, binary: false })
 }
 
+// ----- mutations: stage / unstage / commit (slice B; non-destructive) --------
+// None of these can lose work: staging moves changes into the index, unstaging
+// moves them back out (the working tree is never touched), and commit records
+// the staged snapshot. Destructive ops (discard/reset --hard) are slice C and
+// gated behind an explicit confirm.
+
+/// Stage a path — a modification, addition, or deletion (`git add` records the
+/// deletion of a removed file too).
+pub fn stage(cwd: Option<String>, path: String) -> IpcResult<()> {
+    let root = crate::workspace::resolve_cwd(cwd)?;
+    let rel = safe_rel(&path)?;
+    run_bytes(&root, &["add", "--", rel.as_str()])?;
+    Ok(())
+}
+
+/// Unstage a path: move it out of the index (working tree untouched).
+pub fn unstage(cwd: Option<String>, path: String) -> IpcResult<()> {
+    let root = crate::workspace::resolve_cwd(cwd)?;
+    let rel = safe_rel(&path)?;
+    run_bytes(&root, &["restore", "--staged", "--", rel.as_str()])?;
+    Ok(())
+}
+
+/// Stage every change (including untracked files and deletions).
+pub fn stage_all(cwd: Option<String>) -> IpcResult<()> {
+    let root = crate::workspace::resolve_cwd(cwd)?;
+    run_bytes(&root, &["add", "-A"])?;
+    Ok(())
+}
+
+/// Unstage everything: reset the index to HEAD (working tree untouched).
+pub fn unstage_all(cwd: Option<String>) -> IpcResult<()> {
+    let root = crate::workspace::resolve_cwd(cwd)?;
+    run_bytes(&root, &["reset", "-q"])?;
+    Ok(())
+}
+
+/// Commit the staged changes with `message`; returns git's short summary line.
+/// Fails (surfaced to the UI) if the message is empty or nothing is staged.
+pub fn commit(cwd: Option<String>, message: String) -> IpcResult<String> {
+    let root = crate::workspace::resolve_cwd(cwd)?;
+    let msg = message.trim();
+    if msg.is_empty() {
+        return Err(invalid("Commit message is empty"));
+    }
+    let out = run_bytes(&root, &["commit", "-m", msg])?;
+    Ok(String::from_utf8_lossy(&out).trim().to_string())
+}
+
 // ----- porcelain parsing (pure; unit-tested) ---------------------------------
 
 /// Parse `git status --porcelain=v1 -z` output. Records are NUL-separated;

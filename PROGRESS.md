@@ -260,7 +260,16 @@ because "can't see the code" was the biggest visible gap. Built slice-by-slice.
         dev guard — if the launch dir is `src-tauri/`, use its parent (can't
         misfire in a release build). Verified live: working-tree diff edits +
         saves; explorer/sessions now target the real project.
-- [ ] Git panel — slice B: stage / unstage / commit (non-destructive mutations).
+- [~] **Git panel — slice B: stage / unstage / commit (2026-06-24) — built, LIVE
+      GATE PENDING.** Backend mutations (`git add` / `restore --staged` / `reset -q`
+      / `commit -m`) + 5 commands, all non-destructive (working tree never
+      touched). Frontend: per-row ＋/－ stage-unstage (on hover), per-group
+      stage-all/unstage-all, a commit box (message + ✓ Commit, Ctrl/Cmd-Enter,
+      enabled only with staged changes + a message; empty/nothing-staged errors
+      surface). Stage/unstage CLI round-trip verified (git 2.54.0); TS clean;
+      prod build green; backend recompiled + relaunched. **Committed early to
+      protect work before going offline — verify the UI live on return** (＋/－,
+      group actions, a real commit; then mark done).
 - [ ] Git panel — slice C: branch show/switch/create + guarded discard (confirm).
 - [ ] Global search (ripgrep), workspace-scoped.
 
