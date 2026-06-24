@@ -14,6 +14,7 @@ use tauri::State;
 use crate::engine::{EngineEvent, WorkspaceRegistry};
 use crate::error::{IpcError, IpcErrorKind, IpcResult};
 use crate::files::{DirEntry, FileContents};
+use crate::git::{GitDiff, GitStatus};
 use crate::perf::{self, PerfStats};
 use crate::preflight::{self, PreflightReport};
 use crate::pty::PtyRegistry;
@@ -179,4 +180,21 @@ pub fn read_file(path: String) -> IpcResult<FileContents> {
 #[tauri::command]
 pub fn write_file(path: String, contents: String) -> IpcResult<()> {
     crate::files::write_file(path, contents)
+}
+
+// ----- Git source control (spec 5.A.3, Phase 4) ------------------------------
+// Read-only slice: status + per-file diff by driving the installed `git` CLI in
+// the workspace root. No mutating or destructive command runs here.
+
+/// Working-tree status (staged / unstaged / untracked / conflicted) + branch.
+#[tauri::command]
+pub fn git_status(cwd: Option<String>) -> IpcResult<GitStatus> {
+    crate::git::status(cwd)
+}
+
+/// Both sides of one file's diff for the diff editor (HEAD→index when `staged`,
+/// else index→working tree).
+#[tauri::command]
+pub fn git_diff(cwd: Option<String>, path: String, staged: bool) -> IpcResult<GitDiff> {
+    crate::git::diff(cwd, path, staged)
 }

@@ -100,6 +100,7 @@ export function EditorPane() {
     if (!ready) return;
     const open = new Set(tabs.map((t) => t.path));
     for (const tab of tabs) {
+      if (tab.kind === "diff") continue; // diff tabs render in the diff overlay, not here
       if (fetchedRef.current.has(tab.path)) continue;
       fetchedRef.current.add(tab.path);
       setContents((c) => ({ ...c, [tab.path]: { kind: "loading" } }));

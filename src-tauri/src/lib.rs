@@ -8,6 +8,7 @@ mod commands;
 mod engine;
 mod error;
 mod files;
+mod git;
 mod perf;
 mod preflight;
 mod pty;
@@ -52,6 +53,8 @@ pub fn run(startup: Instant) {
             commands::list_dir,
             commands::read_file,
             commands::write_file,
+            commands::git_status,
+            commands::git_diff,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

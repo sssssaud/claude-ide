@@ -26,11 +26,7 @@ export function FileExplorer() {
   }, []);
 
   return (
-    <aside
-      className="flex h-full flex-col"
-      style={{ background: "var(--color-bg-raised)" }}
-    >
-      <Header label="EXPLORER" />
+    <div className="flex h-full flex-col">
       <div className="min-h-0 flex-1 overflow-auto" style={{ padding: "var(--space-2) 0" }}>
         {error ? (
           <Note text={error} tone="error" />
@@ -42,7 +38,7 @@ export function FileExplorer() {
           roots.map((entry) => <TreeNode key={entry.path} entry={entry} depth={0} />)
         )}
       </div>
-    </aside>
+    </div>
   );
 }
 
@@ -125,24 +121,5 @@ function Note({ text, tone, depth = 0 }: { text: string; tone?: "error"; depth?:
     >
       {text}
     </p>
-  );
-}
-
-function Header({ label }: { label: string }) {
-  return (
-    <div
-      className="flex shrink-0 items-center"
-      style={{
-        height: "var(--space-7)",
-        padding: "0 var(--space-4)",
-        borderBottom: "1px solid var(--color-border-subtle)",
-        fontFamily: "var(--font-mono)",
-        fontSize: "var(--text-xs)",
-        letterSpacing: "0.04em",
-        color: "var(--color-fg-secondary)",
-      }}
-    >
-      {label}
-    </div>
   );
 }

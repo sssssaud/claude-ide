@@ -63,6 +63,36 @@ export interface FileContents {
   binary: boolean;
 }
 
+/** Mirror of Rust `GitChange` (Phase 4) — one changed path in a status group. */
+export interface GitChange {
+  /** Repo-relative path, forward-slashed. */
+  path: string;
+  /** Original path for a rename/copy (else null). */
+  origPath: string | null;
+  /** modified | added | deleted | renamed | copied | typechange | untracked | conflicted */
+  status: string;
+  /** In the staged (index) group vs the unstaged (working-tree) group. */
+  staged: boolean;
+}
+
+/** Mirror of Rust `GitStatus` (Phase 4) — the source-control panel state. */
+export interface GitStatus {
+  isRepo: boolean;
+  branch: string | null;
+  ahead: number;
+  behind: number;
+  changes: GitChange[];
+}
+
+/** Mirror of Rust `GitDiff` (Phase 4) — both sides of a file diff. */
+export interface GitDiff {
+  path: string;
+  original: string;
+  modified: string;
+  staged: boolean;
+  binary: boolean;
+}
+
 /**
  * Mirror of Rust `EngineEvent` (spec 2.3) — internally tagged by `type`.
  * Render by `type`, never by position; tolerate unknown `type`s from a newer

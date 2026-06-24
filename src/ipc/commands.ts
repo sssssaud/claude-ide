@@ -9,6 +9,8 @@ import type {
   DirEntry,
   EngineEvent,
   FileContents,
+  GitDiff,
+  GitStatus,
   PerfStats,
   PreflightReport,
   SessionMeta,
@@ -205,6 +207,24 @@ export async function readFile(path: string): Promise<FileContents> {
 export async function writeFile(path: string, contents: string): Promise<void> {
   try {
     await invoke<void>("write_file", { path, contents });
+  } catch (e) {
+    normalizeError(e);
+  }
+}
+
+/** Working-tree status (staged/unstaged/untracked/conflicted) + branch. */
+export async function gitStatus(cwd?: string): Promise<GitStatus> {
+  try {
+    return await invoke<GitStatus>("git_status", { cwd });
+  } catch (e) {
+    normalizeError(e);
+  }
+}
+
+/** Both sides of one file's diff (HEAD→index when `staged`, else index→worktree). */
+export async function gitDiff(path: string, staged: boolean, cwd?: string): Promise<GitDiff> {
+  try {
+    return await invoke<GitDiff>("git_diff", { cwd, path, staged });
   } catch (e) {
     normalizeError(e);
   }

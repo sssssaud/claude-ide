@@ -8,10 +8,16 @@
 import { create } from "zustand";
 
 export interface EditorTab {
-  /** Workspace-relative path — the stable id for the tab and its model. */
+  /** Stable tab id. For a file = its workspace-relative path (and model uri);
+   *  for a diff = a synthetic `diff:<staged|working>:<file>` id (never a real
+   *  path, so it can't collide with a file tab or be fetched as a file). */
   path: string;
   /** Basename, for the tab label. */
   name: string;
+  /** "file" (default) opens in the text editor; "diff" opens a read-only diff. */
+  kind?: "file" | "diff";
+  /** Present only for diff tabs: which file, and whether the staged diff. */
+  diff?: { file: string; staged: boolean };
 }
 
 interface EditorState {
@@ -20,6 +26,8 @@ interface EditorState {
   dirty: Record<string, boolean>;
   /** Open a file (adds a tab if new) and focus it. */
   open: (path: string) => void;
+  /** Open a read-only diff for a file (staged = HEAD→index, else index→worktree). */
+  openDiff: (file: string, staged: boolean) => void;
   /** Focus an already-open tab. */
   activate: (path: string) => void;
   /** Close a tab; focus falls to the left neighbor (VS Code-style). */
@@ -40,9 +48,20 @@ export const useEditor = create<EditorState>((set, get) => ({
   open: (path) => {
     const { tabs } = get();
     if (!tabs.some((t) => t.path === path)) {
-      set({ tabs: [...tabs, { path, name: basename(path) }] });
+      set({ tabs: [...tabs, { path, name: basename(path), kind: "file" }] });
     }
     set({ activePath: path });
+  },
+
+  openDiff: (file, staged) => {
+    const id = `diff:${staged ? "staged" : "working"}:${file}`;
+    const { tabs } = get();
+    if (!tabs.some((t) => t.path === id)) {
+      set({
+        tabs: [...tabs, { path: id, name: basename(file), kind: "diff", diff: { file, staged } }],
+      });
+    }
+    set({ activePath: id });
   },
 
   activate: (path) => set({ activePath: path }),

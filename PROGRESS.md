@@ -240,8 +240,28 @@ because "can't see the code" was the biggest visible gap. Built slice-by-slice.
       double-click a divider resets it; min-sizes prevent crushing. Shared
       `ResizeSeparator` (1px line, widened hit area, accent on hover/drag). Gate
       PASSED live ("everything is check"); TS + production build clean.
-- [ ] Git panel: status / unified+side-by-side diff / stage / commit / branch
-      (no destructive op without confirm).
+- [x] **Git panel — slice A: read-only status + diff (2026-06-24).** Backend
+      `git.rs` drives the installed `git` CLI with `-C <root>` (no mutating/
+      destructive command): `git_status` (branch + ahead/behind; changes grouped
+      staged / unstaged / conflicted, `--porcelain=v1 -z`) and `git_diff` (both
+      sides for Monaco's DiffEditor). Frontend: the left panel is now a **Files /
+      Source Control** view-switcher (`Sidebar`) with a live change-count badge;
+      `GitPanel` lists grouped changes; clicking one opens a Monaco diff as a `⇄`
+      tab (`DiffView`), rendered as a **lazy overlay** over the editor host so the
+      open file models are untouched. The **working-tree (modified) side is
+      editable** with Ctrl/Cmd-S → writes the file + refreshes the list (VS Code
+      parity); staged diffs are read-only. 2 new Rust tests (porcelain parse +
+      path guard); TS clean; prod build green.
+      • **Gate bug found + fixed (real check, not assumed):** the diff's modified
+        side was empty because the dev app had been launched without
+        `CLAUDE_IDE_WORKSPACE`, so `resolve_cwd` fell back to cargo's `src-tauri/`
+        run dir and `read_worktree` read a path that doesn't exist. Fixed two
+        ways: relaunch dev with the env var, **and** a `workspace::resolve_cwd`
+        dev guard — if the launch dir is `src-tauri/`, use its parent (can't
+        misfire in a release build). Verified live: working-tree diff edits +
+        saves; explorer/sessions now target the real project.
+- [ ] Git panel — slice B: stage / unstage / commit (non-destructive mutations).
+- [ ] Git panel — slice C: branch show/switch/create + guarded discard (confirm).
 - [ ] Global search (ripgrep), workspace-scoped.
 
 ### Pending (later phases)

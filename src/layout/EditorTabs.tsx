@@ -29,14 +29,19 @@ export function EditorTabs() {
     >
       {tabs.map((tab) => {
         const active = tab.path === activePath;
-        const isDirty = !!dirty[tab.path];
+        const isDiff = tab.kind === "diff";
+        const isDirty = !isDiff && !!dirty[tab.path];
         const showClose = hovered === tab.path || active;
+        const title =
+          isDiff && tab.diff
+            ? `${tab.diff.file} — ${tab.diff.staged ? "Staged changes" : "Working tree"} (diff)`
+            : tab.path;
         return (
           <div
             key={tab.path}
             role="tab"
             aria-selected={active}
-            title={tab.path}
+            title={title}
             onMouseEnter={() => setHovered(tab.path)}
             onMouseLeave={() => setHovered((h) => (h === tab.path ? null : h))}
             onMouseDown={(e) => {
@@ -62,7 +67,7 @@ export function EditorTabs() {
             }}
           >
             <span aria-hidden="true" style={{ opacity: 0.7 }}>
-              📄
+              {isDiff ? "⇄" : "📄"}
             </span>
             <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
               {tab.name}

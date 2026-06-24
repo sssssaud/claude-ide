@@ -12,20 +12,25 @@ import { lazy, Suspense } from "react";
 import { Group, Panel, useDefaultLayout } from "react-resizable-panels";
 import { EmptyState, LoadingState } from "@/components/states";
 import { EditorTabs } from "@/layout/EditorTabs";
-import { FileExplorer } from "@/layout/FileExplorer";
 import { ResizeSeparator } from "@/layout/ResizeSeparator";
+import { Sidebar } from "@/layout/Sidebar";
 import { useEditor } from "@/store/editor";
 
-// Lazy boundary keeps Monaco out of the initial chunk until a file opens.
+// Lazy boundary keeps Monaco out of the initial chunk until a file/diff opens.
 const EditorPane = lazy(() =>
   import("@/layout/EditorPane").then((m) => ({ default: m.EditorPane })),
 );
+const DiffView = lazy(() => import("@/layout/DiffView").then((m) => ({ default: m.DiffView })));
 
 const PANEL: CSSProperties = { height: "100%", overflow: "hidden" };
 
 export function EditorRegion() {
-  const hasTabs = useEditor((s) => s.tabs.length > 0);
+  const tabs = useEditor((s) => s.tabs);
+  const activePath = useEditor((s) => s.activePath);
   const layout = useDefaultLayout({ id: "ide:editor" });
+
+  const activeTab = tabs.find((t) => t.path === activePath) ?? null;
+  const showDiff = activeTab?.kind === "diff";
 
   return (
     <Group
@@ -42,18 +47,27 @@ export function EditorRegion() {
         groupResizeBehavior="preserve-pixel-size"
         style={PANEL}
       >
-        <FileExplorer />
+        <Sidebar />
       </Panel>
       <ResizeSeparator orientation="horizontal" />
       <Panel id="code" minSize="280px" style={PANEL}>
         <div className="flex h-full min-h-0 flex-col overflow-hidden">
-          {hasTabs ? (
+          {tabs.length > 0 ? (
             <>
               <EditorTabs />
-              <div className="min-h-0 flex-1">
+              {/* The editor host stays mounted (file models preserved); the diff
+                  view overlays it when a diff tab is active. */}
+              <div className="relative min-h-0 flex-1">
                 <Suspense fallback={<LoadingState label="Loading editor…" />}>
                   <EditorPane />
                 </Suspense>
+                {showDiff && activeTab && (
+                  <div className="absolute inset-0">
+                    <Suspense fallback={<LoadingState label="Loading diff…" />}>
+                      <DiffView key={activeTab.path} tab={activeTab} />
+                    </Suspense>
+                  </div>
+                )}
               </div>
             </>
           ) : (
