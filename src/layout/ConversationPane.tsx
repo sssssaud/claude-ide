@@ -7,8 +7,12 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import type { CSSProperties } from "react";
+import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent } from "react";
 import { useConversation, type ConvItem } from "@/store/conversation";
+
+// Built-in session commands confirmed present in the CLI (2.1.190) — used as the
+// slash menu's source until the live `slash_commands` list arrives with `init`.
+const FALLBACK_SLASH = ["clear", "compact", "context", "config", "usage", "status"];
 
 export function ConversationPane() {
   const items = useConversation((s) => s.items);
@@ -173,15 +177,73 @@ function ToolCard({
 
 function PromptBar() {
   const [value, setValue] = useState("");
+  const [sel, setSel] = useState(0);
+  const [dismissed, setDismissed] = useState(false);
   const streaming = useConversation((s) => s.streaming);
   const send = useConversation((s) => s.send);
   const cancel = useConversation((s) => s.cancel);
+  const liveCommands = useConversation((s) => s.slashCommands);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
+  const commands = liveCommands.length ? liveCommands : FALLBACK_SLASH;
+  // The slash menu is active while typing a command name: a leading "/" with no
+  // space yet (once a space is typed the rest is treated as the command's args).
+  const slashQuery =
+    value.startsWith("/") && !value.includes(" ") ? value.slice(1).toLowerCase() : null;
+  const matches =
+    slashQuery !== null
+      ? commands.filter((c) => c.toLowerCase().includes(slashQuery)).slice(0, 50)
+      : [];
+  const menuOpen = !dismissed && matches.length > 0;
+  const selected = Math.min(sel, matches.length - 1);
+
+  const change = (next: string) => {
+    setValue(next);
+    setDismissed(false);
+    setSel(0);
+  };
+
+  const accept = (cmd: string) => {
+    change(`/${cmd} `); // trailing space leaves room for args + closes the menu
+    inputRef.current?.focus();
+  };
 
   const submit = () => {
     const text = value.trim();
     if (!text || streaming) return;
     void send(text);
     setValue("");
+    setDismissed(false);
+    setSel(0);
+  };
+
+  const onKeyDown = (e: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (menuOpen) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setSel((s) => (Math.min(s, matches.length - 1) + 1) % matches.length);
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setSel((s) => (Math.min(s, matches.length - 1) - 1 + matches.length) % matches.length);
+        return;
+      }
+      if (e.key === "Tab" || (e.key === "Enter" && !e.shiftKey)) {
+        e.preventDefault();
+        accept(matches[selected]);
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setDismissed(true);
+        return;
+      }
+    }
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      submit();
+    }
   };
 
   return (
@@ -189,52 +251,115 @@ function PromptBar() {
       className="shrink-0"
       style={{ padding: "var(--space-4) var(--space-5)", borderTop: "1px solid var(--color-border-subtle)" }}
     >
-      <div
-        className="flex items-center gap-[var(--space-3)]"
-        style={{
-          padding: "var(--space-3) var(--space-4)",
-          borderRadius: "var(--radius-md)",
-          background: "var(--color-bg-recessed)",
-          border: "1px solid var(--color-border-strong)",
-        }}
-      >
-        <span style={{ ...mono, color: "var(--color-accent)" }}>›</span>
-        <input
-          value={value}
-          onChange={(e) => setValue(e.currentTarget.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              submit();
-            }
-          }}
-          placeholder="Ask Claude to…"
-          aria-label="Prompt"
-          className="flex-1 bg-transparent outline-none"
+      <div className="relative">
+        {menuOpen && <SlashMenu matches={matches} selected={selected} onPick={accept} />}
+        <div
+          className="flex items-center gap-[var(--space-3)]"
           style={{
-            border: "none",
-            color: "var(--color-fg-primary)",
-            fontFamily: "var(--font-sans)",
-            fontSize: "var(--text-base)",
+            padding: "var(--space-3) var(--space-4)",
+            borderRadius: "var(--radius-md)",
+            background: "var(--color-bg-recessed)",
+            border: "1px solid var(--color-border-strong)",
           }}
-        />
-        {streaming ? (
-          <button type="button" onClick={() => void cancel()} className="cursor-pointer" style={stopBtn}>
-            Stop
-          </button>
-        ) : (
-          <button
-            type="button"
-            onClick={submit}
-            disabled={!value.trim()}
-            className="cursor-pointer"
-            style={{ ...sendBtn, opacity: value.trim() ? 1 : 0.4 }}
-          >
-            Send
-          </button>
-        )}
+        >
+          <span style={{ ...mono, color: "var(--color-accent)" }}>›</span>
+          <input
+            ref={inputRef}
+            value={value}
+            onChange={(e) => change(e.currentTarget.value)}
+            onKeyDown={onKeyDown}
+            placeholder="Ask Claude to…   ( / for commands )"
+            aria-label="Prompt"
+            role="combobox"
+            aria-expanded={menuOpen}
+            aria-controls="slash-menu"
+            className="flex-1 bg-transparent outline-none"
+            style={{
+              border: "none",
+              color: "var(--color-fg-primary)",
+              fontFamily: "var(--font-sans)",
+              fontSize: "var(--text-base)",
+            }}
+          />
+          {streaming ? (
+            <button type="button" onClick={() => void cancel()} className="cursor-pointer" style={stopBtn}>
+              Stop
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={submit}
+              disabled={!value.trim()}
+              className="cursor-pointer"
+              style={{ ...sendBtn, opacity: value.trim() ? 1 : 0.4 }}
+            >
+              Send
+            </button>
+          )}
+        </div>
       </div>
     </div>
+  );
+}
+
+/** Slash-command autocomplete, anchored above the prompt bar. Driven by the
+ * session's real `slash_commands` (filtered by the typed query). */
+function SlashMenu({
+  matches,
+  selected,
+  onPick,
+}: {
+  matches: string[];
+  selected: number;
+  onPick: (cmd: string) => void;
+}) {
+  const selRef = useRef<HTMLLIElement | null>(null);
+  useEffect(() => {
+    selRef.current?.scrollIntoView({ block: "nearest" });
+  }, [selected]);
+
+  return (
+    <ul
+      id="slash-menu"
+      role="listbox"
+      className="absolute left-0 right-0 overflow-y-auto"
+      style={{
+        bottom: "calc(100% + var(--space-2))",
+        maxHeight: "240px",
+        background: "var(--color-bg-raised)",
+        border: "1px solid var(--color-border-strong)",
+        borderRadius: "var(--radius-md)",
+        padding: "var(--space-2)",
+        boxShadow: "0 8px 24px rgba(0, 0, 0, 0.4)",
+        zIndex: 20,
+      }}
+    >
+      {matches.map((cmd, i) => (
+        <li key={cmd} role="option" aria-selected={i === selected} ref={i === selected ? selRef : null}>
+          <button
+            type="button"
+            // mousedown (not click) so the pick fires before the input blurs
+            onMouseDown={(e) => {
+              e.preventDefault();
+              onPick(cmd);
+            }}
+            className="flex w-full cursor-pointer items-center text-left"
+            style={{
+              padding: "var(--space-2) var(--space-3)",
+              borderRadius: "var(--radius-sm)",
+              border: "none",
+              background: i === selected ? "var(--color-bg-recessed)" : "transparent",
+              color: "var(--color-fg-primary)",
+              fontFamily: "var(--font-mono)",
+              fontSize: "var(--text-sm)",
+            }}
+          >
+            <span style={{ color: "var(--color-accent)" }}>/</span>
+            {cmd}
+          </button>
+        </li>
+      ))}
+    </ul>
   );
 }
 
