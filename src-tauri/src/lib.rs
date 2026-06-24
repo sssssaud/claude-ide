@@ -12,6 +12,7 @@ mod git;
 mod perf;
 mod preflight;
 mod pty;
+mod search;
 mod sessions;
 mod state;
 mod workspace;
@@ -66,6 +67,7 @@ pub fn run(startup: Instant) {
             commands::git_switch_branch,
             commands::git_create_branch,
             commands::git_discard,
+            commands::search,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

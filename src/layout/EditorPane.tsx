@@ -47,6 +47,7 @@ export function EditorPane() {
   const tabs = useEditor((s) => s.tabs);
   const activePath = useEditor((s) => s.activePath);
   const dirty = useEditor((s) => s.dirty);
+  const reveal = useEditor((s) => s.reveal);
 
   const disposeEntry = useCallback((path: string) => {
     const entry = modelsRef.current.get(path);
@@ -141,6 +142,22 @@ export function EditorPane() {
       shownRef.current = activePath;
     }
   }, [activePath, contents, ready]);
+
+  // Jump to a requested line (e.g. a search hit) once its model is the shown one.
+  // Declared after the show-active effect so the model swap has already happened.
+  useEffect(() => {
+    if (!reveal) return;
+    const editor = editorRef.current;
+    const entry = modelsRef.current.get(reveal.path);
+    if (!editor || !entry) return;
+    if (activePath !== reveal.path || contents[reveal.path]?.kind !== "ready") return;
+    if (editor.getModel() !== entry.model) return; // wait until this model is shown
+    const line = Math.max(1, reveal.line);
+    editor.revealLineInCenter(line);
+    editor.setPosition({ lineNumber: line, column: 1 });
+    editor.focus();
+    useEditor.getState().clearReveal();
+  }, [reveal, activePath, contents, ready]);
 
   // Dispose every model on unmount (the host unmounts when the last tab closes).
   useEffect(() => {

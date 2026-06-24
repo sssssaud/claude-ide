@@ -24,8 +24,13 @@ interface EditorState {
   tabs: EditorTab[];
   activePath: string | null;
   dirty: Record<string, boolean>;
+  /** A pending "jump to this line" request the editor host consumes once the
+   *  file's model is shown (used by global search). 1-based line. */
+  reveal: { path: string; line: number } | null;
   /** Open a file (adds a tab if new) and focus it. */
   open: (path: string) => void;
+  /** Open a file and reveal `line` (1-based) — e.g. a search hit. */
+  openAt: (path: string, line: number) => void;
   /** Open a read-only diff for a file (staged = HEAD→index, else index→worktree). */
   openDiff: (file: string, staged: boolean) => void;
   /** Focus an already-open tab. */
@@ -33,6 +38,8 @@ interface EditorState {
   /** Close a tab; focus falls to the left neighbor (VS Code-style). */
   close: (path: string) => void;
   setDirty: (path: string, dirty: boolean) => void;
+  /** Clear a consumed reveal request. */
+  clearReveal: () => void;
 }
 
 function basename(path: string): string {
@@ -44,13 +51,22 @@ export const useEditor = create<EditorState>((set, get) => ({
   tabs: [],
   activePath: null,
   dirty: {},
+  reveal: null,
 
   open: (path) => {
     const { tabs } = get();
     if (!tabs.some((t) => t.path === path)) {
       set({ tabs: [...tabs, { path, name: basename(path), kind: "file" }] });
     }
-    set({ activePath: path });
+    set({ activePath: path, reveal: null });
+  },
+
+  openAt: (path, line) => {
+    const { tabs } = get();
+    if (!tabs.some((t) => t.path === path)) {
+      set({ tabs: [...tabs, { path, name: basename(path), kind: "file" }] });
+    }
+    set({ activePath: path, reveal: { path, line } });
   },
 
   openDiff: (file, staged) => {
@@ -83,4 +99,6 @@ export const useEditor = create<EditorState>((set, get) => ({
 
   setDirty: (path, dirty) =>
     set((s) => (s.dirty[path] === dirty ? s : { dirty: { ...s.dirty, [path]: dirty } })),
+
+  clearReveal: () => set({ reveal: null }),
 }));

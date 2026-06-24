@@ -230,7 +230,7 @@ cwd routing is Phase 5. StrictMode double-opens the backend PTY once in dev
 - Follow-up: point the PTY at the workspace root too (one-liner; it still uses
   `current_dir()` = `src-tauri` in dev).
 
-### Phase 4 — Editor surfaces  ·  SLICE 1 (file tree + view code) DONE ✅
+### Phase 4 — Editor surfaces  ·  explorer · multi-tab · save · git · search — FEATURE-COMPLETE (search gate pending)
 Phase 4 only depends on Phase 0, so we pivoted here from Phase 3 (3b/3c deferred)
 because "can't see the code" was the biggest visible gap. Built slice-by-slice.
 - [x] **Slice 1 — file explorer + view file (2026-06-24).** Backend `files.rs`:
@@ -315,8 +315,10 @@ because "can't see the code" was the biggest visible gap. Built slice-by-slice.
       bad refs; git's own ref-format check does the rest). 21 lib tests; TS clean;
       zero-warning build. **Verify live:** open Source Control → branch dropdown
       lists/switches; create makes + checks out a new branch.
-- [~] **Git panel — slice C2: guarded discard (2026-06-25) — built, gate pending.**
-      The one DESTRUCTIVE git op. A `↩` action on **unstaged / untracked** rows
+- [x] **Git panel — slice C2: guarded discard (2026-06-25) — DONE ✅ (gate passed
+      live — deleted the throwaway untracked file via the confirm modal, left
+      CLAUDE.md untouched).** The one DESTRUCTIVE git op. A `↩` action on
+      **unstaged / untracked** rows
       only (never staged or conflicts) opens a **confirm modal** (Escape cancels;
       the danger button needs a deliberate click) before anything runs. Backend
       `discard`: tracked → `git restore`, untracked → `git clean -f`, on a single
@@ -324,7 +326,19 @@ because "can't see the code" was the biggest visible gap. Built slice-by-slice.
       clean; zero-warning build. **Gate on a THROWAWAY file only** — never real
       uncommitted work (e.g. CLAUDE.md). With this, the git panel is feature-complete
       bar polish.
-- [ ] Global search (ripgrep), workspace-scoped — the last Phase 4 piece.
+- [~] **Global search (2026-06-25) — built, gate pending.** A third sidebar view
+      (Files · Search · Source Control). Backend `search.rs` drives `rg --json
+      --fixed-strings --smart-case` from the workspace root (respects `.gitignore`;
+      the literal query is passed after `--`, so no regex surprise or flag
+      injection), parsing match events into per-file lines split into
+      highlight/plain segments — capped (2000 total / 200 per file / 400-char
+      lines) with a `truncated` flag. Frontend `SearchPanel`: search-as-you-type
+      (250ms debounce + token guard), results grouped by file with the hit
+      highlighted; clicking a line opens the file **at that line** (new editor
+      store `openAt` + a reveal effect in the Monaco host). 2 parser tests → 24 lib
+      tests; TS clean; zero-warning build. **Verify live:** Search tab → type →
+      grouped hits → click jumps to the line. With this, **Phase 4 is
+      feature-complete** (explorer · multi-tab · save · git · search).
 
 ### Pending (later phases)
 - Phase 4 — Editor surfaces: explorer, Monaco multi-tab, git, search (L)

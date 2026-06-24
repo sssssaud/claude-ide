@@ -17,6 +17,7 @@ import type {
   GitStatus,
   PerfStats,
   PreflightReport,
+  SearchResults,
   SessionMeta,
 } from "./types";
 import { isIpcError } from "./types";
@@ -345,6 +346,15 @@ export async function gitCreateBranch(name: string, cwd?: string): Promise<void>
 export async function gitDiscard(path: string, cwd?: string): Promise<void> {
   try {
     await invoke<void>("git_discard", { cwd, path });
+  } catch (e) {
+    normalizeError(e);
+  }
+}
+
+/** Workspace-wide literal search via ripgrep, grouped by file. */
+export async function search(query: string, cwd?: string): Promise<SearchResults> {
+  try {
+    return await invoke<SearchResults>("search", { cwd, query });
   } catch (e) {
     normalizeError(e);
   }

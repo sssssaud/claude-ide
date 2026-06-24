@@ -99,6 +99,25 @@ export interface GitBranches {
   branches: string[];
 }
 
+/** Mirror of Rust search types (Phase 4) — ripgrep results grouped by file. */
+export interface SearchSegment {
+  text: string;
+  isMatch: boolean;
+}
+export interface SearchLine {
+  lineNumber: number;
+  segments: SearchSegment[];
+}
+export interface SearchFile {
+  path: string;
+  lines: SearchLine[];
+}
+export interface SearchResults {
+  files: SearchFile[];
+  totalMatches: number;
+  truncated: boolean;
+}
+
 /**
  * Mirror of Rust `EngineEvent` (spec 2.3) — internally tagged by `type`.
  * Render by `type`, never by position; tolerate unknown `type`s from a newer

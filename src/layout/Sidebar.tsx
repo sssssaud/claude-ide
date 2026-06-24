@@ -8,9 +8,10 @@
 import { useEffect, useState } from "react";
 import { FileExplorer } from "@/layout/FileExplorer";
 import { GitPanel } from "@/layout/GitPanel";
+import { SearchPanel } from "@/layout/SearchPanel";
 import { useGit } from "@/store/git";
 
-type View = "files" | "git";
+type View = "files" | "git" | "search";
 
 export function Sidebar() {
   const [view, setView] = useState<View>("files");
@@ -33,6 +34,7 @@ export function Sidebar() {
         }}
       >
         <Tab label="Files" active={view === "files"} onClick={() => setView("files")} />
+        <Tab label="Search" active={view === "search"} onClick={() => setView("search")} />
         <Tab
           label="Source Control"
           badge={changeCount || undefined}
@@ -41,7 +43,7 @@ export function Sidebar() {
         />
       </div>
       <div className="min-h-0 flex-1 overflow-hidden">
-        {view === "files" ? <FileExplorer /> : <GitPanel />}
+        {view === "files" ? <FileExplorer /> : view === "search" ? <SearchPanel /> : <GitPanel />}
       </div>
     </aside>
   );
@@ -64,18 +66,21 @@ function Tab({
       role="tab"
       aria-selected={active}
       onClick={onClick}
-      className="flex flex-1 cursor-pointer items-center justify-center gap-[var(--space-2)]"
+      className="flex min-w-0 flex-1 cursor-pointer items-center justify-center gap-[var(--space-1)]"
       style={{
         border: "none",
         background: "transparent",
         borderBottom: active ? "2px solid var(--color-accent)" : "2px solid transparent",
         fontFamily: "var(--font-mono)",
         fontSize: "var(--text-xs)",
-        letterSpacing: "0.03em",
+        letterSpacing: "0.02em",
         color: active ? "var(--color-fg-primary)" : "var(--color-fg-secondary)",
+        padding: "0 var(--space-1)",
       }}
     >
-      {label}
+      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+        {label}
+      </span>
       {badge ? (
         <span
           style={{

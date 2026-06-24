@@ -18,6 +18,7 @@ use crate::git::{GitBranches, GitDiff, GitStatus};
 use crate::perf::{self, PerfStats};
 use crate::preflight::{self, PreflightReport};
 use crate::pty::PtyRegistry;
+use crate::search::SearchResults;
 use crate::sessions::{SessionMeta, SessionTranscript, SessionsRegistry};
 use crate::state::AppState;
 
@@ -276,4 +277,12 @@ pub fn git_create_branch(cwd: Option<String>, name: String) -> IpcResult<()> {
 #[tauri::command]
 pub fn git_discard(cwd: Option<String>, path: String) -> IpcResult<()> {
     crate::git::discard(cwd, path)
+}
+
+// ----- Global search (spec 5.A.3, Phase 4) -----------------------------------
+
+/// Workspace-wide literal search via ripgrep, grouped by file. Read-only.
+#[tauri::command]
+pub fn search(cwd: Option<String>, query: String) -> IpcResult<SearchResults> {
+    crate::search::search(cwd, query)
 }
