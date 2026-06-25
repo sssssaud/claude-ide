@@ -341,13 +341,24 @@ because "can't see the code" was the biggest visible gap. Built slice-by-slice.
       grouped hits → click jumps to the line. With this, **Phase 4 is
       feature-complete** (explorer · multi-tab · save · git · search).
 
+### Phase 5 — Multi-workspace routing & hardening → **v1 ships** (in progress)
+- [x] **Slice A — dockable/collapsible panels** (user idea). Sessions rail · editor ·
+      terminal each hide/show from a top-bar toggle cluster + VS Code shortcuts
+      (Ctrl+B sessions, Ctrl+J terminal); the conversation hero is never hidden and
+      absorbs freed space. Visibility persists (localStorage `ide:panels`). Built on
+      the **verified** `react-resizable-panels@4.11.2` API (`usePanelRef()` →
+      collapse/expand/isCollapsed; `collapsible`/`collapsedSize`), not the assumed
+      bvaughn shape. A manual drag-to-collapse syncs back to the store; the mount
+      `onResize` is ignored so persisted intent wins on reload. Terminal hide keeps
+      the shell alive (host mounted at height 0). TS clean. **Gate passed live**
+      (user confirmed shortcuts + toggles).
+- [ ] **Slice B — multi-workspace routing**: workspaces as tabs; a `WorkspaceRegistry`
+      binds each cwd to its own engine session + terminal; instant rebind on switch,
+      no context bleed.
+- [ ] **Slice C — hardening**: every empty/loading/error state filled; perf-budget
+      pass; a11y pass; "no-placeholders" grep clean → tag v1.
+
 ### Pending (later phases)
-- **NEXT → Phase 5** — Multi-workspace routing, hardening, **dockable/collapsible panels**
-  (M) → **v1 ships**. *Panel hide/show (user idea, 2026-06-24):* let the dev close
-  any region they don't want (sidebar/explorer, editor, terminal, sessions) and
-  reopen it from a toggle button + shortcut — VS Code-style (Ctrl+B sidebar,
-  Ctrl+J panel). The resizable-panels lib already exposes `collapse()`/`expand()`
-  on a Panel ref, so this is a small add on the layout just built.
 - Phases 6–10 — P1 review queue, checkpoint timeline + permission manager,
   cost + cross-session search, agents dashboard, cross-platform/theming/release.
 

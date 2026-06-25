@@ -14,6 +14,7 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import "@xterm/xterm/css/xterm.css";
 import { ptyClose, ptyOpen, ptyResize, ptyWrite } from "@/ipc/commands";
+import { useLayout } from "@/store/layout";
 
 function token(name: string): string {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -23,7 +24,11 @@ const TERM_HEIGHT_KEY = "ide:term-h";
 const MIN_TERM_HEIGHT = 100;
 
 export function TerminalDrawer() {
-  const [collapsed, setCollapsed] = useState(false);
+  // Visibility lives in the layout store so the top-bar toggle and Ctrl/Cmd+J
+  // can dock the drawer too; hiding keeps the shell alive (host stays mounted at
+  // height 0) so reopening is instant and never restarts the process.
+  const visible = useLayout((s) => s.terminal);
+  const toggleTerminal = useLayout((s) => s.toggle);
   const [exited, setExited] = useState(false);
   // Drag-resizable body height (the xterm area); the header stays fixed. The
   // ResizeObserver below refits xterm whenever this changes. Persisted so the
@@ -197,61 +202,67 @@ export function TerminalDrawer() {
 
   return (
     <div className="flex shrink-0 flex-col">
-      {/* Drag handle on the drawer's top edge; also serves as the divider line. */}
-      <div
-        className="resize-sep"
-        data-axis="y"
-        onPointerDown={onResizeDown}
-        onPointerMove={onResizeMove}
-        onPointerUp={onResizeUp}
-        style={{
-          position: "relative",
-          flexShrink: 0,
-          height: "1px",
-          background: "var(--color-border-subtle)",
-          cursor: collapsed ? "default" : "row-resize",
-          pointerEvents: collapsed ? "none" : "auto",
-          touchAction: "none",
-        }}
-      />
-      <div
-        className="flex shrink-0 items-center justify-between"
-        style={{
-          height: "var(--space-7)",
-          padding: "0 var(--space-3) 0 var(--space-4)",
-          background: "var(--color-bg-raised)",
-        }}
-      >
-        <button
-          type="button"
-          onClick={() => setCollapsed((c) => !c)}
-          aria-expanded={!collapsed}
-          className="flex flex-1 cursor-pointer items-center gap-[var(--space-2)]"
-          style={{ background: "transparent", border: "none", ...headerText }}
-        >
-          <span aria-hidden="true">{collapsed ? "▴" : "▾"}</span>
-          <span>TERMINAL</span>
-          {exited && <span style={{ color: "var(--color-fg-muted)" }}>· exited</span>}
-        </button>
-        <button
-          type="button"
-          onClick={() => void restart()}
-          title="Restart shell"
-          aria-label="Restart shell"
-          className="cursor-pointer"
-          style={{ background: "transparent", border: "none", ...headerText }}
-        >
-          ↻ restart
-        </button>
-      </div>
-      {/* Host stays mounted (shell survives collapse); height collapses to 0. */}
+      {/* Header + drag handle render only while shown; the host stays mounted
+          (height 0 when hidden) so the shell survives a dock/undock. */}
+      {visible && (
+        <>
+          {/* Drag handle on the drawer's top edge; also serves as the divider line. */}
+          <div
+            className="resize-sep"
+            data-axis="y"
+            onPointerDown={onResizeDown}
+            onPointerMove={onResizeMove}
+            onPointerUp={onResizeUp}
+            style={{
+              position: "relative",
+              flexShrink: 0,
+              height: "1px",
+              background: "var(--color-border-subtle)",
+              cursor: "row-resize",
+              touchAction: "none",
+            }}
+          />
+          <div
+            className="flex shrink-0 items-center justify-between"
+            style={{
+              height: "var(--space-7)",
+              padding: "0 var(--space-3) 0 var(--space-4)",
+              background: "var(--color-bg-raised)",
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => toggleTerminal("terminal")}
+              aria-expanded={true}
+              aria-label="Hide terminal"
+              title="Hide terminal (Ctrl+J)"
+              className="flex flex-1 cursor-pointer items-center gap-[var(--space-2)]"
+              style={{ background: "transparent", border: "none", ...headerText }}
+            >
+              <span aria-hidden="true">▾</span>
+              <span>TERMINAL</span>
+              {exited && <span style={{ color: "var(--color-fg-muted)" }}>· exited</span>}
+            </button>
+            <button
+              type="button"
+              onClick={() => void restart()}
+              title="Restart shell"
+              aria-label="Restart shell"
+              className="cursor-pointer"
+              style={{ background: "transparent", border: "none", ...headerText }}
+            >
+              ↻ restart
+            </button>
+          </div>
+        </>
+      )}
       <div
         ref={hostRef}
         style={{
-          height: collapsed ? 0 : bodyHeight,
+          height: visible ? bodyHeight : 0,
           overflow: "hidden",
           background: "var(--color-bg-recessed)",
-          padding: collapsed ? 0 : "var(--space-3)",
+          padding: visible ? "var(--space-3)" : 0,
         }}
       />
     </div>
