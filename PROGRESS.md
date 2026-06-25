@@ -414,8 +414,21 @@ because "can't see the code" was the biggest visible gap. Built slice-by-slice.
         `aria-activedescendant` + option ids. Interactive controls have labels/roles;
         contrast is token-driven (WCAG-AA per tokens). Follow-up (Phase 10 polish):
         full APG roving-tabindex + arrow-key nav for the tablists.
-  - [ ] perf-budget pass (live measurement on the reference machine).
+  - [~] **perf-budget pass (2026-06-25, release binary, reference machine)** — cold
+        start **2877 ms** (≤3.0s ✓); main-process RSS **288 MB** (≤320 ✓); total RSS
+        editor-closed **747 MB** vs ≤700 budget (~7% over). The overage is the
+        per-workspace keep-alive cost (this launch restored 2 workspaces → 2 terminals;
+        breakdown main 288 + WebKitWeb 401 + WebKitNet 58). NOT a single-workspace
+        regression — the 700 MB budget predates multi-workspace. **Decision needed:**
+        re-express the editor-closed budget as per-workspace (recommend base ~650 MB +
+        ~50 MB/extra workspace), OR claw memory back via the lazy-xterm optimization
+        below. Cold-start + main-process budgets pass cleanly.
   - [ ] → tag v1 (with the user).
+  - Optimization available (not yet done): `WorkspaceTerminal` creates its xterm on
+    mount for every workspace even though the shell spawns lazily — so an unvisited
+    workspace still holds a live xterm in the web process. Deferring xterm *creation*
+    to first focus too would cut idle RSS per unopened workspace. Low-risk; wants a
+    live re-verify, so held for when the user is around.
 - [x] **Global font-size bump (2026-06-25)** — type scale in `tokens.css` raised
       ~1–2px/step with matching line-heights (body 13→15, headings 28→32); Monaco
       13→15 and xterm 12→14 bumped directly (they don't read the tokens). User request.
