@@ -64,6 +64,18 @@ pub enum EngineEvent {
         usage: Usage,
         session_id: String,
     },
+    /// The CLI is asking permission to run a tool (P1 review queue, spec 3.6).
+    /// Raised from a `control_request{subtype:"can_use_tool"}` (not the engine's
+    /// own stream). The UI surfaces the approval card and answers via
+    /// `approve_permission`, which echoes `request_id` back in a `control_response`.
+    /// `input` is the proposed tool input — the basis for the diff/command
+    /// preview and the editable "Edit" path.
+    PermissionRequest {
+        request_id: String,
+        tool: String,
+        input: Value,
+        tool_use_id: String,
+    },
     Stopped,
     /// A line that could not be parsed — surfaced, never swallowed (spec 2.3).
     ParseError { raw: String },
@@ -131,6 +143,15 @@ impl WorkspaceRegistry {
             "--include-partial-messages",
             "--verbose",
             "--strict-mcp-config",
+            // Route permission decisions over the stdio control protocol (P1,
+            // spec 3.6). The `stdio` sentinel makes the CLI emit a
+            // `control_request{subtype:"can_use_tool"}` for any tool a static
+            // rule doesn't settle; we answer with a `control_response` carrying
+            // allow/deny (+ optional edited input). Verified against 2.1.191 —
+            // without this flag the CLI auto-denies headlessly. Read-only tools
+            // never prompt, so this adds no overhead to a read-only turn.
+            "--permission-prompt-tool",
+            "stdio",
         ]
         .iter()
         .map(|s| s.to_string())
@@ -265,6 +286,41 @@ impl WorkspaceRegistry {
             stdin.write_all(line.as_bytes()).await.map_err(stdin_err)?;
             stdin.flush().await.map_err(stdin_err)?;
         }
+        Ok(())
+    }
+
+    /// Answer a pending `can_use_tool` permission request (P1, spec 3.6) by
+    /// writing a `control_response` to the session's stdin, echoing the original
+    /// `request_id`. `allow` runs the tool with `updated_input` (the edited or
+    /// original proposed input — the "Edit" path); a deny passes `message`. The
+    /// nesting (`response.subtype = success`, inner `response.behavior`) matches
+    /// the control protocol verified against the installed CLI.
+    pub async fn resolve_permission(
+        &self,
+        workspace_id: &str,
+        request_id: &str,
+        allow: bool,
+        updated_input: Option<Value>,
+        message: Option<String>,
+    ) -> IpcResult<()> {
+        let ws = self.get(workspace_id).await?;
+        let inner = if allow {
+            json!({ "behavior": "allow", "updatedInput": updated_input.unwrap_or(json!({})) })
+        } else {
+            json!({ "behavior": "deny", "message": message.unwrap_or_else(|| "Denied".into()) })
+        };
+        let line = serde_json::to_string(&json!({
+            "type": "control_response",
+            "response": { "subtype": "success", "request_id": request_id, "response": inner },
+        }))
+        .expect("serialize permission response")
+            + "\n";
+        let mut guard = ws.stdin.lock().await;
+        let stdin = guard.as_mut().ok_or_else(|| {
+            IpcError::new(IpcErrorKind::InvalidInput, "The Claude session is closing")
+        })?;
+        stdin.write_all(line.as_bytes()).await.map_err(stdin_err)?;
+        stdin.flush().await.map_err(stdin_err)?;
         Ok(())
     }
 
@@ -421,6 +477,25 @@ pub fn parse_events(line: &str) -> Vec<EngineEvent> {
             session_id: str_field(&v, "session_id"),
         }],
 
+        // A control request *from* the CLI. The only one we act on is
+        // `can_use_tool` (the permission ask, spec 3.6); the `request_id` sits at
+        // the top level and must be echoed back verbatim in the response. Other
+        // control subtypes are benign and ignored.
+        "control_request" => {
+            let req = v.get("request");
+            if req.and_then(|r| r.get("subtype")).and_then(Value::as_str) == Some("can_use_tool") {
+                let req = req.unwrap();
+                vec![EngineEvent::PermissionRequest {
+                    request_id: str_field(&v, "request_id"),
+                    tool: str_field(req, "tool_name"),
+                    input: req.get("input").cloned().unwrap_or(Value::Null),
+                    tool_use_id: str_field(req, "tool_use_id"),
+                }]
+            } else {
+                vec![EngineEvent::Unknown { kind: "control_request".into() }]
+            }
+        }
+
         "" => vec![EngineEvent::Unknown { kind: "<missing type>".into() }],
         // rate_limit_event, control_response, and any future top-level types: benign.
         other => vec![EngineEvent::Unknown { kind: other.to_string() }],
@@ -531,6 +606,31 @@ mod tests {
         assert!(matches!(
             &parse_events(r#"{"type":"rate_limit_event","foo":1}"#)[..],
             [EngineEvent::Unknown { kind }] if kind == "rate_limit_event"
+        ));
+    }
+
+    // Real `can_use_tool` control request captured from claude 2.1.191 run with
+    // `--permission-prompt-tool stdio` (the P1 permission ask, spec 3.6).
+    const CAN_USE_TOOL: &str = r#"{"type":"control_request","request_id":"req-9","request":{"subtype":"can_use_tool","tool_name":"Write","display_name":"Write","input":{"file_path":"/x/a.txt","content":"hi"},"description":"a.txt","permission_suggestions":[{"type":"setMode","mode":"acceptEdits","destination":"session"}],"tool_use_id":"toolu_7"}}"#;
+
+    #[test]
+    fn parses_can_use_tool_permission_request() {
+        match &parse_events(CAN_USE_TOOL)[..] {
+            [EngineEvent::PermissionRequest { request_id, tool, input, tool_use_id }] => {
+                assert_eq!(request_id, "req-9"); // top-level id, echoed in the response
+                assert_eq!(tool, "Write");
+                assert_eq!(tool_use_id, "toolu_7");
+                assert_eq!(input.get("file_path").and_then(Value::as_str), Some("/x/a.txt"));
+            }
+            other => panic!("expected PermissionRequest, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn other_control_request_subtypes_are_benign() {
+        assert!(matches!(
+            &parse_events(r#"{"type":"control_request","request_id":"r","request":{"subtype":"mcp_message"}}"#)[..],
+            [EngineEvent::Unknown { kind }] if kind == "control_request"
         ));
     }
 }

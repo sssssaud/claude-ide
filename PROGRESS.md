@@ -14,8 +14,18 @@ the build is **gate-driven**, phase by phase.
   `--include-partial-messages`, `--resume`, `--fork-session`, `--from-pr`,
   `--session-id`, `--json-schema`, `--permission-mode`, `--mcp-config`,
   `--strict-mcp-config`, `--no-session-persistence`).
-- `--permission-prompt-tool` is **NOT** in `--help` → P1 (Phase 6) uses the Agent
-  SDK `canUseTool` path, as the spec anticipates.
+- `--permission-prompt-tool` is **NOT** in `--help`, BUT it still works and is the
+  P1 mechanism — **corrected/verified 2026-06-26 against 2.1.191 by live probe**
+  (scratchpad `perm_probe.py`). Passing **`--permission-prompt-tool stdio`** routes
+  permission decisions over the **stdio control protocol** (the same bidirectional
+  channel we already use for interrupt): the CLI emits `control_request{subtype:
+  "can_use_tool", request_id, request:{tool_name, input, tool_use_id, …}}` and we
+  answer with `control_response{response:{subtype:"success", request_id, response:
+  {behavior:"allow", updatedInput}}}` (or `{behavior:"deny", message}`). Proven
+  end-to-end: an `allow` response actually wrote the probe's file. **No Agent SDK
+  and no local MCP server are needed** — simpler than the spec's two options.
+  WITHOUT the flag the CLI auto-denies headlessly (so pre-Phase-6 the conversation
+  pane was effectively a read-only agent — every Write/Edit/Bash was denied).
 - `claude doctor` = auto-updater health check (not daemon status); daemon-status
   spelling to re-verify at Phase 9.
 - No per-project `sessions-index.json`; project dirs hold `<uuid>.jsonl` (+ a
@@ -442,9 +452,49 @@ because "can't see the code" was the biggest visible gap. Built slice-by-slice.
       ~1–2px/step with matching line-heights (body 13→15, headings 28→32); Monaco
       13→15 and xterm 12→14 bumped directly (they don't read the tokens). User request.
 
+### Phase 6 — P1 Change-review queue  ·  built (live gate pending) — 2026-06-26
+The permission/approval queue (spec 647–650, §3.6, §5.P1). **Diagnosed first**
+(per the operating contract) with `scratchpad/perm_probe.py` against the live
+2.1.191 binary, which corrected the spec's assumption: we don't need the Agent
+SDK `canUseTool` *or* a local MCP server — `--permission-prompt-tool stdio`
+routes the ask over the **stdio control protocol** we already speak (see the
+verified-facts note above; `allow` was proven to actually write a file).
+- [x] **6A — backend control-protocol plumbing.** `engine.rs`: added
+      `--permission-prompt-tool stdio` to the spawn args; new `EngineEvent::
+      PermissionRequest { request_id, tool, input, tool_use_id }` parsed from
+      `control_request{can_use_tool}` (top-level `request_id` echoed back; other
+      control subtypes stay benign `Unknown`); `resolve_permission(ws, request_id,
+      allow, updated_input, message)` writes the `control_response` (mirrors the
+      `cancel` interrupt path). New command `approve_permission` (validates
+      decision ∈ allow/deny) + lib.rs registration. 2 new golden tests (the real
+      `can_use_tool` line; a benign other-subtype) → **10 engine / 28 lib tests
+      pass**; zero rustc warnings.
+- [x] **6B — frontend wiring + approval card.** TS mirror gained
+      `permission_request`; `approvePermission` IPC wrapper. The `tool_use`
+      always precedes the ask (verified), so the conversation store **merges** the
+      pending decision into the matching tool card (`status:"awaiting"` + `perm`),
+      with a defensive create-if-absent. `resolvePermission(toolId, decision,
+      updatedInput?)` optimistically settles the card and sends the answer; on IPC
+      failure it reverts to `awaiting`. `ConversationPane` `ToolCard` renders an
+      inline approval block (accent-bordered, force-expanded) with a faithful
+      per-tool preview (Bash command / Write contents / Edit before→after / JSON)
+      and **Approve / Reject**.
+- [x] **6C — Edit path + safety.** Approve / **Edit** / Reject: an Edit toggle
+      reveals the proposed input as editable JSON; "Approve edited" parses it
+      (inline error on bad JSON) and runs `updatedInput`. Safety: a turn that ends
+      (interrupt or terminal result) while a card is still `awaiting` **settles**
+      it (`settleAwaiting`) so stale buttons can't answer an abandoned request —
+      fail-safe, the tool never ran. Simultaneous asks are independent
+      `tool_use_id`-keyed cards (no forced queue needed). Read-only tools never
+      prompt (CLI static rules settle them before the prompt tool, spec §3.6).
+- Verified without the app: typecheck clean; production vite build green; backend
+  zero-warning; protocol proven end-to-end by the probe. **Live gate (one click):**
+  ask Claude to create/edit a file → an approval card appears → Approve writes it,
+  Reject blocks it with a clean tool-error, Edit runs a modified version.
+
 ### Pending (later phases)
-- Phases 6–10 — P1 review queue, checkpoint timeline + permission manager,
-  cost + cross-session search, agents dashboard, cross-platform/theming/release.
+- Phases 7–10 — checkpoint timeline + permission manager, cost + cross-session
+  search, agents dashboard, cross-platform/theming/release.
 
 ## Blockers
 - None. Environment fully set up; production build green.
@@ -463,6 +513,11 @@ because "can't see the code" was the biggest visible gap. Built slice-by-slice.
   wrapper rule). So a true per-session delete needs a CLI command Anthropic doesn't yet
   ship; a guarded "purge this project's history" action (heavy, strong confirm) is the
   only sanctioned option. Defer to the polish phase / revisit when the CLI supports it.
+- **3 pre-existing clippy style lints** (not rustc warnings; surfaced 2026-06-26):
+  `files.rs:125` (manual char compare), `sessions.rs:184` (`sort_by_key`),
+  `sessions.rs:539` (collapsible `if`). All Phase 3/4 code, none from Phase 6; 2
+  are `--fix`-able. The established gate is zero-warning `cargo build` (clean);
+  fold a `cargo clippy --fix` sweep into the Phase 10 polish, not mid-phase.
 - Bundle Geist Sans/Mono font files (currently system-font fallback).
 - Tighten the CSP at the Phase 10 release audit.
 - Consider lazy-loading xterm too, to shave a little more off the initial chunk.

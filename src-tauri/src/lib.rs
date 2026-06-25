@@ -46,6 +46,7 @@ pub fn run(startup: Instant) {
             commands::open_workspace,
             commands::engine_send,
             commands::engine_cancel,
+            commands::approve_permission,
             commands::resume_workspace,
             commands::read_session,
             commands::close_workspace,

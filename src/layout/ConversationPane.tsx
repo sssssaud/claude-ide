@@ -154,13 +154,29 @@ function ToolCard({
   item: Extract<ConvItem, { kind: "tool" }>;
   defaultOpen: boolean;
 }) {
-  const [open, setOpen] = useState(defaultOpen);
-  const accent = item.isError ? "var(--color-status-danger)" : "var(--color-status-info)";
+  const awaiting = item.status === "awaiting";
+  // A pending approval is always expanded — the user must see the action to
+  // decide on it (spec 3.6 / 5.A.1).
+  const [open, setOpen] = useState(defaultOpen || awaiting);
+  useEffect(() => {
+    if (awaiting) setOpen(true);
+  }, [awaiting]);
+
+  const accent = awaiting
+    ? "var(--color-accent)"
+    : item.isError
+      ? "var(--color-status-danger)"
+      : "var(--color-status-info)";
+  const statusText =
+    item.status === "awaiting" ? "needs approval" : item.status === "running" ? "running…" : "done";
+
   return (
     <div
       style={{
         borderRadius: "var(--radius-md)",
-        border: "1px solid var(--color-border-subtle)",
+        border: awaiting
+          ? "1px solid var(--color-accent)"
+          : "1px solid var(--color-border-subtle)",
         background: "var(--color-bg-raised)",
       }}
     >
@@ -175,8 +191,8 @@ function ToolCard({
           {open ? "▾" : "▸"}
         </span>
         <span style={{ ...mono, color: accent }}>{item.name}</span>
-        <span style={{ ...mono, color: "var(--color-fg-muted)", fontSize: "var(--text-xs)" }}>
-          {item.status === "running" ? "running…" : "done"}
+        <span style={{ ...mono, color: awaiting ? "var(--color-accent)" : "var(--color-fg-muted)", fontSize: "var(--text-xs)" }}>
+          {statusText}
         </span>
       </button>
       {open && (
@@ -185,8 +201,157 @@ function ToolCard({
           {item.output !== undefined ? `\noutput: ${stringify(item.output)}` : ""}
         </pre>
       )}
+      {awaiting && <PermissionReview item={item} />}
     </div>
   );
+}
+
+/**
+ * Inline approval card for a tool the agent wants to run (P1, spec 3.6). Shows a
+ * faithful preview of the proposed action — a write's contents, an edit's
+ * before/after, a shell command — then Approve / Reject. The CLI is blocked
+ * until one is chosen; the answer resumes the turn (editing the proposed input
+ * before approving lands in a later slice).
+ */
+function PermissionReview({ item }: { item: Extract<ConvItem, { kind: "tool" }> }) {
+  const resolve = useActiveConversation((s) => s.resolvePermission);
+  const preview = permissionPreview(item.name, item.input);
+  // Edit mode: the proposed input as editable JSON. Approve then runs the
+  // user's edited version (`updatedInput`), not the original (spec 3.6).
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [parseErr, setParseErr] = useState<string | null>(null);
+
+  const startEditing = () => {
+    setDraft(stringify(item.input, 2));
+    setParseErr(null);
+    setEditing(true);
+  };
+
+  const approve = () => {
+    if (!editing) {
+      void resolve(item.id, "allow");
+      return;
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(draft);
+    } catch {
+      setParseErr("Edited input is not valid JSON");
+      return;
+    }
+    void resolve(item.id, "allow", parsed);
+  };
+
+  return (
+    <div
+      role="group"
+      aria-label={`Approve ${item.name}`}
+      style={{ borderTop: "1px solid var(--color-accent)", padding: "var(--space-4)" }}
+    >
+      <p style={{ ...mono, fontSize: "var(--text-xs)", color: "var(--color-fg-muted)", marginBottom: "var(--space-2)" }}>
+        {editing ? `Edit input — ${item.name}` : preview.label}
+      </p>
+      {editing ? (
+        <textarea
+          value={draft}
+          onChange={(e) => {
+            setDraft(e.currentTarget.value);
+            setParseErr(null);
+          }}
+          aria-label="Edit tool input (JSON)"
+          spellCheck={false}
+          style={{
+            width: "100%",
+            minHeight: "160px",
+            marginBottom: parseErr ? "var(--space-1)" : "var(--space-3)",
+            padding: "var(--space-3)",
+            borderRadius: "var(--radius-sm)",
+            background: "var(--color-bg-recessed)",
+            border: "1px solid var(--color-border-strong)",
+            color: "var(--color-fg-primary)",
+            fontFamily: "var(--font-mono)",
+            fontSize: "var(--text-xs)",
+            resize: "vertical",
+          }}
+        />
+      ) : (
+        <pre
+          style={{
+            margin: 0,
+            marginBottom: "var(--space-3)",
+            maxHeight: "240px",
+            overflow: "auto",
+            padding: "var(--space-3)",
+            borderRadius: "var(--radius-sm)",
+            background: "var(--color-bg-recessed)",
+            fontFamily: "var(--font-mono)",
+            fontSize: "var(--text-xs)",
+            color: "var(--color-fg-secondary)",
+            whiteSpace: "pre-wrap",
+          }}
+        >
+          {preview.body}
+        </pre>
+      )}
+      {parseErr && (
+        <p role="alert" style={{ marginBottom: "var(--space-2)", fontSize: "var(--text-xs)", color: "var(--color-status-danger)" }}>
+          {parseErr}
+        </p>
+      )}
+      <div className="flex items-center justify-end gap-[var(--space-3)]">
+        {!editing && (
+          <button
+            type="button"
+            onClick={startEditing}
+            className="mr-auto cursor-pointer"
+            style={{ ...stopBtn, borderColor: "var(--color-border-subtle)" }}
+          >
+            Edit
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={() => void resolve(item.id, "deny")}
+          className="cursor-pointer"
+          style={stopBtn}
+        >
+          Reject
+        </button>
+        <button type="button" onClick={approve} className="cursor-pointer" style={sendBtn}>
+          {editing ? "Approve edited" : "Approve"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** A human-readable preview of a proposed tool action for the approval card. */
+function permissionPreview(name: string, input: unknown): { label: string; body: string } {
+  const obj = (input ?? {}) as Record<string, unknown>;
+  const str = (k: string) => (typeof obj[k] === "string" ? (obj[k] as string) : undefined);
+  switch (name) {
+    case "Bash":
+      return {
+        label: str("description") ? `Run command — ${str("description")}` : "Run a shell command",
+        body: str("command") ?? stringify(input),
+      };
+    case "Write":
+      return {
+        label: `Write ${str("file_path") ?? "a file"}`,
+        body: str("content") ?? stringify(input),
+      };
+    case "Edit":
+      return {
+        label: `Edit ${str("file_path") ?? "a file"}`,
+        body:
+          str("old_string") !== undefined
+            ? `- ${str("old_string")}\n+ ${str("new_string") ?? ""}`
+            : stringify(input),
+      };
+    default:
+      return { label: `Run ${name}`, body: stringify(input, 2) };
+  }
 }
 
 function PromptBar() {
@@ -411,10 +576,10 @@ function Role({ label, color }: { label: string; color: string }) {
   return <span style={{ ...mono, color }}>{label}</span>;
 }
 
-function stringify(value: unknown): string {
+function stringify(value: unknown, indent?: number): string {
   if (typeof value === "string") return value;
   try {
-    return JSON.stringify(value);
+    return JSON.stringify(value, null, indent);
   } catch {
     return String(value);
   }

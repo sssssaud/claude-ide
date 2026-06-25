@@ -141,6 +141,13 @@ export type EngineEvent =
       usage: Usage;
       session_id: string;
     }
+  | {
+      type: "permission_request";
+      request_id: string;
+      tool: string;
+      input: unknown;
+      tool_use_id: string;
+    }
   | { type: "stopped" }
   | { type: "parse_error"; raw: string }
   | { type: "unknown"; kind: string };

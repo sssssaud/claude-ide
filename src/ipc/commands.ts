@@ -121,6 +121,32 @@ export async function engineCancel(workspaceId: string): Promise<void> {
 }
 
 /**
+ * Answer a pending permission request (P1 change-review queue). `decision` is
+ * "allow" or "deny". On allow, `updatedInput` is the tool input to run (the
+ * original proposed input, or the user's edited version); on deny, `message` is
+ * the reason shown to the agent. The CLI resumes the turn on either answer.
+ */
+export async function approvePermission(
+  workspaceId: string,
+  requestId: string,
+  decision: "allow" | "deny",
+  updatedInput?: unknown,
+  message?: string,
+): Promise<void> {
+  try {
+    await invoke<void>("approve_permission", {
+      workspaceId,
+      requestId,
+      decision,
+      updatedInput,
+      message,
+    });
+  } catch (e) {
+    normalizeError(e);
+  }
+}
+
+/**
  * Open a session that resumes (or, with `fork`, branches) a past `claude`
  * conversation by id. Events stream over `onEvent` like `openWorkspace`;
  * resolves to the workspace id. History is loaded separately (`readSession`).

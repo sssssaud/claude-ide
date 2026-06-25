@@ -100,6 +100,35 @@ pub async fn engine_cancel(
     registry.cancel(&workspace_id).await
 }
 
+/// Answer a pending permission request (P1 change-review queue, spec 3.6).
+/// `decision` is "allow" or "deny". On allow, `updated_input` is the tool input
+/// to run — the original proposed input, or the user's edited version ("Edit").
+/// On deny, `message` is the reason shown to the agent. Echoes `request_id` back
+/// to the CLI over the control protocol.
+#[tauri::command]
+pub async fn approve_permission(
+    workspace_id: String,
+    request_id: String,
+    decision: String,
+    updated_input: Option<serde_json::Value>,
+    message: Option<String>,
+    registry: State<'_, Arc<WorkspaceRegistry>>,
+) -> IpcResult<()> {
+    let allow = match decision.as_str() {
+        "allow" => true,
+        "deny" => false,
+        _ => {
+            return Err(IpcError::new(
+                IpcErrorKind::InvalidInput,
+                "decision must be \"allow\" or \"deny\"",
+            ))
+        }
+    };
+    registry
+        .resolve_permission(&workspace_id, &request_id, allow, updated_input, message)
+        .await
+}
+
 /// Open a session that resumes an existing `claude` conversation by id
 /// (`--resume`), or forks it into a new branch (`--fork-session`). Events stream
 /// over `on_event`; returns the new workspace id. History is loaded separately

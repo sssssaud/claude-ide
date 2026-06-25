@@ -7,6 +7,7 @@
 
 import { createStore, useStore, type StoreApi } from "zustand";
 import {
+  approvePermission,
   closeWorkspace,
   engineCancel,
   engineSend,
@@ -29,7 +30,10 @@ export type ConvItem =
       input: unknown;
       output?: unknown;
       isError?: boolean;
-      status: "running" | "done";
+      /** `awaiting` = the CLI is blocked on a permission decision (P1). */
+      status: "running" | "awaiting" | "done";
+      /** Present while a permission decision is pending/just made (P1, spec 3.6). */
+      perm?: { requestId: string; decided?: "allow" | "deny" };
     };
 
 interface ConversationState {
@@ -47,6 +51,17 @@ interface ConversationState {
   pendingOpen: { resume: string; fork: boolean } | null;
   send: (prompt: string) => Promise<void>;
   cancel: () => Promise<void>;
+  /**
+   * Answer a pending tool-permission request (P1 review queue). `toolId` is the
+   * tool card's id (== the CLI's `tool_use_id`); `updatedInput` (allow only)
+   * lets the user run an edited version of the proposed input. Resolves the
+   * blocked turn so the agent continues.
+   */
+  resolvePermission: (
+    toolId: string,
+    decision: "allow" | "deny",
+    updatedInput?: unknown,
+  ) => Promise<void>;
   /** Re-enter a past session: tears down the live child, loads history, queues a resume. */
   resume: (sessionId: string, fork?: boolean) => Promise<void>;
   /** Drop the current session and start a fresh conversation on the next turn. */
@@ -133,6 +148,40 @@ const makeConversationStore = (cwd: string): StoreApi<ConversationState> =>
             ),
           };
 
+        case "permission_request": {
+          // The agent wants to run a tool that needs approval (spec 3.6). The
+          // `tool_use` for it always arrives first, so attach the pending
+          // decision to that card (status → awaiting). If — defensively — no
+          // card exists yet, create one so the request is never lost.
+          turnProducedOutput = true;
+          const perm = { requestId: ev.request_id };
+          const exists = s.items.some(
+            (it) => it.kind === "tool" && it.id === ev.tool_use_id,
+          );
+          if (exists) {
+            return {
+              items: s.items.map((it) =>
+                it.kind === "tool" && it.id === ev.tool_use_id
+                  ? { ...it, input: ev.input, status: "awaiting", perm }
+                  : it,
+              ),
+            };
+          }
+          return {
+            items: [
+              ...s.items,
+              {
+                kind: "tool",
+                id: ev.tool_use_id,
+                name: ev.tool,
+                input: ev.input,
+                status: "awaiting",
+                perm,
+              },
+            ],
+          };
+        }
+
         case "result": {
           // The turn's terminal event. On an error result (e.g. a mid-turn
           // failure) mark the live bubble stopped — capture its id before reset.
@@ -149,7 +198,7 @@ const makeConversationStore = (cwd: string): StoreApi<ConversationState> =>
             cost: ev.total_cost_usd ?? s.cost,
             usage: ev.usage,
             sessionId: ev.session_id,
-            items: withCommandNotice(base),
+            items: withCommandNotice(settleAwaiting(base)),
           };
         }
 
@@ -159,7 +208,7 @@ const makeConversationStore = (cwd: string): StoreApi<ConversationState> =>
           const base = s.items.map((it) =>
             it.id === aid && it.kind === "assistant" ? { ...it, stopped: true } : it,
           );
-          return { streaming: false, items: withCommandNotice(base) };
+          return { streaming: false, items: withCommandNotice(settleAwaiting(base)) };
         }
 
         default:
@@ -167,6 +216,17 @@ const makeConversationStore = (cwd: string): StoreApi<ConversationState> =>
       }
     });
   };
+
+  // A turn that ends (interrupt, or a terminal result) while a permission card
+  // is still `awaiting` means the decision was never made — the CLI has moved
+  // on. Settle those cards so their live Approve/Reject buttons can't fire a
+  // response for an abandoned request (fail-safe: the tool never ran).
+  const settleAwaiting = (items: ConvItem[]): ConvItem[] =>
+    items.map((it) =>
+      it.kind === "tool" && it.status === "awaiting"
+        ? { ...it, status: "done", isError: true, output: "(not run — turn ended)", perm: undefined }
+        : it,
+    );
 
   // At a turn boundary, append a `✓ ran /cmd` trace if the turn was a slash
   // command that produced no visible output. Resets the per-turn command flag.
@@ -245,6 +305,45 @@ const makeConversationStore = (cwd: string): StoreApi<ConversationState> =>
         await engineCancel(wsId);
       } catch {
         /* best-effort; the turn will also end on its own */
+      }
+    },
+
+    resolvePermission: async (toolId, decision, updatedInput) => {
+      const wsId = get().workspaceId;
+      const item = get().items.find((it) => it.kind === "tool" && it.id === toolId);
+      if (!wsId || !item || item.kind !== "tool" || item.perm?.decided) return;
+      const requestId = item.perm?.requestId;
+      if (!requestId) return;
+      // Optimistically reflect the decision: the card drops its buttons and goes
+      // back to `running` (the CLI will send the tool_result shortly, flipping it
+      // to `done`). On allow, show the edited input if one was supplied.
+      const input = decision === "allow" ? (updatedInput ?? item.input) : item.input;
+      set((s) => ({
+        items: s.items.map((it) =>
+          it.kind === "tool" && it.id === toolId
+            ? { ...it, input, status: "running", perm: { requestId, decided: decision } }
+            : it,
+        ),
+      }));
+      try {
+        await approvePermission(
+          wsId,
+          requestId,
+          decision,
+          decision === "allow" ? input : undefined,
+          decision === "deny" ? "Rejected by the user" : undefined,
+        );
+      } catch (e) {
+        // The answer didn't reach the CLI; surface it and leave the turn to the
+        // user (the card returns to awaiting so they can retry the decision).
+        set((s) => ({
+          error: isIpcError(e) ? e.message : "Could not send the permission decision",
+          items: s.items.map((it) =>
+            it.kind === "tool" && it.id === toolId
+              ? { ...it, status: "awaiting", perm: { requestId } }
+              : it,
+          ),
+        }));
       }
     },
 
