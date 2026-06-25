@@ -9,8 +9,10 @@ import { useEffect, useRef, useState } from "react";
 import { search } from "@/ipc/commands";
 import { isIpcError, type SearchResults } from "@/ipc/types";
 import { useEditor } from "@/store/editor";
+import { useActiveCwd } from "@/store/workspaces";
 
 export function SearchPanel() {
+  const cwd = useActiveCwd();
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SearchResults | null>(null);
   const [loading, setLoading] = useState(false);
@@ -18,6 +20,8 @@ export function SearchPanel() {
   const openAt = useEditor((s) => s.openAt);
   const tokenRef = useRef(0);
 
+  // Re-runs on query change and on workspace switch (so results match the
+  // active workspace, never the previous one).
   useEffect(() => {
     const q = query.trim();
     if (!q) {
@@ -30,7 +34,7 @@ export function SearchPanel() {
     const token = ++tokenRef.current;
     const timer = setTimeout(async () => {
       try {
-        const r = await search(q);
+        const r = await search(q, cwd);
         if (token !== tokenRef.current) return; // a newer query superseded this one
         setResults(r);
         setError(null);
@@ -43,7 +47,7 @@ export function SearchPanel() {
       }
     }, 250);
     return () => clearTimeout(timer);
-  }, [query]);
+  }, [query, cwd]);
 
   const fileCount = results?.files.length ?? 0;
 

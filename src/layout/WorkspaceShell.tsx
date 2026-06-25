@@ -14,7 +14,7 @@
  */
 
 import type { CSSProperties } from "react";
-import { useEffect } from "react";
+import { useCallback, useEffect } from "react";
 import { Group, Panel, useDefaultLayout, usePanelRef } from "react-resizable-panels";
 import { SessionsPanel } from "@/layout/SessionsPanel";
 import { ConversationPane } from "@/layout/ConversationPane";
@@ -22,7 +22,9 @@ import { EditorRegion } from "@/layout/EditorRegion";
 import { ResizeSeparator } from "@/layout/ResizeSeparator";
 import { TerminalDrawer } from "@/layout/TerminalDrawer";
 import { useLayoutShortcuts } from "@/layout/useLayoutShortcuts";
+import { pickFolder } from "@/ipc/commands";
 import { useLayout, type Region } from "@/store/layout";
+import { useWorkspaces, type Workspace } from "@/store/workspaces";
 
 // Each panel's content fills it and clips internally (the regions own their own
 // scroll); applied to the nested content div the library renders.
@@ -38,6 +40,11 @@ export function WorkspaceShell() {
   const editorRef = usePanelRef();
 
   useLayoutShortcuts();
+
+  // Seed the launch workspace on first run so the tab bar is never empty.
+  useEffect(() => {
+    void useWorkspaces.getState().bootstrap();
+  }, []);
 
   // Reconcile each collapsible side panel to the store's visibility intent.
   // collapse()/expand() are no-ops when already in the target state, so this is
@@ -111,42 +118,135 @@ export function WorkspaceShell() {
 }
 
 function TabBar() {
+  const workspaces = useWorkspaces((s) => s.workspaces);
+  const activeId = useWorkspaces((s) => s.activeId);
+  const activate = useWorkspaces((s) => s.activate);
+  const close = useWorkspaces((s) => s.close);
+
+  const openFolder = useCallback(async () => {
+    const path = await pickFolder();
+    if (path) useWorkspaces.getState().add(path);
+  }, []);
+
   return (
     <div
       className="flex shrink-0 items-center justify-between gap-[var(--space-3)]"
       style={{
         height: "var(--space-7)",
-        padding: "0 var(--space-3) 0 var(--space-4)",
+        padding: "0 var(--space-3) 0 var(--space-3)",
         background: "var(--color-bg-recessed)",
         borderBottom: "1px solid var(--color-border-subtle)",
       }}
     >
-      <div
-        className="flex items-center gap-[var(--space-3)]"
-        style={{
-          height: "calc(var(--space-7) - var(--space-2))",
-          padding: "0 var(--space-4)",
-          borderRadius: "var(--radius-sm)",
-          background: "var(--color-bg-raised)",
-        }}
-      >
+      <div className="flex min-w-0 items-center gap-[var(--space-2)]">
         <span
           className="status-lamp-pulse"
           aria-hidden="true"
           style={{
+            flexShrink: 0,
+            marginLeft: "var(--space-1)",
             width: "8px",
             height: "8px",
             borderRadius: "50%",
             background: "var(--color-status-running)",
           }}
         />
-        <span
-          style={{ fontFamily: "var(--font-mono)", fontSize: "var(--text-xs)", color: "var(--color-fg-primary)" }}
+        <div role="tablist" aria-label="Workspaces" className="flex min-w-0 items-center gap-[2px]">
+          {workspaces.map((w) => (
+            <WorkspaceTab
+              key={w.id}
+              ws={w}
+              active={w.id === activeId}
+              canClose={workspaces.length > 1}
+              onActivate={() => activate(w.id)}
+              onClose={() => close(w.id)}
+            />
+          ))}
+        </div>
+        <button
+          type="button"
+          onClick={() => void openFolder()}
+          aria-label="Open folder"
+          title="Open Folder…"
+          className="flex shrink-0 cursor-pointer items-center justify-center"
+          style={{
+            width: "var(--space-6)",
+            height: "var(--space-6)",
+            border: "none",
+            borderRadius: "var(--radius-sm)",
+            background: "transparent",
+            color: "var(--color-fg-muted)",
+            fontFamily: "var(--font-mono)",
+            fontSize: "var(--text-sm)",
+            lineHeight: 1,
+          }}
         >
-          claude-ide
-        </span>
+          +
+        </button>
       </div>
       <PanelToggles />
+    </div>
+  );
+}
+
+function WorkspaceTab({
+  ws,
+  active,
+  canClose,
+  onActivate,
+  onClose,
+}: {
+  ws: Workspace;
+  active: boolean;
+  canClose: boolean;
+  onActivate: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <div
+      role="tab"
+      aria-selected={active}
+      className="group flex min-w-0 cursor-pointer items-center gap-[var(--space-2)]"
+      onClick={onActivate}
+      title={ws.path}
+      style={{
+        height: "calc(var(--space-7) - var(--space-2))",
+        maxWidth: "180px",
+        padding: "0 var(--space-2) 0 var(--space-3)",
+        borderRadius: "var(--radius-sm)",
+        background: active ? "var(--color-bg-raised)" : "transparent",
+        color: active ? "var(--color-fg-primary)" : "var(--color-fg-secondary)",
+        fontFamily: "var(--font-mono)",
+        fontSize: "var(--text-xs)",
+      }}
+    >
+      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+        {ws.name}
+      </span>
+      {canClose && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onClose();
+          }}
+          aria-label={`Close ${ws.name}`}
+          title={`Close ${ws.name}`}
+          className="flex shrink-0 cursor-pointer items-center justify-center"
+          style={{
+            width: "16px",
+            height: "16px",
+            border: "none",
+            borderRadius: "var(--radius-sm)",
+            background: "transparent",
+            color: "var(--color-fg-muted)",
+            fontSize: "12px",
+            lineHeight: 1,
+          }}
+        >
+          ✕
+        </button>
+      )}
     </div>
   );
 }

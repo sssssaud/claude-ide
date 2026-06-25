@@ -10,17 +10,20 @@ import { FileExplorer } from "@/layout/FileExplorer";
 import { GitPanel } from "@/layout/GitPanel";
 import { SearchPanel } from "@/layout/SearchPanel";
 import { useGit } from "@/store/git";
+import { useActiveCwd } from "@/store/workspaces";
 
 type View = "files" | "git" | "search";
 
 export function Sidebar() {
   const [view, setView] = useState<View>("files");
   const changeCount = useGit((s) => s.status?.changes.length ?? 0);
+  const cwd = useActiveCwd();
 
-  // Populate the source-control badge at startup, even before the view is opened.
+  // Populate the source-control badge at startup, and re-read whenever the
+  // active workspace changes so the badge + status track the open folder.
   useEffect(() => {
     void useGit.getState().refresh();
-  }, []);
+  }, [cwd]);
 
   return (
     <aside className="flex h-full flex-col" style={{ background: "var(--color-bg-raised)" }}>

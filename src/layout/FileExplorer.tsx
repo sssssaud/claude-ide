@@ -10,20 +10,26 @@ import { listDir } from "@/ipc/commands";
 import type { DirEntry } from "@/ipc/types";
 import { isIpcError } from "@/ipc/types";
 import { useEditor } from "@/store/editor";
+import { useActiveCwd } from "@/store/workspaces";
 
 export function FileExplorer() {
+  const cwd = useActiveCwd();
   const [roots, setRoots] = useState<DirEntry[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // Re-root whenever the active workspace changes: reload the top level and
+  // (via the keyed wrapper below) reset every expanded node's state.
   useEffect(() => {
     let alive = true;
-    listDir()
+    setRoots(null);
+    setError(null);
+    listDir(undefined, cwd)
       .then((entries) => alive && setRoots(entries))
       .catch((e) => alive && setError(isIpcError(e) ? e.message : "Could not read the folder"));
     return () => {
       alive = false;
     };
-  }, []);
+  }, [cwd]);
 
   return (
     <div className="flex h-full flex-col">
@@ -35,14 +41,19 @@ export function FileExplorer() {
         ) : roots.length === 0 ? (
           <Note text="Empty folder." />
         ) : (
-          roots.map((entry) => <TreeNode key={entry.path} entry={entry} depth={0} />)
+          // Keyed on cwd so switching workspaces remounts the tree (fresh expansion).
+          <div key={cwd ?? "default"}>
+            {roots.map((entry) => (
+              <TreeNode key={entry.path} entry={entry} depth={0} cwd={cwd} />
+            ))}
+          </div>
         )}
       </div>
     </div>
   );
 }
 
-function TreeNode({ entry, depth }: { entry: DirEntry; depth: number }) {
+function TreeNode({ entry, depth, cwd }: { entry: DirEntry; depth: number; cwd: string | undefined }) {
   const [expanded, setExpanded] = useState(false);
   const [children, setChildren] = useState<DirEntry[] | null>(null);
   const [loading, setLoading] = useState(false);
@@ -60,7 +71,7 @@ function TreeNode({ entry, depth }: { entry: DirEntry; depth: number }) {
     if (next && children === null) {
       setLoading(true);
       try {
-        setChildren(await listDir(entry.path));
+        setChildren(await listDir(entry.path, cwd));
       } catch {
         setChildren([]);
       } finally {
@@ -100,7 +111,7 @@ function TreeNode({ entry, depth }: { entry: DirEntry; depth: number }) {
         <>
           {loading && <Note text="…" depth={depth + 1} />}
           {children?.map((child) => (
-            <TreeNode key={child.path} entry={child} depth={depth + 1} />
+            <TreeNode key={child.path} entry={child} depth={depth + 1} cwd={cwd} />
           ))}
         </>
       )}

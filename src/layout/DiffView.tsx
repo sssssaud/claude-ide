@@ -20,6 +20,7 @@ import { EmptyState, LoadingState } from "@/components/states";
 import { languageForPath } from "@/editor/language";
 import { defineClaudeTheme, MONACO_THEME } from "@/editor/monacoSetup";
 import { gitDiff, writeFile } from "@/ipc/commands";
+import { activeCwd } from "@/store/workspaces";
 import { isIpcError, type GitDiff } from "@/ipc/types";
 import { useGit } from "@/store/git";
 import type { EditorTab } from "@/store/editor";
@@ -47,7 +48,7 @@ export function DiffView({ tab }: { tab: EditorTab }) {
     setState({ kind: "loading" });
     setDirty(false);
     setSaveError(null);
-    gitDiff(file, staged)
+    gitDiff(file, staged, activeCwd())
       .then((diff) => {
         if (!alive) return;
         setState(diff.binary ? { kind: "binary" } : { kind: "ready", diff });
@@ -67,7 +68,7 @@ export function DiffView({ tab }: { tab: EditorTab }) {
     const model = ed.getModifiedEditor().getModel();
     if (!model) return;
     try {
-      await writeFile(file, model.getValue());
+      await writeFile(file, model.getValue(), activeCwd());
       savedVersionRef.current = model.getAlternativeVersionId();
       setDirty(false);
       setSaveError(null);

@@ -19,6 +19,7 @@ import {
   gitUnstageAll,
 } from "@/ipc/commands";
 import { isIpcError, type GitBranches, type GitStatus } from "@/ipc/types";
+import { activeCwd } from "@/store/workspaces";
 
 interface GitState {
   status: GitStatus | null;
@@ -64,7 +65,7 @@ export const useGit = create<GitState>((set, get) => {
     refresh: async () => {
       set({ loading: true, error: null });
       try {
-        set({ status: await gitStatus(), loading: false });
+        set({ status: await gitStatus(activeCwd()), loading: false });
       } catch (e) {
         set({
           error: isIpcError(e) ? e.message : "Could not read git status",
@@ -74,17 +75,17 @@ export const useGit = create<GitState>((set, get) => {
     },
     loadBranches: async () => {
       try {
-        set({ branches: await gitBranches() });
+        set({ branches: await gitBranches(activeCwd()) });
       } catch (e) {
         set({ error: isIpcError(e) ? e.message : "Could not read branches" });
       }
     },
-    stage: (path) => mutate(() => gitStage(path)),
-    unstage: (path) => mutate(() => gitUnstage(path)),
-    stageAll: () => mutate(() => gitStageAll()),
-    unstageAll: () => mutate(() => gitUnstageAll()),
-    switchBranch: (name) => mutateBranch(() => gitSwitchBranch(name)),
-    createBranch: (name) => mutateBranch(() => gitCreateBranch(name)),
-    discard: (path) => mutate(() => gitDiscard(path)),
+    stage: (path) => mutate(() => gitStage(path, activeCwd())),
+    unstage: (path) => mutate(() => gitUnstage(path, activeCwd())),
+    stageAll: () => mutate(() => gitStageAll(activeCwd())),
+    unstageAll: () => mutate(() => gitUnstageAll(activeCwd())),
+    switchBranch: (name) => mutateBranch(() => gitSwitchBranch(name, activeCwd())),
+    createBranch: (name) => mutateBranch(() => gitCreateBranch(name, activeCwd())),
+    discard: (path) => mutate(() => gitDiscard(path, activeCwd())),
   };
 });

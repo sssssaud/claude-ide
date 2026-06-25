@@ -42,6 +42,7 @@ pub fn run(startup: Instant) {
             commands::preflight,
             commands::report_ready,
             commands::perf_stats,
+            commands::default_workspace,
             commands::open_workspace,
             commands::engine_send,
             commands::engine_cancel,

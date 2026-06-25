@@ -5,6 +5,7 @@
  */
 
 import { Channel, invoke } from "@tauri-apps/api/core";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
 // Type-only: the resumed-session history mirrors the conversation store's item
 // shape. Erased at build time, so no runtime import cycle with the store.
 import type { ConvItem } from "@/store/conversation";
@@ -73,6 +74,29 @@ export async function openWorkspace(
   channel.onmessage = onEvent;
   try {
     return await invoke<string>("open_workspace", { cwd, onEvent: channel });
+  } catch (e) {
+    normalizeError(e);
+  }
+}
+
+/**
+ * Native "Open Folder…" picker. Resolves to the chosen absolute directory path,
+ * or null if the user cancelled. (Single directory; the dialog capability is
+ * scoped to open-only.)
+ */
+export async function pickFolder(): Promise<string | null> {
+  try {
+    const selected = await openDialog({ directory: true, multiple: false, title: "Open Folder" });
+    return typeof selected === "string" ? selected : null;
+  } catch (e) {
+    normalizeError(e);
+  }
+}
+
+/** The default workspace root (canonical absolute path) to seed the first tab. */
+export async function defaultWorkspace(): Promise<string> {
+  try {
+    return await invoke<string>("default_workspace");
   } catch (e) {
     normalizeError(e);
   }

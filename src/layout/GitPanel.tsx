@@ -9,6 +9,7 @@
 
 import { useEffect, useState } from "react";
 import { gitCommit } from "@/ipc/commands";
+import { activeCwd } from "@/store/workspaces";
 import { isIpcError, type GitChange } from "@/ipc/types";
 import { useEditor } from "@/store/editor";
 import { useGit } from "@/store/git";
@@ -199,7 +200,7 @@ function CommitBox({ stagedCount }: { stagedCount: number }) {
     setBusy(true);
     setFeedback(null);
     try {
-      await gitCommit(message);
+      await gitCommit(message, activeCwd());
       setMessage("");
       setFeedback({ tone: "ok", text: "Committed." });
       await refresh();

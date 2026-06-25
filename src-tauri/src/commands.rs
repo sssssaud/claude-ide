@@ -47,6 +47,16 @@ pub fn perf_stats(state: State<'_, AppState>) -> IpcResult<PerfStats> {
     Ok(perf::stats(state.cold_start_ms()))
 }
 
+/// The default workspace root (canonical absolute path) the app should seed its
+/// first tab with — the launch / `CLAUDE_IDE_WORKSPACE` directory (spec 3.2).
+/// The frontend "Open Folder…" picker adds further workspaces beyond this one.
+#[tauri::command]
+pub fn default_workspace() -> IpcResult<String> {
+    let path = crate::workspace::resolve_cwd(None)?;
+    let path = std::fs::canonicalize(&path).unwrap_or(path);
+    Ok(path.to_string_lossy().into_owned())
+}
+
 /// Open a persistent `claude` engine session. Every event for the session
 /// streams back over `on_event`; returns the workspace id used by the other
 /// engine commands. `cwd` defaults to the launch directory (picker is Phase 4).
