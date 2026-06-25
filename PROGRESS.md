@@ -385,8 +385,19 @@ because "can't see the code" was the biggest visible gap. Built slice-by-slice.
         cwd. Diff editor font 13→15 (font-bump consistency). Consumers updated:
         EditorPane, EditorTabs, EditorRegion, DiffView, FileExplorer, SearchPanel,
         GitPanel.
-  - [ ] **B6 — per-workspace terminal**: a kept-alive xterm+PTY per workspace (still
-        bound to the launch cwd today — the standing PTY follow-up folds in here).
+  - [x] **B6 — per-workspace terminal (2026-06-25) — built; typecheck + prod build
+        clean, HMR verified.** Each workspace gets its own xterm + PTY rooted in its
+        cwd (`ptyOpen(..., cwd)`); the active one is shown and the others stay mounted
+        (shell alive, `visibility:hidden`) so switching is instant with no reflow or
+        restart. Shell spawns lazily on first focus, then kept alive (dev log confirmed
+        only the active workspace's shell opens). Shared chrome (drag-resize, label,
+        hide toggle) stays in the parent; restart / exited act on the active terminal
+        via a small registration map. Per-instance lifecycle (epoch guard, EOF reap,
+        clean teardown) preserved; a workspace close unmounts its terminal → reaps its
+        PTY. Resolves the standing "PTY still uses src-tauri/launch cwd" follow-up.
+  - **Slice B COMPLETE** (A + B1–B6): workspaces as tabs, each cwd bound to its own
+    engine session + conversation + sessions list + sidebar + editor + terminal, with
+    instant keep-alive switching and no context bleed.
 - [ ] **Slice C — hardening**: every empty/loading/error state filled; perf-budget
       pass; a11y pass; "no-placeholders" grep clean → tag v1.
 - [x] **Global font-size bump (2026-06-25)** — type scale in `tokens.css` raised
