@@ -8,17 +8,17 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent } from "react";
-import { useConversation, type ConvItem } from "@/store/conversation";
+import { useActiveConversation, type ConvItem } from "@/store/conversation";
 
 // Built-in session commands confirmed present in the CLI (2.1.190) — used as the
 // slash menu's source until the live `slash_commands` list arrives with `init`.
 const FALLBACK_SLASH = ["clear", "compact", "context", "config", "usage", "status"];
 
 export function ConversationPane() {
-  const items = useConversation((s) => s.items);
-  const streaming = useConversation((s) => s.streaming);
-  const error = useConversation((s) => s.error);
-  const truncated = useConversation((s) => s.truncated);
+  const items = useActiveConversation((s) => s.items);
+  const streaming = useActiveConversation((s) => s.streaming);
+  const error = useActiveConversation((s) => s.error);
+  const truncated = useActiveConversation((s) => s.truncated);
   const bottomRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -61,9 +61,9 @@ export function ConversationPane() {
 }
 
 function PaneHeader() {
-  const usage = useConversation((s) => s.usage);
-  const cost = useConversation((s) => s.cost);
-  const model = useConversation((s) => s.model);
+  const usage = useActiveConversation((s) => s.usage);
+  const cost = useActiveConversation((s) => s.cost);
+  const model = useActiveConversation((s) => s.model);
 
   const ctx =
     usage != null
@@ -193,10 +193,10 @@ function PromptBar() {
   const [value, setValue] = useState("");
   const [sel, setSel] = useState(0);
   const [dismissed, setDismissed] = useState(false);
-  const streaming = useConversation((s) => s.streaming);
-  const send = useConversation((s) => s.send);
-  const cancel = useConversation((s) => s.cancel);
-  const liveCommands = useConversation((s) => s.slashCommands);
+  const streaming = useActiveConversation((s) => s.streaming);
+  const send = useActiveConversation((s) => s.send);
+  const cancel = useActiveConversation((s) => s.cancel);
+  const liveCommands = useActiveConversation((s) => s.slashCommands);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   const commands = liveCommands.length ? liveCommands : FALLBACK_SLASH;

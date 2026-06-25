@@ -8,7 +8,7 @@
 
 import { useEffect, type ReactNode } from "react";
 import { useSessions } from "@/store/sessions";
-import { useConversation } from "@/store/conversation";
+import { useActiveConversation } from "@/store/conversation";
 import { useActiveCwd } from "@/store/workspaces";
 import type { SessionMeta } from "@/ipc/types";
 
@@ -19,10 +19,10 @@ export function SessionsPanel() {
   const loaded = slice?.loaded ?? false;
   const error = slice?.error ?? null;
   const init = useSessions((s) => s.init);
-  const activeId = useConversation((s) => s.sessionId);
-  const streaming = useConversation((s) => s.streaming);
-  const resume = useConversation((s) => s.resume);
-  const newSession = useConversation((s) => s.newSession);
+  const activeId = useActiveConversation((s) => s.sessionId);
+  const streaming = useActiveConversation((s) => s.streaming);
+  const resume = useActiveConversation((s) => s.resume);
+  const newSession = useActiveConversation((s) => s.newSession);
 
   useEffect(() => {
     if (cwd) void init(cwd);

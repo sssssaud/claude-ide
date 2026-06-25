@@ -5,7 +5,7 @@
  * ignored (newer-CLI tolerance, spec 2.3).
  */
 
-import { create } from "zustand";
+import { createStore, useStore, type StoreApi } from "zustand";
 import {
   closeWorkspace,
   engineCancel,
@@ -16,6 +16,7 @@ import {
 } from "@/ipc/commands";
 import type { EngineEvent, Usage } from "@/ipc/types";
 import { isIpcError } from "@/ipc/types";
+import { useWorkspaces } from "@/store/workspaces";
 
 export type ConvItem =
   | { kind: "user"; id: string; text: string }
@@ -52,7 +53,13 @@ interface ConversationState {
   newSession: () => void;
 }
 
-export const useConversation = create<ConversationState>((set, get) => {
+// One conversation store per workspace (Phase 5). The body is identical to the
+// single-workspace store it grew from — wrapping it in a factory gives each
+// workspace its own fully isolated conversation (items, live `claude` session,
+// and the per-turn cursors below are closure-local, so they never bleed across
+// workspaces). `cwd` is the workspace root every engine call routes through.
+const makeConversationStore = (cwd: string): StoreApi<ConversationState> =>
+  createStore<ConversationState>((set, get) => {
   // Module-local cursors (not reactive state): which assistant bubble is
   // currently accumulating deltas. Reset on tool calls and turn boundaries so a
   // post-tool reply renders as a new bubble.
@@ -203,8 +210,8 @@ export const useConversation = create<ConversationState>((set, get) => {
           const pending = get().pendingOpen;
           const onEvent = channelFor(epoch);
           wsId = pending
-            ? await resumeWorkspace(onEvent, pending.resume, pending.fork)
-            : await openWorkspace(onEvent);
+            ? await resumeWorkspace(onEvent, pending.resume, pending.fork, cwd)
+            : await openWorkspace(onEvent, cwd);
           set({ workspaceId: wsId, pendingOpen: null });
         }
         await engineSend(wsId, text);
@@ -258,7 +265,7 @@ export const useConversation = create<ConversationState>((set, get) => {
         pendingOpen: { resume: sessionId, fork },
       });
       try {
-        const t = await readSession(sessionId);
+        const t = await readSession(sessionId, cwd);
         // Apply only if this resume is still the current intent (guards against a
         // second click superseding a slow transcript read).
         set((s) =>
@@ -291,4 +298,46 @@ export const useConversation = create<ConversationState>((set, get) => {
       });
     },
   };
+});
+
+// ---- Per-workspace registry + active-workspace access ----------------------
+// id === the workspace's absolute path (also its cwd). Stores are created
+// lazily on first use and kept alive across tab switches, so each workspace's
+// live `claude` session, history, cost, and in-flight turn all persist — that's
+// what makes switching instant with no context bleed.
+const stores = new Map<string, StoreApi<ConversationState>>();
+// A stable, inert store for the brief pre-bootstrap window when there is no
+// active workspace yet (never opened, so it spawns no `claude` process).
+const emptyStore = makeConversationStore("");
+
+function conversationStoreFor(id: string): StoreApi<ConversationState> {
+  let store = stores.get(id);
+  if (!store) {
+    store = makeConversationStore(id);
+    stores.set(id, store);
+  }
+  return store;
+}
+
+/** Select from the active workspace's conversation. Re-subscribes when the
+ *  active workspace changes, so the hero always shows the focused workspace. */
+export function useActiveConversation<T>(selector: (s: ConversationState) => T): T {
+  const activeId = useWorkspaces((s) => s.activeId);
+  return useStore(activeId ? conversationStoreFor(activeId) : emptyStore, selector);
+}
+
+// When a workspace tab closes, reap its `claude` session and drop its store so
+// no orphan process lingers (spec 2.5 "no zombie"). App-exit teardown reaps
+// everything anyway; this just makes a per-tab close prompt.
+let knownIds = new Set(useWorkspaces.getState().workspaces.map((w) => w.id));
+useWorkspaces.subscribe((state) => {
+  const ids = new Set(state.workspaces.map((w) => w.id));
+  for (const id of knownIds) {
+    if (!ids.has(id)) {
+      const wsId = stores.get(id)?.getState().workspaceId;
+      if (wsId) void closeWorkspace(wsId).catch(() => {});
+      stores.delete(id);
+    }
+  }
+  knownIds = ids;
 });
