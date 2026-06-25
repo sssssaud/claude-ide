@@ -287,6 +287,7 @@ function PromptBar() {
             role="combobox"
             aria-expanded={menuOpen}
             aria-controls="slash-menu"
+            aria-activedescendant={menuOpen ? `slash-opt-${selected}` : undefined}
             className="flex-1 bg-transparent outline-none"
             style={{
               border: "none",
@@ -349,7 +350,13 @@ function SlashMenu({
       }}
     >
       {matches.map((cmd, i) => (
-        <li key={cmd} role="option" aria-selected={i === selected} ref={i === selected ? selRef : null}>
+        <li
+          key={cmd}
+          id={`slash-opt-${i}`}
+          role="option"
+          aria-selected={i === selected}
+          ref={i === selected ? selRef : null}
+        >
           <button
             type="button"
             // mousedown (not click) so the pick fires before the input blurs

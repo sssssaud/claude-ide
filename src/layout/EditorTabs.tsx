@@ -52,6 +52,13 @@ export function EditorTabs({ store }: { store: StoreApi<EditorState> }) {
               }
             }}
             onClick={() => activate(tab.path)}
+            tabIndex={0}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                activate(tab.path);
+              }
+            }}
             className="group flex shrink-0 cursor-pointer items-center gap-[var(--space-2)]"
             style={{
               height: "100%",

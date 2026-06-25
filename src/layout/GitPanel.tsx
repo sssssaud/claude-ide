@@ -581,6 +581,12 @@ function BranchSwitcher({ branch, sync }: { branch: string | null; sync: string 
           <div onClick={close} className="fixed inset-0" style={{ zIndex: 30 }} aria-hidden="true" />
           <div
             role="menu"
+            onKeyDown={(e) => {
+              if (e.key === "Escape") {
+                e.preventDefault();
+                close();
+              }
+            }}
             className="absolute overflow-y-auto"
             style={{
               top: "calc(100% + var(--space-2))",

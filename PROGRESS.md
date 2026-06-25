@@ -402,9 +402,19 @@ because "can't see the code" was the biggest visible gap. Built slice-by-slice.
   - [x] **"no-placeholders" gate (2026-06-25)** — grep over `src` + `src-tauri/src`
         for todo/fixme/placeholder/coming-soon/not-implemented/wip/dummy/mock/stub/tbd
         returned ZERO hits. Clean.
-  - [ ] empty / loading / error state audit across every panel.
+  - [x] **empty / loading / error state audit (2026-06-25)** — every panel reviewed
+        (Sessions, Conversation, FileExplorer, Search, Git, Editor, Diff, Preflight):
+        all have intentional empty/loading/error variants with proper roles via the
+        shared `states.tsx` primitives. No blank panes; no gaps found.
+  - [x] **a11y pass (2026-06-25)** — focus baseline already solid (`:focus-visible`
+        ring + reduced-motion honored). Fixed: workspace tabs + editor tabs were
+        `role="tab"` divs (must be divs — they nest a close button) with no keyboard
+        operability → added `tabIndex` + Enter/Space activation; git branch menu now
+        closes on Escape (not just click-away); prompt-bar combobox got
+        `aria-activedescendant` + option ids. Interactive controls have labels/roles;
+        contrast is token-driven (WCAG-AA per tokens). Follow-up (Phase 10 polish):
+        full APG roving-tabindex + arrow-key nav for the tablists.
   - [ ] perf-budget pass (live measurement on the reference machine).
-  - [ ] a11y pass (keyboard nav, roles/labels, focus, contrast).
   - [ ] → tag v1 (with the user).
 - [x] **Global font-size bump (2026-06-25)** — type scale in `tokens.css` raised
       ~1–2px/step with matching line-heights (body 13→15, headings 28→32); Monaco

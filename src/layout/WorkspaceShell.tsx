@@ -206,8 +206,15 @@ function WorkspaceTab({
     <div
       role="tab"
       aria-selected={active}
+      tabIndex={0}
       className="group flex min-w-0 cursor-pointer items-center gap-[var(--space-2)]"
       onClick={onActivate}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onActivate();
+        }
+      }}
       title={ws.path}
       style={{
         height: "calc(var(--space-7) - var(--space-2))",
