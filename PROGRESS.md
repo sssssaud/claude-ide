@@ -28,6 +28,20 @@ the build is **gate-driven**, phase by phase.
   pane was effectively a read-only agent — every Write/Edit/Bash was denied).
 - `claude doctor` = auto-updater health check (not daemon status); daemon-status
   spelling to re-verify at Phase 9.
+- **Checkpoint / rewind (Phase 7 P2) — decoded read-only, verified 2026-06-26.**
+  The CLI exposes **no programmatic rewind/restore** (no `--help` flag, no
+  subcommand — `claude project` only has `purge`, no slash command, and the
+  control-protocol `initialize` response advertises no rewind capability). Rewind
+  is a TUI-only feature (double-Esc); a stream-json wrapper can't drive it, and
+  hand-rolling restore is forbidden (wrapper rule). **But file history is fully
+  readable:** `~/.claude/file-history/<session-id>/<hash>@v<N>` where
+  **`<hash> = hex(sha256(absolute_path))[:16]`** (proven: MEMORY.md's abspath →
+  `7f5d8f548efb3025`, exact match) and `@v<N>` are successive versions (each file
+  raw content at that version; N increments per edit, starts at v2). No manifest
+  in the dir, so map **hash→path via the transcript's Write/Edit `file_path`s**.
+  ⇒ Phase 7 P2 = a **read-only** checkpoint timeline + diff preview (snapshot vs
+  snapshot/current). RESTORE deferred until Anthropic ships an API (user's call,
+  2026-06-26). `~/.claude/file-history` is READ-ONLY for us (never modify).
 - No per-project `sessions-index.json`; project dirs hold `<uuid>.jsonl` (+ a
   `memory/`). Boot session resolution will use `~/.claude.json` + jsonl
   enumeration (Phase 3 detail).
@@ -492,9 +506,35 @@ verified-facts note above; `allow` was proven to actually write a file).
   ask Claude to create/edit a file → an approval card appears → Approve writes it,
   Reject blocks it with a clean tool-error, Edit runs a modified version.
 
+### Phase 7 — P2 checkpoint timeline (read-only) + P3 permission manager  ·  in progress
+Scope set with the user 2026-06-26: the CLI has **no rewind/restore API**, so P2
+is a **read-only** checkpoint timeline + snapshot-vs-current diff preview
+(restore deferred until Anthropic ships an API); P3 (permission manager) is built
+fully. Mechanism decoded + verified above (file-history hash = sha256(abspath)[:16]).
+- [x] **7A backend — checkpoint timeline + diff (read-only).** New `checkpoints.rs`:
+      `timeline(cwd, session_id)` pairs the on-disk `~/.claude/file-history/<sid>/
+      <hash>@v<N>` snapshots with the transcript's Write/Edit/MultiEdit/NotebookEdit
+      `file_path`s (hash→path map), returns in-workspace entries newest-first;
+      `diff(cwd, session_id, path, version)` returns that version's snapshot vs the
+      current on-disk file (reuses the root-confined `files::read_file` for the
+      current side; binary/size-guarded). Pure helpers (`path_hash`,
+      `parse_snapshot_name`, `collect_edited_paths`) are golden-tested (3 tests →
+      **29 lib tests**). Added `sha2` dep; exposed `sessions::{home_dir,
+      claude_projects_dir, resolve_project_dir}` as `pub(crate)`. Commands
+      `checkpoint_timeline` / `checkpoint_diff` + lib.rs registration. Zero rustc
+      warnings. **Proven against real data:** our session resolved 58/59 in-root
+      edits to snapshots (e.g. commands.rs v2–17, PROGRESS.md v2–26). READ-ONLY —
+      never writes `~/.claude/file-history`.
+- [ ] **7A frontend** — TS mirror + IPC wrappers; checkpoint timeline UI in the
+      Sessions/Timeline Rail (per-session edit history) + snapshot-vs-current diff
+      preview (reuse the Monaco diff overlay).
+- [ ] **7B — P3 permission manager** — read/write project `.claude/settings.json`
+      (allow/deny/ask, defaultMode, additionalDirectories) + a "would this prompt?"
+      tester. Builds on Phase 6.
+
 ### Pending (later phases)
-- Phases 7–10 — checkpoint timeline + permission manager, cost + cross-session
-  search, agents dashboard, cross-platform/theming/release.
+- Phases 8–10 — cost + cross-session search, agents dashboard,
+  cross-platform/theming/release.
 
 ## Blockers
 - None. Environment fully set up; production build green.

@@ -11,6 +11,7 @@ use std::sync::Arc;
 use tauri::ipc::Channel;
 use tauri::State;
 
+use crate::checkpoints::{CheckpointDiff, CheckpointTimeline};
 use crate::engine::{EngineEvent, WorkspaceRegistry};
 use crate::error::{IpcError, IpcErrorKind, IpcResult};
 use crate::files::{DirEntry, FileContents};
@@ -223,6 +224,30 @@ pub fn watch_sessions(
     registry: State<'_, Arc<SessionsRegistry>>,
 ) -> IpcResult<()> {
     registry.watch(cwd, on_change)
+}
+
+// ----- Checkpoint timeline (spec 5.P2, Phase 7) ------------------------------
+// Read-only: the CLI exposes no programmatic rewind, so we surface its file
+// history as a timeline + snapshot-vs-current diff. We never modify it.
+
+/// A session's checkpoint timeline (file-history snapshots), newest first.
+#[tauri::command]
+pub fn checkpoint_timeline(
+    cwd: Option<String>,
+    session_id: String,
+) -> IpcResult<CheckpointTimeline> {
+    crate::checkpoints::timeline(cwd, &session_id)
+}
+
+/// Snapshot-vs-current preview for one checkpoint (read-only; no restore).
+#[tauri::command]
+pub fn checkpoint_diff(
+    cwd: Option<String>,
+    session_id: String,
+    path: String,
+    version: u32,
+) -> IpcResult<CheckpointDiff> {
+    crate::checkpoints::diff(cwd, &session_id, &path, version)
 }
 
 // ----- Editor file surface (spec 5.A.3, Phase 4) -----------------------------

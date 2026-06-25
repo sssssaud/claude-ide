@@ -4,6 +4,7 @@
 //! Phase 0 command surface, and a clean app-exit teardown hook (no children to
 //! reap yet, but the seam is in place for Phase 1+).
 
+mod checkpoints;
 mod commands;
 mod engine;
 mod error;
@@ -56,6 +57,8 @@ pub fn run(startup: Instant) {
             commands::pty_close,
             commands::list_sessions,
             commands::watch_sessions,
+            commands::checkpoint_timeline,
+            commands::checkpoint_diff,
             commands::list_dir,
             commands::read_file,
             commands::write_file,

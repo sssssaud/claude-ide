@@ -387,20 +387,21 @@ fn item_id(kind: &str, uuid: Option<&str>, seq: &mut u64) -> String {
 
 // ----- project-dir resolution (match by recorded cwd, never by slug) ---------
 
-fn home_dir() -> Option<PathBuf> {
+pub(crate) fn home_dir() -> Option<PathBuf> {
     std::env::var_os("HOME")
         .map(PathBuf::from)
         .or_else(|| std::env::var_os("USERPROFILE").map(PathBuf::from))
 }
 
-fn claude_projects_dir() -> Option<PathBuf> {
+pub(crate) fn claude_projects_dir() -> Option<PathBuf> {
     let dir = home_dir()?.join(".claude").join("projects");
     dir.is_dir().then_some(dir)
 }
 
 /// Find the project dir whose transcripts record `target` as their cwd. Reads
-/// the CLI's own data instead of reversing the lossy slug (spec 3.2).
-fn resolve_project_dir(projects: &Path, target: &Path) -> Option<PathBuf> {
+/// the CLI's own data instead of reversing the lossy slug (spec 3.2). Reused by
+/// the checkpoint timeline to locate a session's transcript.
+pub(crate) fn resolve_project_dir(projects: &Path, target: &Path) -> Option<PathBuf> {
     let target_canon = fs::canonicalize(target).unwrap_or_else(|_| target.to_path_buf());
     for entry in fs::read_dir(projects).ok()? {
         let dir = match entry {

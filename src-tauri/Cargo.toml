@@ -42,3 +42,7 @@ portable-pty = "0.9"
 # Sessions rail (spec 3.2): notice a new `<uuid>.jsonl` (or a new project dir)
 # the moment the CLI writes it, so a fresh session appears live — no polling.
 notify = "8"
+# SHA-256 for the read-only checkpoint timeline (Phase 7 P2): the CLI names each
+# file-history snapshot `hex(sha256(absolute_path))[:16]@v<N>`, so we hash a
+# file's path to locate its snapshots. Hashing only; we never modify them.
+sha2 = "0.10"
