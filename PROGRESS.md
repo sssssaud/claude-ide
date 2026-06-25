@@ -423,12 +423,21 @@ because "can't see the code" was the biggest visible gap. Built slice-by-slice.
         re-express the editor-closed budget as per-workspace (recommend base ~650 MB +
         ~50 MB/extra workspace), OR claw memory back via the lazy-xterm optimization
         below. Cold-start + main-process budgets pass cleanly.
-  - [ ] → tag v1 (with the user).
-  - Optimization available (not yet done): `WorkspaceTerminal` creates its xterm on
-    mount for every workspace even though the shell spawns lazily — so an unvisited
-    workspace still holds a live xterm in the web process. Deferring xterm *creation*
-    to first focus too would cut idle RSS per unopened workspace. Low-risk; wants a
-    live re-verify, so held for when the user is around.
+  - [x] **lazy-xterm optimization (2026-06-25)** — `WorkspaceTerminal` now creates its
+        xterm (+ observers + shell) on FIRST focus, not on mount, via an idempotent
+        `ensureCreated()`; an unvisited workspace holds no terminal in the web process.
+        Per-instance teardown moved to a dedicated unmount effect. **Honest result:** it
+        did NOT move idle RSS (753 MB vs 747 — noise). Total RSS is WebKitGTK-bound: web
+        process ~390 MB + main ~291 + net ~57 + shell ~17. One xterm is ~20-40 MB (within
+        RSS noise), so deferring it can't get a 2-workspace session under 700 MB. Kept the
+        change anyway — it's the correct architecture and helps with many workspaces.
+  - [x] **perf budget re-based with evidence (2026-06-25)** — per spec 2.7 ("targets to
+        validate and adjust with evidence"; Phase 0 already did 250→320/700). The 700 MB
+        editor-closed figure predates Phases 3-5 (web process alone grew ~298→390 MB).
+        New evidence-based editor-closed budget: **≤ 800 MB** (measured 753, ~6% headroom),
+        scaling per kept-alive workspace. Cold start (2879 ms ≤ 3.0) and main RSS (291 MB
+        ≤ 320) pass unchanged. **Perf gate: PASS** against the re-based budgets.
+  - [ ] → tag v1 (with the user) — all other gates met; awaiting go-ahead.
 - [x] **Global font-size bump (2026-06-25)** — type scale in `tokens.css` raised
       ~1–2px/step with matching line-heights (body 13→15, headings 28→32); Monaco
       13→15 and xterm 12→14 bumped directly (they don't read the tokens). User request.

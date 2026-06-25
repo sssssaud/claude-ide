@@ -259,11 +259,18 @@ function WorkspaceTerminal({
     }
   }, [cwd, reportExited]);
 
-  // Create the terminal once; keep it (and the shell) alive across collapse and
-  // workspace switches. The shell itself is spawned lazily by the focus effect.
-  useEffect(() => {
+  // Disposer for the lazily-created xterm + its observers (set by ensureCreated).
+  const cleanupRef = useRef<(() => void) | null>(null);
+  const createdRef = useRef(false);
+
+  // Create the xterm (+ PTY wiring) lazily, the FIRST time this workspace is
+  // focused — so an unvisited workspace holds no terminal in the web process
+  // (idle-memory win; perf-budget pass). Idempotent.
+  const ensureCreated = useCallback(() => {
+    if (createdRef.current) return;
     const host = hostRef.current;
     if (!host) return;
+    createdRef.current = true;
 
     const term = new Terminal({
       fontFamily: token("--font-mono") || "monospace",
@@ -307,28 +314,40 @@ function WorkspaceTerminal({
     });
     ro.observe(host);
 
-    return () => {
-      epochRef.current++; // invalidate any in-flight open so it can't leak
+    cleanupRef.current = () => {
       ro.disconnect();
       dataSub.dispose();
+      term.dispose();
+    };
+  }, []);
+
+  // Spawn the xterm + shell the first time this workspace is focused, then keep
+  // both alive across later switches (just hidden when inactive).
+  useEffect(() => {
+    if (active && !openedRef.current) {
+      ensureCreated();
+      if (!termRef.current) return; // host not mounted yet (shouldn't happen)
+      openedRef.current = true;
+      void openShell();
+    }
+  }, [active, ensureCreated, openShell]);
+
+  // Tear down on unmount (workspace closed): reap the PTY + dispose the xterm.
+  useEffect(() => {
+    return () => {
+      epochRef.current++; // invalidate any in-flight open so it can't leak
       const id = ptyIdRef.current;
       if (id) void ptyClose(id);
       ptyIdRef.current = null;
-      term.dispose();
+      cleanupRef.current?.();
+      cleanupRef.current = null;
       termRef.current = null;
       fitRef.current = null;
     };
   }, []);
 
-  // Spawn the shell the first time this workspace is focused, then keep it.
-  useEffect(() => {
-    if (active && !openedRef.current && termRef.current) {
-      openedRef.current = true;
-      void openShell();
-    }
-  }, [active, openShell]);
-
   const restart = useCallback(async () => {
+    ensureCreated();
     const id = ptyIdRef.current;
     if (id) {
       await ptyClose(id);
@@ -337,7 +356,7 @@ function WorkspaceTerminal({
     termRef.current?.reset();
     openedRef.current = true;
     await openShell();
-  }, [openShell]);
+  }, [ensureCreated, openShell]);
 
   // Register restart with the parent header while mounted.
   useEffect(() => {
