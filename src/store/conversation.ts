@@ -51,6 +51,12 @@ interface ConversationState {
   resume: (sessionId: string, fork?: boolean) => Promise<void>;
   /** Drop the current session and start a fresh conversation on the next turn. */
   newSession: () => void;
+  /**
+   * `claude -c` for the IDE: on a workspace's first focus, continue its most
+   * recent session (load history + queue a resume) instead of starting fresh.
+   * Idempotent and one-shot per workspace, so a later `+ NEW` is never overridden.
+   */
+  maybeContinue: (latestSessionId: string) => void;
 }
 
 // One conversation store per workspace (Phase 5). The body is identical to the
@@ -76,6 +82,10 @@ const makeConversationStore = (cwd: string): StoreApi<ConversationState> =>
   let turnProducedOutput = false;
   let lastCommand: string | null = null;
   let noticeSeq = 0;
+  // One-shot guard for the `claude -c` auto-continue: set the first time this
+  // workspace is focused (whether or not a prior session existed), so a manual
+  // `+ NEW` or resume afterwards is never silently re-continued.
+  let autoContinued = false;
 
   const dispatch = (ev: EngineEvent) => {
     set((s) => {
@@ -296,6 +306,16 @@ const makeConversationStore = (cwd: string): StoreApi<ConversationState> =>
         truncated: false,
         pendingOpen: null,
       });
+    },
+
+    maybeContinue: (latestSessionId: string) => {
+      if (autoContinued) return;
+      autoContinued = true; // one-shot, regardless of outcome below
+      const cur = get();
+      // Only auto-continue a truly pristine workspace; never disturb one the
+      // user has already engaged (sent a turn, resumed, or has a live child).
+      if (cur.workspaceId || cur.sessionId || cur.pendingOpen || cur.items.length > 0) return;
+      void get().resume(latestSessionId);
     },
   };
 });

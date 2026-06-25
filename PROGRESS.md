@@ -352,11 +352,35 @@ because "can't see the code" was the biggest visible gap. Built slice-by-slice.
       `onResize` is ignored so persisted intent wins on reload. Terminal hide keeps
       the shell alive (host mounted at height 0). TS clean. **Gate passed live**
       (user confirmed shortcuts + toggles).
-- [ ] **Slice B — multi-workspace routing**: workspaces as tabs; a `WorkspaceRegistry`
-      binds each cwd to its own engine session + terminal; instant rebind on switch,
-      no context bleed.
+- [~] **Slice B — multi-workspace routing** (in progress): workspaces as tabs; each
+      cwd bound to its own engine session + sidebar + sessions list, instant rebind on
+      switch, no context bleed.
+  - [x] **B1 — cwd-addressability + folder picker** (b7bd31a): `files`/`pty`/engine
+        commands take a `cwd`; `tauri-plugin-dialog` native "Open Folder…" picker;
+        `default_workspace` seeds the first tab.
+  - [x] **B2+B3 — workspace tabs + sidebar/sessions re-rooting** (09213bd): a
+        `workspaces` store (tabs, persisted) drives a tab bar; `git`/`sessions`/
+        explorer/search all key off the active cwd. Gate passed live.
+  - [x] **B4 — per-workspace conversation** (b595259): the conversation store became a
+        per-cwd factory + registry; each workspace keeps its own live `claude` session,
+        history, cost, in-flight turn — switching is instant with zero bleed. Gate
+        passed live (opened ModernGirl → its own conversation).
+  - [x] **B4.5 — session continuity (`claude -c`) (2026-06-25) — gate passed live.**
+        Opening/first-focusing a workspace now **auto-continues its most recent
+        session** (loads transcript + queues a resume; no child spawns until a turn is
+        sent), one-shot per workspace so a later `+ NEW` is never re-continued; a
+        history-less folder starts fresh. Fixes the "new session every open" stacking
+        the user spotted (our `openWorkspace` had behaved like plain `claude`, not
+        `claude -c`). `conversation.ts` `maybeContinue` + a `SessionsPanel` effect.
+  - [ ] **B5 — per-workspace editor tabs**: one Monaco host, models keyed by absolute
+        path, a tab strip per workspace.
+  - [ ] **B6 — per-workspace terminal**: a kept-alive xterm+PTY per workspace (still
+        bound to the launch cwd today — the standing PTY follow-up folds in here).
 - [ ] **Slice C — hardening**: every empty/loading/error state filled; perf-budget
       pass; a11y pass; "no-placeholders" grep clean → tag v1.
+- [x] **Global font-size bump (2026-06-25)** — type scale in `tokens.css` raised
+      ~1–2px/step with matching line-heights (body 13→15, headings 28→32); Monaco
+      13→15 and xterm 12→14 bumped directly (they don't read the tokens). User request.
 
 ### Pending (later phases)
 - Phases 6–10 — P1 review queue, checkpoint timeline + permission manager,
@@ -366,6 +390,19 @@ because "can't see the code" was the biggest visible gap. Built slice-by-slice.
 - None. Environment fully set up; production build green.
 
 ## Follow-ups (non-blocking)
+- **[FINAL POLISH PHASE] Sidebar view-switcher cosmetics** (user flagged 2026-06-25):
+  the Files · Search · Source Control text-tab row feels cramped/"ugly" next to
+  the workspace tab bar. Functionally fine (it's VS Code's three-view model), but
+  reconsider the treatment in the last phase — e.g. an icon activity bar instead
+  of text labels, or relocating search. Defer per [[defer-cosmetic-polish]]; do
+  NOT change mid-phase.
+- **Per-session delete** (user asked 2026-06-25): the installed CLI exposes **no**
+  single-session delete — only `claude project purge [path]`, which nukes the WHOLE
+  project (all transcripts/tasks/file-history/config). Hand-deleting a single
+  `<uuid>.jsonl` is out (we never modify `~/.claude` except read + sanctioned purge —
+  wrapper rule). So a true per-session delete needs a CLI command Anthropic doesn't yet
+  ship; a guarded "purge this project's history" action (heavy, strong confirm) is the
+  only sanctioned option. Defer to the polish phase / revisit when the CLI supports it.
 - Bundle Geist Sans/Mono font files (currently system-font fallback).
 - Tighten the CSP at the Phase 10 release audit.
 - Consider lazy-loading xterm too, to shave a little more off the initial chunk.

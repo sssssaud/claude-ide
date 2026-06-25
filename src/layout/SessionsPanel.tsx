@@ -23,10 +23,18 @@ export function SessionsPanel() {
   const streaming = useActiveConversation((s) => s.streaming);
   const resume = useActiveConversation((s) => s.resume);
   const newSession = useActiveConversation((s) => s.newSession);
+  const maybeContinue = useActiveConversation((s) => s.maybeContinue);
 
   useEffect(() => {
     if (cwd) void init(cwd);
   }, [cwd, init]);
+
+  // `claude -c` behaviour: once this workspace's sessions are known, continue
+  // the most recent one (sessions are newest-first). One-shot in the store, so
+  // this re-fires harmlessly on watcher updates and tab switches.
+  useEffect(() => {
+    if (loaded && sessions.length > 0) maybeContinue(sessions[0].id);
+  }, [loaded, sessions, maybeContinue]);
 
   return (
     <aside

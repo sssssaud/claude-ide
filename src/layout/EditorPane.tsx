@@ -221,7 +221,7 @@ export function EditorPane() {
           }}
           options={{
             fontFamily: "var(--font-mono)",
-            fontSize: 13,
+            fontSize: 15,
             minimap: { enabled: false },
             scrollBeyondLastLine: false,
             automaticLayout: true,

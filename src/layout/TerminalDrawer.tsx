@@ -110,7 +110,7 @@ export function TerminalDrawer() {
 
     const term = new Terminal({
       fontFamily: token("--font-mono") || "monospace",
-      fontSize: 12,
+      fontSize: 14,
       cursorBlink: true,
       scrollback: 5000, // bound memory on huge output (spec 5.A.6 edge)
       theme: {
