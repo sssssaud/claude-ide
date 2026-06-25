@@ -36,12 +36,19 @@ pub struct PtyRegistry {
 
 impl PtyRegistry {
     /// Spawn `$SHELL` in a fresh PTY sized `rows`x`cols`, cwd-locked to the
-    /// launch directory (per-workspace cwd routing is Phase 5). Raw output is
-    /// streamed over `channel`; an empty `Vec` is sent as the EOF sentinel when
-    /// the shell exits, so the UI can offer a restart.
-    pub fn open(self: Arc<Self>, rows: u16, cols: u16, channel: Channel<Vec<u8>>) -> IpcResult<String> {
-        let cwd = std::env::current_dir()
-            .map_err(|e| internal(format!("Cannot resolve a working directory: {e}")))?;
+    /// given workspace root (Phase 5 per-workspace routing); `None` resolves to
+    /// the default workspace via `workspace::resolve_cwd` (which also applies the
+    /// dev `src-tauri/`→parent guard). Raw output is streamed over `channel`; an
+    /// empty `Vec` is sent as the EOF sentinel when the shell exits, so the UI
+    /// can offer a restart.
+    pub fn open(
+        self: Arc<Self>,
+        cwd: Option<String>,
+        rows: u16,
+        cols: u16,
+        channel: Channel<Vec<u8>>,
+    ) -> IpcResult<String> {
+        let cwd = crate::workspace::resolve_cwd(cwd)?;
         let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string());
 
         let pair = native_pty_system()

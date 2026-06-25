@@ -149,6 +149,7 @@ export async function ptyOpen(
   onData: (bytes: Uint8Array) => void,
   rows: number,
   cols: number,
+  cwd?: string,
 ): Promise<string> {
   const channel = new Channel<number[]>();
   channel.onmessage = (msg) => {
@@ -163,7 +164,7 @@ export async function ptyOpen(
     onData(bytes);
   };
   try {
-    return await invoke<string>("pty_open", { rows, cols, onData: channel });
+    return await invoke<string>("pty_open", { cwd, rows, cols, onData: channel });
   } catch (e) {
     normalizeError(e);
   }
@@ -225,28 +226,29 @@ export async function watchSessions(
   }
 }
 
-/** List a workspace directory for the file explorer (`path` relative to root). */
-export async function listDir(path?: string): Promise<DirEntry[]> {
+/** List a workspace directory for the file explorer (`path` relative to root);
+ *  `cwd` selects the workspace root (defaults to the launch directory). */
+export async function listDir(path?: string, cwd?: string): Promise<DirEntry[]> {
   try {
-    return await invoke<DirEntry[]>("list_dir", { path });
+    return await invoke<DirEntry[]>("list_dir", { cwd, path });
   } catch (e) {
     normalizeError(e);
   }
 }
 
 /** Read a workspace file's text for the editor (size-capped, binary-guarded). */
-export async function readFile(path: string): Promise<FileContents> {
+export async function readFile(path: string, cwd?: string): Promise<FileContents> {
   try {
-    return await invoke<FileContents>("read_file", { path });
+    return await invoke<FileContents>("read_file", { cwd, path });
   } catch (e) {
     normalizeError(e);
   }
 }
 
 /** Save (overwrite) an existing workspace file. Confined to the workspace root. */
-export async function writeFile(path: string, contents: string): Promise<void> {
+export async function writeFile(path: string, contents: string, cwd?: string): Promise<void> {
   try {
-    await invoke<void>("write_file", { path, contents });
+    await invoke<void>("write_file", { cwd, path, contents });
   } catch (e) {
     normalizeError(e);
   }

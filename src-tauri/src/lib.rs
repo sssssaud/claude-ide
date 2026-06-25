@@ -33,6 +33,7 @@ pub fn run(startup: Instant) {
     init_tracing();
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .manage(AppState::new(startup))
         .manage(Arc::new(WorkspaceRegistry::default()))
         .manage(Arc::new(PtyRegistry::default()))

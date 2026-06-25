@@ -16,6 +16,9 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 tauri = { version = "2", features = [] }
+# Native OS folder picker for "Open Folder…" (Phase 5 multi-workspace). Only the
+# directory-open dialog is used; the capability is scoped to that one permission.
+tauri-plugin-dialog = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # Typed error layering (thiserror -> IpcError at the boundary; never panic across IPC).

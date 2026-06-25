@@ -40,8 +40,9 @@ pub struct FileContents {
 
 /// List a directory's immediate children — directories first, then files, both
 /// case-insensitive. `rel` is relative to the workspace root; empty/None = root.
-pub fn list_dir(rel: Option<String>) -> IpcResult<Vec<DirEntry>> {
-    let root = root_canon()?;
+/// `cwd` selects which workspace root (Phase 5 multi-workspace); None = default.
+pub fn list_dir(cwd: Option<String>, rel: Option<String>) -> IpcResult<Vec<DirEntry>> {
+    let root = root_canon(cwd)?;
     let dir = resolve_within(&root, rel.as_deref().unwrap_or(""))?;
     if !dir.is_dir() {
         return Err(invalid("Not a directory"));
@@ -74,8 +75,8 @@ pub fn list_dir(rel: Option<String>) -> IpcResult<Vec<DirEntry>> {
 }
 
 /// Read a workspace file for the editor (UTF-8 text; size-capped; binary-guarded).
-pub fn read_file(rel: String) -> IpcResult<FileContents> {
-    let root = root_canon()?;
+pub fn read_file(cwd: Option<String>, rel: String) -> IpcResult<FileContents> {
+    let root = root_canon(cwd)?;
     let path = resolve_within(&root, &rel)?;
     if !path.is_file() {
         return Err(invalid("Not a file"));
@@ -104,8 +105,8 @@ pub fn read_file(rel: String) -> IpcResult<FileContents> {
 /// Overwrite an existing workspace file with `contents` (editor save). Confined
 /// to the workspace root; only files that already exist may be written (the
 /// editor only saves files it opened). Creating new files is a later slice.
-pub fn write_file(rel: String, contents: String) -> IpcResult<()> {
-    let root = root_canon()?;
+pub fn write_file(cwd: Option<String>, rel: String, contents: String) -> IpcResult<()> {
+    let root = root_canon(cwd)?;
     let path = resolve_within(&root, &rel)?;
     if !path.is_file() {
         return Err(invalid("Not a file"));
@@ -113,8 +114,8 @@ pub fn write_file(rel: String, contents: String) -> IpcResult<()> {
     fs::write(&path, contents).map_err(|e| internal(format!("Could not save the file: {e}")))
 }
 
-fn root_canon() -> IpcResult<PathBuf> {
-    let root = crate::workspace::resolve_cwd(None)?;
+fn root_canon(cwd: Option<String>) -> IpcResult<PathBuf> {
+    let root = crate::workspace::resolve_cwd(cwd)?;
     fs::canonicalize(&root).map_err(|e| internal(format!("Cannot resolve the workspace root: {e}")))
 }
 

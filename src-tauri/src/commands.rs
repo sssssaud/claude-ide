@@ -126,15 +126,17 @@ pub async fn close_workspace(
 // reads run on a dedicated thread in `pty.rs`). Raw output streams over the
 // `on_data` channel.
 
-/// Open a plain shell in a PTY sized `rows`x`cols`; output streams over `on_data`.
+/// Open a plain shell in a PTY sized `rows`x`cols`, rooted at the workspace
+/// `cwd` (None = default workspace); output streams over `on_data`.
 #[tauri::command]
 pub fn pty_open(
+    cwd: Option<String>,
     rows: u16,
     cols: u16,
     on_data: Channel<Vec<u8>>,
     registry: State<'_, Arc<PtyRegistry>>,
 ) -> IpcResult<String> {
-    registry.inner().clone().open(rows, cols, on_data)
+    registry.inner().clone().open(cwd, rows, cols, on_data)
 }
 
 /// Write keystrokes into a terminal (treated strictly as bytes for the shell).
@@ -187,22 +189,23 @@ pub fn watch_sessions(
 // ----- Editor file surface (spec 5.A.3, Phase 4) -----------------------------
 // Both confined to the workspace root in `files.rs`.
 
-/// List a workspace directory for the file explorer (dirs first, lazy).
+/// List a workspace directory for the file explorer (dirs first, lazy). `cwd`
+/// selects the workspace root (None = default); `path` is relative to it.
 #[tauri::command]
-pub fn list_dir(path: Option<String>) -> IpcResult<Vec<DirEntry>> {
-    crate::files::list_dir(path)
+pub fn list_dir(cwd: Option<String>, path: Option<String>) -> IpcResult<Vec<DirEntry>> {
+    crate::files::list_dir(cwd, path)
 }
 
 /// Read a workspace file for the editor (UTF-8 text, size-capped, binary-guarded).
 #[tauri::command]
-pub fn read_file(path: String) -> IpcResult<FileContents> {
-    crate::files::read_file(path)
+pub fn read_file(cwd: Option<String>, path: String) -> IpcResult<FileContents> {
+    crate::files::read_file(cwd, path)
 }
 
 /// Save (overwrite) an existing workspace file. Confined to the workspace root.
 #[tauri::command]
-pub fn write_file(path: String, contents: String) -> IpcResult<()> {
-    crate::files::write_file(path, contents)
+pub fn write_file(cwd: Option<String>, path: String, contents: String) -> IpcResult<()> {
+    crate::files::write_file(cwd, path, contents)
 }
 
 // ----- Git source control (spec 5.A.3, Phase 4) ------------------------------
