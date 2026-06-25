@@ -398,8 +398,14 @@ because "can't see the code" was the biggest visible gap. Built slice-by-slice.
   - **Slice B COMPLETE** (A + B1–B6): workspaces as tabs, each cwd bound to its own
     engine session + conversation + sessions list + sidebar + editor + terminal, with
     instant keep-alive switching and no context bleed.
-- [ ] **Slice C — hardening**: every empty/loading/error state filled; perf-budget
-      pass; a11y pass; "no-placeholders" grep clean → tag v1.
+- [~] **Slice C — hardening** (in progress):
+  - [x] **"no-placeholders" gate (2026-06-25)** — grep over `src` + `src-tauri/src`
+        for todo/fixme/placeholder/coming-soon/not-implemented/wip/dummy/mock/stub/tbd
+        returned ZERO hits. Clean.
+  - [ ] empty / loading / error state audit across every panel.
+  - [ ] perf-budget pass (live measurement on the reference machine).
+  - [ ] a11y pass (keyboard nav, roles/labels, focus, contrast).
+  - [ ] → tag v1 (with the user).
 - [x] **Global font-size bump (2026-06-25)** — type scale in `tokens.css` raised
       ~1–2px/step with matching line-heights (body 13→15, headings 28→32); Monaco
       13→15 and xterm 12→14 bumped directly (they don't read the tokens). User request.
