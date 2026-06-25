@@ -6,14 +6,15 @@
  */
 
 import { useState } from "react";
-import { useEditor } from "@/store/editor";
+import { useStore, type StoreApi } from "zustand";
+import type { EditorState } from "@/store/editor";
 
-export function EditorTabs() {
-  const tabs = useEditor((s) => s.tabs);
-  const activePath = useEditor((s) => s.activePath);
-  const dirty = useEditor((s) => s.dirty);
-  const activate = useEditor((s) => s.activate);
-  const close = useEditor((s) => s.close);
+export function EditorTabs({ store }: { store: StoreApi<EditorState> }) {
+  const tabs = useStore(store, (s) => s.tabs);
+  const activePath = useStore(store, (s) => s.activePath);
+  const dirty = useStore(store, (s) => s.dirty);
+  const activate = useStore(store, (s) => s.activate);
+  const close = useStore(store, (s) => s.close);
   const [hovered, setHovered] = useState<string | null>(null);
 
   return (

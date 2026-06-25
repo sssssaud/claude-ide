@@ -8,7 +8,7 @@
 import { useEffect, useRef, useState } from "react";
 import { search } from "@/ipc/commands";
 import { isIpcError, type SearchResults } from "@/ipc/types";
-import { useEditor } from "@/store/editor";
+import { useActiveEditor } from "@/store/editor";
 import { useActiveCwd } from "@/store/workspaces";
 
 export function SearchPanel() {
@@ -17,7 +17,7 @@ export function SearchPanel() {
   const [results, setResults] = useState<SearchResults | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const openAt = useEditor((s) => s.openAt);
+  const openAt = useActiveEditor((s) => s.openAt);
   const tokenRef = useRef(0);
 
   // Re-runs on query change and on workspace switch (so results match the

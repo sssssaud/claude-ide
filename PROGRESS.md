@@ -372,8 +372,19 @@ because "can't see the code" was the biggest visible gap. Built slice-by-slice.
         history-less folder starts fresh. Fixes the "new session every open" stacking
         the user spotted (our `openWorkspace` had behaved like plain `claude`, not
         `claude -c`). `conversation.ts` `maybeContinue` + a `SessionsPanel` effect.
-  - [ ] **B5 — per-workspace editor tabs**: one Monaco host, models keyed by absolute
-        path, a tab strip per workspace.
+  - [x] **B5 — per-workspace editor tabs (2026-06-25) — built, typecheck clean.**
+        Editor store became a per-cwd factory + registry (`editorStoreFor` /
+        `useActiveEditor` / `activeEditorStore`, mirroring B4 conversation). Each
+        workspace with open files keeps its OWN Monaco host instance, mounted and
+        hidden when inactive → keep-alive of open files / scroll / cursor / undo /
+        **unsaved buffers** across switches; model URIs keyed by **absolute path** so
+        same-relative-path files in different projects never collide. **Fixed a latent
+        bug:** `EditorPane` read/wrote files with no cwd → always hit the launch
+        workspace; all file I/O (open/save/diff/diff-save) now routes through the active
+        cwd. Explorer/search/git act on the active workspace's editor; DiffView takes
+        cwd. Diff editor font 13→15 (font-bump consistency). Consumers updated:
+        EditorPane, EditorTabs, EditorRegion, DiffView, FileExplorer, SearchPanel,
+        GitPanel.
   - [ ] **B6 — per-workspace terminal**: a kept-alive xterm+PTY per workspace (still
         bound to the launch cwd today — the standing PTY follow-up folds in here).
 - [ ] **Slice C — hardening**: every empty/loading/error state filled; perf-budget

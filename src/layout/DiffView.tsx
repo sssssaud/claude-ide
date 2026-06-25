@@ -20,7 +20,6 @@ import { EmptyState, LoadingState } from "@/components/states";
 import { languageForPath } from "@/editor/language";
 import { defineClaudeTheme, MONACO_THEME } from "@/editor/monacoSetup";
 import { gitDiff, writeFile } from "@/ipc/commands";
-import { activeCwd } from "@/store/workspaces";
 import { isIpcError, type GitDiff } from "@/ipc/types";
 import { useGit } from "@/store/git";
 import type { EditorTab } from "@/store/editor";
@@ -31,7 +30,7 @@ type State =
   | { kind: "binary" }
   | { kind: "error"; message: string };
 
-export function DiffView({ tab }: { tab: EditorTab }) {
+export function DiffView({ tab, cwd }: { tab: EditorTab; cwd: string }) {
   const file = tab.diff?.file ?? "";
   const staged = tab.diff?.staged ?? false;
   const editable = !staged; // working-tree (modified) side is editable, like VS Code
@@ -48,7 +47,7 @@ export function DiffView({ tab }: { tab: EditorTab }) {
     setState({ kind: "loading" });
     setDirty(false);
     setSaveError(null);
-    gitDiff(file, staged, activeCwd())
+    gitDiff(file, staged, cwd)
       .then((diff) => {
         if (!alive) return;
         setState(diff.binary ? { kind: "binary" } : { kind: "ready", diff });
@@ -60,7 +59,7 @@ export function DiffView({ tab }: { tab: EditorTab }) {
     return () => {
       alive = false;
     };
-  }, [file, staged]);
+  }, [file, staged, cwd]);
 
   const save = useCallback(async () => {
     const ed = editorRef.current;
@@ -68,7 +67,7 @@ export function DiffView({ tab }: { tab: EditorTab }) {
     const model = ed.getModifiedEditor().getModel();
     if (!model) return;
     try {
-      await writeFile(file, model.getValue(), activeCwd());
+      await writeFile(file, model.getValue(), cwd);
       savedVersionRef.current = model.getAlternativeVersionId();
       setDirty(false);
       setSaveError(null);
@@ -76,7 +75,7 @@ export function DiffView({ tab }: { tab: EditorTab }) {
     } catch (e) {
       setSaveError(isIpcError(e) ? e.message : "Save failed");
     }
-  }, [file, editable]);
+  }, [file, editable, cwd]);
 
   // Wire dirty tracking + Ctrl/Cmd-S on the editable (modified) side at mount.
   const onMount: DiffOnMount = (editor, monaco) => {
@@ -118,7 +117,7 @@ export function DiffView({ tab }: { tab: EditorTab }) {
               renderSideBySide: true,
               automaticLayout: true,
               fontFamily: "var(--font-mono)",
-              fontSize: 13,
+              fontSize: 15,
               minimap: { enabled: false },
               scrollBeyondLastLine: false,
               renderOverviewRuler: false,

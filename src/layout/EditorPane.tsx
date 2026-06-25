@@ -10,6 +10,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useStore, type StoreApi } from "zustand";
 import Editor, { type OnMount } from "@monaco-editor/react";
 import type * as Monaco from "monaco-editor";
 import { EmptyState, LoadingState } from "@/components/states";
@@ -17,7 +18,14 @@ import { languageForPath } from "@/editor/language";
 import { defineClaudeTheme, MONACO_THEME } from "@/editor/monacoSetup";
 import { readFile, writeFile } from "@/ipc/commands";
 import { isIpcError } from "@/ipc/types";
-import { useEditor } from "@/store/editor";
+import type { EditorState } from "@/store/editor";
+
+/** Join a workspace cwd and a root-relative tab path into an absolute path —
+ *  the Monaco model URI key, so files with the same relative path in different
+ *  workspaces never collide on the shared monaco model registry. */
+function absPath(cwd: string, rel: string): string {
+  return `${cwd.replace(/\/+$/, "")}/${rel}`;
+}
 
 type ContentState =
   | { kind: "loading" }
@@ -33,7 +41,7 @@ interface ModelEntry {
   changeSub: Monaco.IDisposable;
 }
 
-export function EditorPane() {
+export function EditorPane({ cwd, store }: { cwd: string; store: StoreApi<EditorState> }) {
   const editorRef = useRef<Parameters<OnMount>[0] | null>(null);
   const monacoRef = useRef<Parameters<OnMount>[1] | null>(null);
   const modelsRef = useRef<Map<string, ModelEntry>>(new Map());
@@ -44,10 +52,10 @@ export function EditorPane() {
   const [contents, setContents] = useState<Record<string, ContentState>>({});
   const [saveErrors, setSaveErrors] = useState<Record<string, string>>({});
 
-  const tabs = useEditor((s) => s.tabs);
-  const activePath = useEditor((s) => s.activePath);
-  const dirty = useEditor((s) => s.dirty);
-  const reveal = useEditor((s) => s.reveal);
+  const tabs = useStore(store, (s) => s.tabs);
+  const activePath = useStore(store, (s) => s.activePath);
+  const dirty = useStore(store, (s) => s.dirty);
+  const reveal = useStore(store, (s) => s.reveal);
 
   const disposeEntry = useCallback((path: string) => {
     const entry = modelsRef.current.get(path);
@@ -58,9 +66,10 @@ export function EditorPane() {
     }
   }, []);
 
-  const loadTab = useCallback(async (path: string) => {
+  const loadTab = useCallback(
+    async (path: string) => {
     try {
-      const file = await readFile(path);
+      const file = await readFile(path, cwd);
       if (!fetchedRef.current.has(path)) return; // tab closed mid-fetch
       if (file.binary) {
         setContents((c) => ({ ...c, [path]: { kind: "binary" } }));
@@ -68,14 +77,14 @@ export function EditorPane() {
       }
       const monaco = monacoRef.current;
       if (!monaco) return;
-      const uri = monaco.Uri.file(path);
+      const uri = monaco.Uri.file(absPath(cwd, path));
       const model =
         monaco.editor.getModel(uri) ??
         monaco.editor.createModel(file.text, languageForPath(path), uri);
       const changeSub = model.onDidChangeContent(() => {
         const entry = modelsRef.current.get(path);
         if (!entry) return;
-        useEditor
+        store
           .getState()
           .setDirty(path, model.getAlternativeVersionId() !== entry.savedVersionId);
       });
@@ -94,7 +103,9 @@ export function EditorPane() {
         [path]: { kind: "error", message: isIpcError(e) ? e.message : "Could not read the file" },
       }));
     }
-  }, []);
+    },
+    [cwd, store],
+  );
 
   // Reconcile open tabs ↔ loaded models: fetch new tabs, dispose closed ones.
   useEffect(() => {
@@ -156,8 +167,8 @@ export function EditorPane() {
     editor.revealLineInCenter(line);
     editor.setPosition({ lineNumber: line, column: 1 });
     editor.focus();
-    useEditor.getState().clearReveal();
-  }, [reveal, activePath, contents, ready]);
+    store.getState().clearReveal();
+  }, [reveal, activePath, contents, ready, store]);
 
   // Dispose every model on unmount (the host unmounts when the last tab closes).
   useEffect(() => {
@@ -168,14 +179,14 @@ export function EditorPane() {
   }, [disposeEntry]);
 
   const saveActive = useCallback(async () => {
-    const path = useEditor.getState().activePath;
+    const path = store.getState().activePath;
     if (!path) return;
     const entry = modelsRef.current.get(path);
     if (!entry || entry.readOnly) return;
     try {
-      await writeFile(path, entry.model.getValue());
+      await writeFile(path, entry.model.getValue(), cwd);
       entry.savedVersionId = entry.model.getAlternativeVersionId();
-      useEditor.getState().setDirty(path, false);
+      store.getState().setDirty(path, false);
       setSaveErrors((c) => {
         const next = { ...c };
         delete next[path];
@@ -187,7 +198,7 @@ export function EditorPane() {
         [path]: isIpcError(e) ? e.message : "Save failed",
       }));
     }
-  }, []);
+  }, [cwd, store]);
 
   const state = activePath ? contents[activePath] : undefined;
   const isReadOnly = activePath ? !!modelsRef.current.get(activePath)?.readOnly : false;

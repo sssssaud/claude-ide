@@ -9,7 +9,7 @@ import { useEffect, useState } from "react";
 import { listDir } from "@/ipc/commands";
 import type { DirEntry } from "@/ipc/types";
 import { isIpcError } from "@/ipc/types";
-import { useEditor } from "@/store/editor";
+import { useActiveEditor } from "@/store/editor";
 import { useActiveCwd } from "@/store/workspaces";
 
 export function FileExplorer() {
@@ -57,8 +57,8 @@ function TreeNode({ entry, depth, cwd }: { entry: DirEntry; depth: number; cwd: 
   const [expanded, setExpanded] = useState(false);
   const [children, setChildren] = useState<DirEntry[] | null>(null);
   const [loading, setLoading] = useState(false);
-  const activePath = useEditor((s) => s.activePath);
-  const open = useEditor((s) => s.open);
+  const activePath = useActiveEditor((s) => s.activePath);
+  const open = useActiveEditor((s) => s.open);
   const active = !entry.isDir && activePath === entry.path;
 
   const onClick = async () => {

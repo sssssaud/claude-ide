@@ -11,7 +11,7 @@ import { useEffect, useState } from "react";
 import { gitCommit } from "@/ipc/commands";
 import { activeCwd } from "@/store/workspaces";
 import { isIpcError, type GitChange } from "@/ipc/types";
-import { useEditor } from "@/store/editor";
+import { useActiveEditor } from "@/store/editor";
 import { useGit } from "@/store/git";
 
 export function GitPanel() {
@@ -342,8 +342,8 @@ function ChangeRow({
   change: GitChange;
   onDiscard?: (change: GitChange) => void;
 }) {
-  const openDiff = useEditor((s) => s.openDiff);
-  const activePath = useEditor((s) => s.activePath);
+  const openDiff = useActiveEditor((s) => s.openDiff);
+  const activePath = useActiveEditor((s) => s.activePath);
   const stage = useGit((s) => s.stage);
   const unstage = useGit((s) => s.unstage);
 
