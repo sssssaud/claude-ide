@@ -10,6 +10,8 @@ import { open as openDialog } from "@tauri-apps/plugin-dialog";
 // shape. Erased at build time, so no runtime import cycle with the store.
 import type { ConvItem } from "@/store/conversation";
 import type {
+  CheckpointDiff,
+  CheckpointTimeline,
   DirEntry,
   EngineEvent,
   FileContents,
@@ -271,6 +273,35 @@ export async function watchSessions(
   channel.onmessage = onChange;
   try {
     await invoke<void>("watch_sessions", { cwd, onChange: channel });
+  } catch (e) {
+    normalizeError(e);
+  }
+}
+
+/**
+ * A session's read-only checkpoint timeline (file-history snapshots), newest
+ * first. Empty for a session with no recorded edits. `cwd` selects the workspace.
+ */
+export async function checkpointTimeline(
+  sessionId: string,
+  cwd?: string,
+): Promise<CheckpointTimeline> {
+  try {
+    return await invoke<CheckpointTimeline>("checkpoint_timeline", { cwd, sessionId });
+  } catch (e) {
+    normalizeError(e);
+  }
+}
+
+/** A checkpoint's snapshot vs the current on-disk file (read-only preview). */
+export async function checkpointDiff(
+  sessionId: string,
+  path: string,
+  version: number,
+  cwd?: string,
+): Promise<CheckpointDiff> {
+  try {
+    return await invoke<CheckpointDiff>("checkpoint_diff", { cwd, sessionId, path, version });
   } catch (e) {
     normalizeError(e);
   }

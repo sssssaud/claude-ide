@@ -118,6 +118,31 @@ export interface SearchResults {
   truncated: boolean;
 }
 
+/** Mirror of Rust `CheckpointEntry` (Phase 7 P2) — one saved file version. */
+export interface CheckpointEntry {
+  /** Stable key `<hash>@v<N>`. */
+  id: string;
+  /** Workspace-relative path, forward-slashed. */
+  path: string;
+  version: number;
+  /** The tool that produced it (Write / Edit / …). */
+  tool: string;
+  timestampMs: number;
+}
+
+/** Mirror of Rust `CheckpointTimeline` (Phase 7 P2) — a session's edits, newest first. */
+export interface CheckpointTimeline {
+  entries: CheckpointEntry[];
+}
+
+/** Mirror of Rust `CheckpointDiff` (Phase 7 P2) — a snapshot vs the current file. */
+export interface CheckpointDiff {
+  path: string;
+  snapshot: string;
+  current: string;
+  binary: boolean;
+}
+
 /**
  * Mirror of Rust `EngineEvent` (spec 2.3) — internally tagged by `type`.
  * Render by `type`, never by position; tolerate unknown `type`s from a newer

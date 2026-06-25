@@ -525,9 +525,17 @@ fully. Mechanism decoded + verified above (file-history hash = sha256(abspath)[:
       warnings. **Proven against real data:** our session resolved 58/59 in-root
       edits to snapshots (e.g. commands.rs v2–17, PROGRESS.md v2–26). READ-ONLY —
       never writes `~/.claude/file-history`.
-- [ ] **7A frontend** — TS mirror + IPC wrappers; checkpoint timeline UI in the
-      Sessions/Timeline Rail (per-session edit history) + snapshot-vs-current diff
-      preview (reuse the Monaco diff overlay).
+- [x] **7A frontend — timeline rail UI + diff preview.** TS mirror
+      (`CheckpointEntry`/`Timeline`/`Diff`) + `checkpointTimeline`/`checkpointDiff`
+      IPC wrappers. Each session row in the rail gained a lazy **"▸ checkpoints (N)"**
+      expander (`CheckpointSection`) listing its edits newest-first
+      (path · v<N> · relative time, capped 60 + "older…"); clicking an entry opens
+      its **snapshot-vs-current diff** in the editor, reusing the Monaco diff
+      overlay via a new `openCheckpointDiff` editor-store action + a `checkpoint`
+      branch in `DiffView` (read-only, no save — restore deferred). EditorRegion
+      routes it unchanged (`kind:"diff"`, keyed per version). Typecheck + prod
+      build green. **P2 complete (read-only).** Live gate: expand a session →
+      checkpoints list → click → snapshot↔current diff opens in the editor.
 - [ ] **7B — P3 permission manager** — read/write project `.claude/settings.json`
       (allow/deny/ask, defaultMode, additionalDirectories) + a "would this prompt?"
       tester. Builds on Phase 6.

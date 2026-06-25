@@ -19,21 +19,29 @@ import type * as Monaco from "monaco-editor";
 import { EmptyState, LoadingState } from "@/components/states";
 import { languageForPath } from "@/editor/language";
 import { defineClaudeTheme, MONACO_THEME } from "@/editor/monacoSetup";
-import { gitDiff, writeFile } from "@/ipc/commands";
-import { isIpcError, type GitDiff } from "@/ipc/types";
+import { checkpointDiff, gitDiff, writeFile } from "@/ipc/commands";
+import { isIpcError } from "@/ipc/types";
 import { useGit } from "@/store/git";
 import type { EditorTab } from "@/store/editor";
 
+interface Sides {
+  original: string;
+  modified: string;
+}
+
 type State =
   | { kind: "loading" }
-  | { kind: "ready"; diff: GitDiff }
+  | { kind: "ready"; sides: Sides }
   | { kind: "binary" }
   | { kind: "error"; message: string };
 
 export function DiffView({ tab, cwd }: { tab: EditorTab; cwd: string }) {
   const file = tab.diff?.file ?? "";
   const staged = tab.diff?.staged ?? false;
-  const editable = !staged; // working-tree (modified) side is editable, like VS Code
+  const checkpoint = tab.diff?.checkpoint;
+  // The working-tree (modified) side is editable like VS Code — but a staged
+  // diff and a read-only checkpoint preview are not.
+  const editable = !staged && !checkpoint;
 
   const [state, setState] = useState<State>({ kind: "loading" });
   const [dirty, setDirty] = useState(false);
@@ -42,15 +50,31 @@ export function DiffView({ tab, cwd }: { tab: EditorTab; cwd: string }) {
   const editorRef = useRef<Monaco.editor.IStandaloneDiffEditor | null>(null);
   const savedVersionRef = useRef<number>(0);
 
+  const ckptSession = checkpoint?.sessionId;
+  const ckptVersion = checkpoint?.version;
   useEffect(() => {
     let alive = true;
     setState({ kind: "loading" });
     setDirty(false);
     setSaveError(null);
-    gitDiff(file, staged, cwd)
-      .then((diff) => {
+    // A checkpoint tab compares the saved snapshot (left) to the current file
+    // (right); a git tab compares HEAD/index/working tree.
+    const load: Promise<{ binary: boolean } & Sides> =
+      ckptSession != null && ckptVersion != null
+        ? checkpointDiff(ckptSession, file, ckptVersion, cwd).then((d) => ({
+            binary: d.binary,
+            original: d.snapshot,
+            modified: d.current,
+          }))
+        : gitDiff(file, staged, cwd).then((d) => ({
+            binary: d.binary,
+            original: d.original,
+            modified: d.modified,
+          }));
+    load
+      .then((r) => {
         if (!alive) return;
-        setState(diff.binary ? { kind: "binary" } : { kind: "ready", diff });
+        setState(r.binary ? { kind: "binary" } : { kind: "ready", sides: r });
       })
       .catch((e) => {
         if (!alive) return;
@@ -59,7 +83,7 @@ export function DiffView({ tab, cwd }: { tab: EditorTab; cwd: string }) {
     return () => {
       alive = false;
     };
-  }, [file, staged, cwd]);
+  }, [file, staged, cwd, ckptSession, ckptVersion]);
 
   const save = useCallback(async () => {
     const ed = editorRef.current;
@@ -96,7 +120,15 @@ export function DiffView({ tab, cwd }: { tab: EditorTab; cwd: string }) {
     <div className="flex h-full w-full flex-col" style={{ background: "var(--color-bg-base)" }}>
       <Header
         file={file}
-        staged={staged}
+        badge={
+          checkpoint
+            ? `Snapshot @v${checkpoint.version} → current · read-only`
+            : staged
+              ? "Staged · read-only"
+              : "Working tree · editable"
+        }
+        badgeOk={staged || !!checkpoint}
+        showSave={editable}
         canSave={editable && dirty}
         onSave={() => void save()}
       />
@@ -106,8 +138,8 @@ export function DiffView({ tab, cwd }: { tab: EditorTab; cwd: string }) {
           <DiffEditor
             height="100%"
             language={languageForPath(file)}
-            original={state.diff.original}
-            modified={state.diff.modified}
+            original={state.sides.original}
+            modified={state.sides.modified}
             theme={MONACO_THEME}
             beforeMount={() => defineClaudeTheme()}
             onMount={onMount}
@@ -145,12 +177,16 @@ export function DiffView({ tab, cwd }: { tab: EditorTab; cwd: string }) {
 
 function Header({
   file,
-  staged,
+  badge,
+  badgeOk,
+  showSave,
   canSave,
   onSave,
 }: {
   file: string;
-  staged: boolean;
+  badge: string;
+  badgeOk: boolean;
+  showSave: boolean;
   canSave: boolean;
   onSave: () => void;
 }) {
@@ -175,12 +211,13 @@ function Header({
           padding: "1px var(--space-2)",
           borderRadius: "var(--radius-sm)",
           background: "var(--color-bg-raised)",
-          color: staged ? "var(--color-status-success)" : "var(--color-fg-secondary)",
+          color: badgeOk ? "var(--color-status-success)" : "var(--color-fg-secondary)",
+          whiteSpace: "nowrap",
         }}
       >
-        {staged ? "Staged · read-only" : "Working tree · editable"}
+        {badge}
       </span>
-      {!staged && (
+      {showSave && (
         <button
           type="button"
           onClick={onSave}

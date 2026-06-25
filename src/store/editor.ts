@@ -18,15 +18,21 @@ import { useWorkspaces } from "@/store/workspaces";
 
 export interface EditorTab {
   /** Stable tab id. For a file = its workspace-relative path (and model uri);
-   *  for a diff = a synthetic `diff:<staged|working>:<file>` id (never a real
-   *  path, so it can't collide with a file tab or be fetched as a file). */
+   *  for a diff = a synthetic `diff:…` / `ckpt:…` id (never a real path, so it
+   *  can't collide with a file tab or be fetched as a file). */
   path: string;
   /** Basename, for the tab label. */
   name: string;
   /** "file" (default) opens in the text editor; "diff" opens a read-only diff. */
   kind?: "file" | "diff";
-  /** Present only for diff tabs: which file, and whether the staged diff. */
-  diff?: { file: string; staged: boolean };
+  /** Present only for diff tabs: which file, whether the staged git diff, and —
+   *  for a checkpoint preview (Phase 7 P2) — the session + version to compare
+   *  the saved snapshot against the current file (read-only, no restore). */
+  diff?: {
+    file: string;
+    staged: boolean;
+    checkpoint?: { sessionId: string; version: number };
+  };
 }
 
 export interface EditorState {
@@ -42,6 +48,9 @@ export interface EditorState {
   openAt: (path: string, line: number) => void;
   /** Open a read-only diff for a file (staged = HEAD→index, else index→worktree). */
   openDiff: (file: string, staged: boolean) => void;
+  /** Open a read-only checkpoint preview: a session's saved snapshot of `file`
+   *  at `version` vs the current file (Phase 7 P2; no restore). */
+  openCheckpointDiff: (file: string, sessionId: string, version: number) => void;
   /** Focus an already-open tab. */
   activate: (path: string) => void;
   /** Close a tab; focus falls to the left neighbor (VS Code-style). */
@@ -85,6 +94,25 @@ const makeEditorStore = (): StoreApi<EditorState> =>
       if (!tabs.some((t) => t.path === id)) {
         set({
           tabs: [...tabs, { path: id, name: basename(file), kind: "diff", diff: { file, staged } }],
+        });
+      }
+      set({ activePath: id });
+    },
+
+    openCheckpointDiff: (file, sessionId, version) => {
+      const id = `ckpt:${sessionId}:${version}:${file}`;
+      const { tabs } = get();
+      if (!tabs.some((t) => t.path === id)) {
+        set({
+          tabs: [
+            ...tabs,
+            {
+              path: id,
+              name: `${basename(file)} @v${version}`,
+              kind: "diff",
+              diff: { file, staged: false, checkpoint: { sessionId, version } },
+            },
+          ],
         });
       }
       set({ activePath: id });

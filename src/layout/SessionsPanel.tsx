@@ -6,11 +6,14 @@
  * branch/checkpoint structure (full `/rewind` rail) is Phase 7.
  */
 
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useSessions } from "@/store/sessions";
 import { useActiveConversation } from "@/store/conversation";
+import { activeEditorStore } from "@/store/editor";
+import { useLayout } from "@/store/layout";
 import { useActiveCwd } from "@/store/workspaces";
-import type { SessionMeta } from "@/ipc/types";
+import { checkpointTimeline } from "@/ipc/commands";
+import { isIpcError, type CheckpointEntry, type SessionMeta } from "@/ipc/types";
 
 export function SessionsPanel() {
   const cwd = useActiveCwd();
@@ -79,6 +82,7 @@ export function SessionsPanel() {
               <RailItem
                 key={session.id}
                 session={session}
+                cwd={cwd ?? undefined}
                 active={session.id === activeId}
                 last={i === sessions.length - 1}
                 disabled={streaming}
@@ -95,6 +99,7 @@ export function SessionsPanel() {
 
 function RailItem({
   session,
+  cwd,
   active,
   last,
   disabled,
@@ -102,6 +107,7 @@ function RailItem({
   onFork,
 }: {
   session: SessionMeta;
+  cwd?: string;
   active: boolean;
   last: boolean;
   disabled: boolean;
@@ -141,72 +147,184 @@ function RailItem({
           />
         )}
       </div>
-      {/* Node content: the row resumes; fork is a hover/focus affordance. */}
+      {/* Node content: the row resumes; fork is a hover/focus affordance; the
+          checkpoints expander reveals this session's read-only edit timeline. */}
       <div
-        className="relative flex min-w-0 flex-1 items-start gap-[var(--space-2)]"
+        className="relative flex min-w-0 flex-1 flex-col"
         style={{ paddingBottom: "var(--space-5)" }}
       >
-        <button
-          type="button"
-          onClick={onResume}
-          disabled={disabled}
-          title={active ? `${session.label} (active)` : `Resume: ${session.label}`}
-          aria-label={
-            active ? `Active session: ${session.label}` : `Resume session: ${session.label}`
-          }
-          className="min-w-0 flex-1 text-left"
-          style={{
-            background: "transparent",
-            border: "none",
-            padding: 0,
-            cursor: disabled ? "default" : "pointer",
-            opacity: disabled && !active ? 0.5 : 1,
-          }}
-        >
-          <div
-            style={{
-              fontSize: "var(--text-sm)",
-              color: active ? "var(--color-fg-primary)" : "var(--color-fg-secondary)",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-            }}
-          >
-            {session.label}
-          </div>
-          <div
-            style={{
-              fontFamily: "var(--font-mono)",
-              fontSize: "var(--text-xs)",
-              color: active ? "var(--color-status-running)" : "var(--color-fg-muted)",
-            }}
-          >
-            {active ? `${meta || "active"} · active` : meta}
-          </div>
-        </button>
-        {!active && (
+        <div className="flex min-w-0 items-start gap-[var(--space-2)]">
           <button
             type="button"
-            onClick={onFork}
+            onClick={onResume}
             disabled={disabled}
-            title={`Fork into a new branch: ${session.label}`}
-            aria-label={`Fork session into a new branch: ${session.label}`}
-            className="shrink-0 opacity-0 transition-opacity focus:opacity-100 group-hover/rail:opacity-100"
+            title={active ? `${session.label} (active)` : `Resume: ${session.label}`}
+            aria-label={
+              active ? `Active session: ${session.label}` : `Resume session: ${session.label}`
+            }
+            className="min-w-0 flex-1 text-left"
             style={{
               background: "transparent",
               border: "none",
-              padding: "0 var(--space-1)",
-              fontFamily: "var(--font-mono)",
-              fontSize: "var(--text-sm)",
-              color: "var(--color-fg-muted)",
+              padding: 0,
               cursor: disabled ? "default" : "pointer",
+              opacity: disabled && !active ? 0.5 : 1,
             }}
           >
-            ⑂
+            <div
+              style={{
+                fontSize: "var(--text-sm)",
+                color: active ? "var(--color-fg-primary)" : "var(--color-fg-secondary)",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {session.label}
+            </div>
+            <div
+              style={{
+                fontFamily: "var(--font-mono)",
+                fontSize: "var(--text-xs)",
+                color: active ? "var(--color-status-running)" : "var(--color-fg-muted)",
+              }}
+            >
+              {active ? `${meta || "active"} · active` : meta}
+            </div>
           </button>
-        )}
+          {!active && (
+            <button
+              type="button"
+              onClick={onFork}
+              disabled={disabled}
+              title={`Fork into a new branch: ${session.label}`}
+              aria-label={`Fork session into a new branch: ${session.label}`}
+              className="shrink-0 opacity-0 transition-opacity focus:opacity-100 group-hover/rail:opacity-100"
+              style={{
+                background: "transparent",
+                border: "none",
+                padding: "0 var(--space-1)",
+                fontFamily: "var(--font-mono)",
+                fontSize: "var(--text-sm)",
+                color: "var(--color-fg-muted)",
+                cursor: disabled ? "default" : "pointer",
+              }}
+            >
+              ⑂
+            </button>
+          )}
+        </div>
+        <CheckpointSection sessionId={session.id} cwd={cwd} />
       </div>
     </li>
+  );
+}
+
+/** Per-session, lazily-loaded read-only checkpoint timeline (Phase 7 P2). The
+ *  edit history is fetched on first expand; clicking an entry opens its
+ *  snapshot-vs-current diff in the editor. No restore (the CLI has no API). */
+function CheckpointSection({ sessionId, cwd }: { sessionId: string; cwd?: string }) {
+  const [open, setOpen] = useState(false);
+  const [entries, setEntries] = useState<CheckpointEntry[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open || entries || error) return;
+    let alive = true;
+    checkpointTimeline(sessionId, cwd)
+      .then((t) => alive && setEntries(t.entries))
+      .catch((e) => alive && setError(isIpcError(e) ? e.message : "Could not load checkpoints"));
+    return () => {
+      alive = false;
+    };
+  }, [open, entries, error, sessionId, cwd]);
+
+  const openDiff = (entry: CheckpointEntry) => {
+    useLayout.getState().setVisible("editor", true);
+    activeEditorStore().getState().openCheckpointDiff(entry.path, sessionId, entry.version);
+  };
+
+  const count = entries?.length ?? 0;
+  return (
+    <div style={{ marginTop: "var(--space-1)" }}>
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        className="cursor-pointer"
+        style={{
+          background: "transparent",
+          border: "none",
+          padding: 0,
+          fontFamily: "var(--font-mono)",
+          fontSize: "var(--text-xs)",
+          color: "var(--color-fg-muted)",
+        }}
+      >
+        {open ? "▾" : "▸"} checkpoints{entries ? ` (${count})` : ""}
+      </button>
+      {open && (
+        <div style={{ marginTop: "var(--space-1)" }}>
+          {error ? (
+            <StateNote text={error} tone="error" />
+          ) : !entries ? (
+            <StateNote text="Loading…" />
+          ) : count === 0 ? (
+            <StateNote text="No file edits recorded for this session." />
+          ) : (
+            <ul className="flex flex-col gap-[2px]">
+              {entries.slice(0, 60).map((entry) => (
+                <li key={entry.id}>
+                  <button
+                    type="button"
+                    onClick={() => openDiff(entry)}
+                    title={`${entry.path} @v${entry.version} — ${entry.tool}; view snapshot vs current`}
+                    className="flex w-full min-w-0 cursor-pointer items-baseline gap-[var(--space-2)] text-left"
+                    style={{
+                      background: "transparent",
+                      border: "none",
+                      padding: "1px var(--space-1)",
+                      borderRadius: "var(--radius-sm)",
+                    }}
+                  >
+                    <span
+                      style={{
+                        minWidth: 0,
+                        flex: 1,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                        fontSize: "var(--text-xs)",
+                        color: "var(--color-fg-secondary)",
+                      }}
+                    >
+                      {entry.path}
+                    </span>
+                    <span
+                      style={{
+                        flexShrink: 0,
+                        fontFamily: "var(--font-mono)",
+                        fontSize: "var(--text-xs)",
+                        color: "var(--color-fg-muted)",
+                      }}
+                    >
+                      v{entry.version} · {relativeTime(entry.timestampMs)}
+                    </span>
+                  </button>
+                </li>
+              ))}
+              {count > 60 && (
+                <li>
+                  <span style={{ fontSize: "var(--text-xs)", color: "var(--color-fg-muted)" }}>
+                    +{count - 60} older…
+                  </span>
+                </li>
+              )}
+            </ul>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
