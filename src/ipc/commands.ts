@@ -24,6 +24,7 @@ import type {
   ProjectPermissionsFile,
   SearchResults,
   SessionMeta,
+  SessionSearchResults,
   UsageReport,
 } from "./types";
 import { isIpcError } from "./types";
@@ -474,6 +475,16 @@ export async function gitDiscard(path: string, cwd?: string): Promise<void> {
 export async function search(query: string, cwd?: string): Promise<SearchResults> {
   try {
     return await invoke<SearchResults>("search", { cwd, query });
+  } catch (e) {
+    normalizeError(e);
+  }
+}
+
+/** Full-text search across the workspace's session transcripts (user + assistant
+ *  message text), grouped by session with snippets. Read-only. (P5, Phase 8.) */
+export async function searchSessions(query: string, cwd?: string): Promise<SessionSearchResults> {
+  try {
+    return await invoke<SessionSearchResults>("search_sessions", { cwd, query });
   } catch (e) {
     normalizeError(e);
   }

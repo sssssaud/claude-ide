@@ -564,7 +564,7 @@ fully. Mechanism decoded + verified above (file-history hash = sha256(abspath)[:
       (see follow-up) — cosmetic only, deferred to the final polish phase per
       [[defer-cosmetic-polish]].
 
-### Phase 8 — P4 usage dashboard + P5 cross-session search  ·  in progress
+### Phase 8 — P4 usage dashboard + P5 cross-session search  ·  COMPLETE
 Diagnosis-first (real transcript inspection, 2026-06-26): the CLI persists **no
 cost** in its JSONL — verified across ~4.8k lines, zero cost-bearing fields. What
 it stores per `assistant` message is exact token `usage` (`input_tokens`,
@@ -589,10 +589,21 @@ read from disk (and meaningless on a flat subscription).
       Live gate: open **Usage** → see total + per-session tokens; edit a rate → the
       estimate updates. Note: the **Usage** tab is the 5th Sidebar text tab — adds to
       the tracked tab-crowding follow-up (cosmetic, Phase 10, [[defer-cosmetic-polish]]).
-- [ ] **P5 — cross-session search.** Search message text across all the workspace's
-      transcripts (read-only over `~/.claude/projects`), returning matching sessions
-      + snippets. Likely extends the existing **Search** sidebar view (Files ↔ Sessions
-      toggle) rather than adding a 6th tab.
+- [x] **P5 — cross-session search.** Backend `session_search.rs`: `search(cwd, query)`
+      reuses `sessions::list` + the project dir, streams each transcript (cheap raw-line
+      prefilter before the JSON parse), and matches **visible** user/assistant message
+      text only (`isMeta`/`isSidechain` and tool_use/thinking blocks skipped — parity
+      with the conversation pane), case-insensitive. Returns per-session groups with a
+      whitespace-collapsed, ellipsis-clipped snippet around the first match + the true
+      per-session hit count; bounded (6 snippets/session, 300 overall → `truncated`).
+      Pure `match_line`/`snippet_around` golden-tested (3 tests → **39 lib tests**), zero
+      warnings. Command `search_sessions` + registration. Read-only over
+      `~/.claude/projects`. Frontend: TS mirror + IPC wrapper; the **Search** sidebar
+      view gained a **Files ↔ Sessions** toggle (no 6th tab) — Sessions mode searches as
+      you type, lists matching sessions with highlighted snippets (you/ai role), and
+      clicking a session **resumes** it in the hero pane (disabled mid-stream). Typecheck
+      + prod build green. **P5 complete → Phase 8 COMPLETE.** Live gate: Search → Sessions
+      → type a term → see matching sessions + snippets → click → that conversation resumes.
 
 ### Pending (later phases)
 - Phases 9–10 — agents/parallel dashboard + daemon status,

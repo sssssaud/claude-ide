@@ -15,6 +15,7 @@ mod permissions;
 mod preflight;
 mod pty;
 mod search;
+mod session_search;
 mod sessions;
 mod state;
 mod usage;
@@ -62,6 +63,7 @@ pub fn run(startup: Instant) {
             commands::checkpoint_timeline,
             commands::checkpoint_diff,
             commands::workspace_usage,
+            commands::search_sessions,
             commands::list_dir,
             commands::read_file,
             commands::write_file,

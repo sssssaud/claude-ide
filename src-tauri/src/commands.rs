@@ -21,6 +21,7 @@ use crate::permissions::{ProjectPermissions, ProjectPermissionsFile};
 use crate::preflight::{self, PreflightReport};
 use crate::pty::PtyRegistry;
 use crate::search::SearchResults;
+use crate::session_search::SessionSearchResults;
 use crate::sessions::{SessionMeta, SessionTranscript, SessionsRegistry};
 use crate::state::AppState;
 use crate::usage::UsageReport;
@@ -383,4 +384,13 @@ pub fn git_discard(cwd: Option<String>, path: String) -> IpcResult<()> {
 #[tauri::command]
 pub fn search(cwd: Option<String>, query: String) -> IpcResult<SearchResults> {
     crate::search::search(cwd, query)
+}
+
+// ----- Cross-session search (P5, Phase 8) ------------------------------------
+
+/// Full-text search across the workspace's `claude` session transcripts (user +
+/// assistant message text), grouped by session with snippets. Read-only.
+#[tauri::command]
+pub fn search_sessions(cwd: Option<String>, query: String) -> IpcResult<SessionSearchResults> {
+    crate::session_search::search(cwd, &query)
 }

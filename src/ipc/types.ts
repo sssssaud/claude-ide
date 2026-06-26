@@ -190,6 +190,29 @@ export interface UsageReport {
   sessionCount: number;
 }
 
+/** Mirror of Rust `SessionHit` (P5, Phase 8) — one matched message snippet. */
+export interface SessionHit {
+  role: "user" | "assistant";
+  snippet: string;
+}
+
+/** Mirror of Rust `SessionSearchGroup` (P5) — one session's matches. */
+export interface SessionSearchGroup {
+  sessionId: string;
+  label: string;
+  lastActiveMs: number;
+  /** Total matching messages (may exceed `hits.length`). */
+  hitCount: number;
+  hits: SessionHit[];
+}
+
+/** Mirror of Rust `SessionSearchResults` (P5) — cross-session search results. */
+export interface SessionSearchResults {
+  groups: SessionSearchGroup[];
+  totalHits: number;
+  truncated: boolean;
+}
+
 /**
  * Mirror of Rust `EngineEvent` (spec 2.3) — internally tagged by `type`.
  * Render by `type`, never by position; tolerate unknown `type`s from a newer
