@@ -23,6 +23,7 @@ use crate::pty::PtyRegistry;
 use crate::search::SearchResults;
 use crate::sessions::{SessionMeta, SessionTranscript, SessionsRegistry};
 use crate::state::AppState;
+use crate::usage::UsageReport;
 
 /// Upper bound on a single prompt (defensive; treats prompt strictly as data).
 const MAX_PROMPT_LEN: usize = 100_000;
@@ -249,6 +250,16 @@ pub fn checkpoint_diff(
     version: u32,
 ) -> IpcResult<CheckpointDiff> {
     crate::checkpoints::diff(cwd, &session_id, &path, version)
+}
+
+// ----- Usage dashboard (P4, Phase 8) -----------------------------------------
+// Read-only: exact token sums from the transcripts (the CLI persists no cost).
+
+/// Per-session + total token usage for the workspace (input/output/cache),
+/// newest-active first. Read-only; never touches `~/.claude`.
+#[tauri::command]
+pub fn workspace_usage(cwd: Option<String>) -> IpcResult<UsageReport> {
+    crate::usage::workspace_usage(cwd)
 }
 
 // ----- Editor file surface (spec 5.A.3, Phase 4) -----------------------------

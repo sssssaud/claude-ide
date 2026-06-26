@@ -24,6 +24,7 @@ import type {
   ProjectPermissionsFile,
   SearchResults,
   SessionMeta,
+  UsageReport,
 } from "./types";
 import { isIpcError } from "./types";
 
@@ -355,6 +356,16 @@ export async function writePermissions(
 ): Promise<void> {
   try {
     await invoke<void>("write_permissions", { cwd, permissions });
+  } catch (e) {
+    normalizeError(e);
+  }
+}
+
+/** Per-session + total token usage for the workspace (exact, from transcripts);
+ *  the CLI stores no cost, so dollars are an estimate done in the UI. Read-only. */
+export async function workspaceUsage(cwd?: string): Promise<UsageReport> {
+  try {
+    return await invoke<UsageReport>("workspace_usage", { cwd });
   } catch (e) {
     normalizeError(e);
   }

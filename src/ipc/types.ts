@@ -164,6 +164,32 @@ export interface ProjectPermissionsFile {
   permissions: ProjectPermissions;
 }
 
+/** Mirror of Rust `TokenSums` (P4, Phase 8) — exact token counts from transcripts. */
+export interface TokenSums {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheCreation: number;
+  /** Assistant messages that carried a usage block. */
+  messages: number;
+}
+
+/** Mirror of Rust `UsageRow` (P4) — one session's usage. */
+export interface UsageRow {
+  sessionId: string;
+  label: string;
+  models: string[];
+  lastActiveMs: number;
+  tokens: TokenSums;
+}
+
+/** Mirror of Rust `UsageReport` (P4) — per-session + total token usage. */
+export interface UsageReport {
+  rows: UsageRow[];
+  totals: TokenSums;
+  sessionCount: number;
+}
+
 /**
  * Mirror of Rust `EngineEvent` (spec 2.3) — internally tagged by `type`.
  * Render by `type`, never by position; tolerate unknown `type`s from a newer

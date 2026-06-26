@@ -17,6 +17,7 @@ mod pty;
 mod search;
 mod sessions;
 mod state;
+mod usage;
 mod workspace;
 
 use std::sync::Arc;
@@ -60,6 +61,7 @@ pub fn run(startup: Instant) {
             commands::watch_sessions,
             commands::checkpoint_timeline,
             commands::checkpoint_diff,
+            commands::workspace_usage,
             commands::list_dir,
             commands::read_file,
             commands::write_file,

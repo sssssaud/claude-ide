@@ -564,9 +564,39 @@ fully. Mechanism decoded + verified above (file-history hash = sha256(abspath)[:
       (see follow-up) — cosmetic only, deferred to the final polish phase per
       [[defer-cosmetic-polish]].
 
+### Phase 8 — P4 usage dashboard + P5 cross-session search  ·  in progress
+Diagnosis-first (real transcript inspection, 2026-06-26): the CLI persists **no
+cost** in its JSONL — verified across ~4.8k lines, zero cost-bearing fields. What
+it stores per `assistant` message is exact token `usage` (`input_tokens`,
+`output_tokens`, `cache_read_input_tokens`, `cache_creation_input_tokens`) + the
+`model` (`claude-opus-4-8`; `<synthetic>` = non-billed) + an ISO `timestamp`. ⇒
+P4 reports EXACT tokens; any $ figure is a UI estimate from editable rates, never
+read from disk (and meaningless on a flat subscription).
+- [x] **P4 — usage dashboard.** Backend `usage.rs`: `workspace_usage(cwd)` reuses
+      `sessions::list` (ids/labels/order) + resolves the project dir, then streams
+      each transcript line-by-line (never materialised; cheap prefilter on
+      `"usage"`) summing input/output/cache-read/cache-write tokens + message count
+      per session and in total, collecting distinct billable models. Pure
+      `accumulate()` golden-tested (2 tests → **36 lib tests**), zero warnings.
+      Command `workspace_usage` + lib.rs registration. Read-only — never touches
+      `~/.claude`. Frontend: TS mirror (`TokenSums`/`UsageRow`/`UsageReport`) + IPC
+      wrapper; new **Usage** view (5th Sidebar tab) — exact-token totals + per-session
+      cards (label · models · relative time · tokens), and an **estimated-cost** card
+      computed from EDITABLE $/Mtok rates (defaulted to Opus list prices, persisted
+      to localStorage), labelled honestly: "tokens are exact; the $ is your own
+      assumption; subscription billing is flat — this is the API-equivalent, not what
+      you paid." Same honesty stance as the P3 tester. Typecheck + prod build green.
+      Live gate: open **Usage** → see total + per-session tokens; edit a rate → the
+      estimate updates. Note: the **Usage** tab is the 5th Sidebar text tab — adds to
+      the tracked tab-crowding follow-up (cosmetic, Phase 10, [[defer-cosmetic-polish]]).
+- [ ] **P5 — cross-session search.** Search message text across all the workspace's
+      transcripts (read-only over `~/.claude/projects`), returning matching sessions
+      + snippets. Likely extends the existing **Search** sidebar view (Files ↔ Sessions
+      toggle) rather than adding a 6th tab.
+
 ### Pending (later phases)
-- Phases 8–10 — cost + cross-session search, agents dashboard,
-  cross-platform/theming/release.
+- Phases 9–10 — agents/parallel dashboard + daemon status,
+  cross-platform/theming/release + final polish.
 
 ## Blockers
 - None. Environment fully set up; production build green.
