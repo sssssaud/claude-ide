@@ -506,7 +506,7 @@ verified-facts note above; `allow` was proven to actually write a file).
   ask Claude to create/edit a file → an approval card appears → Approve writes it,
   Reject blocks it with a clean tool-error, Edit runs a modified version.
 
-### Phase 7 — P2 checkpoint timeline (read-only) + P3 permission manager  ·  in progress
+### Phase 7 — P2 checkpoint timeline (read-only) + P3 permission manager  ·  COMPLETE
 Scope set with the user 2026-06-26: the CLI has **no rewind/restore API**, so P2
 is a **read-only** checkpoint timeline + snapshot-vs-current diff preview
 (restore deferred until Anthropic ships an API); P3 (permission manager) is built
@@ -536,9 +536,33 @@ fully. Mechanism decoded + verified above (file-history hash = sha256(abspath)[:
       routes it unchanged (`kind:"diff"`, keyed per version). Typecheck + prod
       build green. **P2 complete (read-only).** Live gate: expand a session →
       checkpoints list → click → snapshot↔current diff opens in the editor.
-- [ ] **7B — P3 permission manager** — read/write project `.claude/settings.json`
-      (allow/deny/ask, defaultMode, additionalDirectories) + a "would this prompt?"
-      tester. Builds on Phase 6.
+- [x] **7B — P3 permission manager.** Diagnosis-first (verified rule schema against
+      the live `settings.local.json` + the official IAM/settings docs, CLI 2.1.193):
+      rules are `Tool` / `Tool(specifier)`; **precedence deny ▸ ask ▸ allow**
+      ("denylist takes precedence"); scope precedence Managed ▸ CLI ▸ Local ▸ Project
+      ▸ User, and **rules merge across scopes, not override**. Backend `permissions.rs`:
+      `read(cwd)` returns the project `.claude/settings.json` permissions block
+      (allow/ask/deny, defaultMode, additionalDirectories) + an `exists` flag, tolerant
+      of a missing/hand-edited file; `write(cwd, perms)` is **read-modify-write** —
+      preserves every other top-level key AND unmodelled `permissions` sub-keys, refuses
+      a non-object file rather than clobbering it, creates `.claude/` + the file if
+      absent, validates the mode enum + trims/dedupes/bounds the lists. 5 golden tests
+      (round-trip, key-preservation, refuse-malformed, sanitize) → **34 lib tests**, zero
+      warnings. Commands `read_permissions`/`write_permissions` + lib.rs registration.
+      Frontend: TS mirror (`ProjectPermissions`/`PermissionMode`/`…File`) + IPC wrappers;
+      new **Perms** view (4th tab) in the editor Sidebar with a structured editor (mode
+      dropdown, deny/ask/allow + additional-directories lists with add/remove, dirty-aware
+      Save/Reload writing the shared file) and a **"Will this prompt?"** preview. The
+      tester is deliberately a TRANSPARENT, NON-AUTHORITATIVE preview: it evaluates the
+      on-screen rules with documented precedence + a loose, labelled matcher and shows
+      which rule wins and why — never claiming to simulate the CLI (whose exact Bash
+      matching is undocumented/version-varying and which merges other scopes). Honest by
+      design: "Not a security guarantee." Typecheck + prod build green. **P3 complete →
+      Phase 7 COMPLETE.** Live gate: open **Perms** → edit a rule → Save writes
+      `.claude/settings.json`; type a tool+arg into the tester → see the matched rule +
+      outcome. Note: the new Perms tab adds to the already-flagged Sidebar tab crowding
+      (see follow-up) — cosmetic only, deferred to the final polish phase per
+      [[defer-cosmetic-polish]].
 
 ### Pending (later phases)
 - Phases 8–10 — cost + cross-session search, agents dashboard,

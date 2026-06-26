@@ -11,6 +11,7 @@ mod error;
 mod files;
 mod git;
 mod perf;
+mod permissions;
 mod preflight;
 mod pty;
 mod search;
@@ -62,6 +63,8 @@ pub fn run(startup: Instant) {
             commands::list_dir,
             commands::read_file,
             commands::write_file,
+            commands::read_permissions,
+            commands::write_permissions,
             commands::git_status,
             commands::git_diff,
             commands::git_stage,

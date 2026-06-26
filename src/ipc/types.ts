@@ -143,6 +143,27 @@ export interface CheckpointDiff {
   binary: boolean;
 }
 
+/** The `permissions.defaultMode` values the CLI accepts (Phase 7 7B). */
+export type PermissionMode = "default" | "acceptEdits" | "plan" | "bypassPermissions";
+
+/** Mirror of Rust `ProjectPermissions` (Phase 7 7B) — the modelled slice of the
+ *  project's `.claude/settings.json` permissions block. */
+export interface ProjectPermissions {
+  allow: string[];
+  ask: string[];
+  deny: string[];
+  /** Omitted when unset (the CLI then applies its own default). */
+  defaultMode?: PermissionMode;
+  additionalDirectories: string[];
+}
+
+/** Mirror of Rust `ProjectPermissionsFile` (Phase 7 7B). `exists` is false when
+ *  `.claude/settings.json` hasn't been created yet (Save will create it). */
+export interface ProjectPermissionsFile {
+  exists: boolean;
+  permissions: ProjectPermissions;
+}
+
 /**
  * Mirror of Rust `EngineEvent` (spec 2.3) — internally tagged by `type`.
  * Render by `type`, never by position; tolerate unknown `type`s from a newer

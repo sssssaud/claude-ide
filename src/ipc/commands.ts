@@ -20,6 +20,8 @@ import type {
   GitStatus,
   PerfStats,
   PreflightReport,
+  ProjectPermissions,
+  ProjectPermissionsFile,
   SearchResults,
   SessionMeta,
 } from "./types";
@@ -330,6 +332,29 @@ export async function readFile(path: string, cwd?: string): Promise<FileContents
 export async function writeFile(path: string, contents: string, cwd?: string): Promise<void> {
   try {
     await invoke<void>("write_file", { cwd, path, contents });
+  } catch (e) {
+    normalizeError(e);
+  }
+}
+
+/** Read the project's `.claude/settings.json` permissions block + whether the
+ *  file exists yet. Read-only. (Phase 7 7B — P3 permission manager.) */
+export async function readPermissions(cwd?: string): Promise<ProjectPermissionsFile> {
+  try {
+    return await invoke<ProjectPermissionsFile>("read_permissions", { cwd });
+  } catch (e) {
+    normalizeError(e);
+  }
+}
+
+/** Write the project's permissions block, preserving every other settings key.
+ *  Creates `.claude/settings.json` if absent; validated at the backend boundary. */
+export async function writePermissions(
+  permissions: ProjectPermissions,
+  cwd?: string,
+): Promise<void> {
+  try {
+    await invoke<void>("write_permissions", { cwd, permissions });
   } catch (e) {
     normalizeError(e);
   }

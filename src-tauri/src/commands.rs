@@ -17,6 +17,7 @@ use crate::error::{IpcError, IpcErrorKind, IpcResult};
 use crate::files::{DirEntry, FileContents};
 use crate::git::{GitBranches, GitDiff, GitStatus};
 use crate::perf::{self, PerfStats};
+use crate::permissions::{ProjectPermissions, ProjectPermissionsFile};
 use crate::preflight::{self, PreflightReport};
 use crate::pty::PtyRegistry;
 use crate::search::SearchResults;
@@ -270,6 +271,25 @@ pub fn read_file(cwd: Option<String>, path: String) -> IpcResult<FileContents> {
 #[tauri::command]
 pub fn write_file(cwd: Option<String>, path: String, contents: String) -> IpcResult<()> {
     crate::files::write_file(cwd, path, contents)
+}
+
+// ----- Project permissions (P3 permission manager, spec 3.6, Phase 7 7B) -----
+// Read/write the SHARED `.claude/settings.json` permissions block — the file the
+// CLI itself reads. The CLI remains the real boundary; this only edits its config.
+
+/// Read the project's `.claude/settings.json` permissions (allow/ask/deny,
+/// defaultMode, additionalDirectories) + whether the file exists yet. Read-only.
+#[tauri::command]
+pub fn read_permissions(cwd: Option<String>) -> IpcResult<ProjectPermissionsFile> {
+    crate::permissions::read(cwd)
+}
+
+/// Write the project's permissions block, preserving every other settings key
+/// (read-modify-write). Creates `.claude/settings.json` if absent. Validated at
+/// the boundary (mode enum, rule trimming/dedup, bounds).
+#[tauri::command]
+pub fn write_permissions(cwd: Option<String>, permissions: ProjectPermissions) -> IpcResult<()> {
+    crate::permissions::write(cwd, permissions)
 }
 
 // ----- Git source control (spec 5.A.3, Phase 4) ------------------------------

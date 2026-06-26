@@ -8,11 +8,12 @@
 import { useEffect, useState } from "react";
 import { FileExplorer } from "@/layout/FileExplorer";
 import { GitPanel } from "@/layout/GitPanel";
+import { PermissionsPanel } from "@/layout/PermissionsPanel";
 import { SearchPanel } from "@/layout/SearchPanel";
 import { useGit } from "@/store/git";
 import { useActiveCwd } from "@/store/workspaces";
 
-type View = "files" | "git" | "search";
+type View = "files" | "git" | "search" | "permissions";
 
 export function Sidebar() {
   const [view, setView] = useState<View>("files");
@@ -44,9 +45,22 @@ export function Sidebar() {
           active={view === "git"}
           onClick={() => setView("git")}
         />
+        <Tab
+          label="Perms"
+          active={view === "permissions"}
+          onClick={() => setView("permissions")}
+        />
       </div>
       <div className="min-h-0 flex-1 overflow-hidden">
-        {view === "files" ? <FileExplorer /> : view === "search" ? <SearchPanel /> : <GitPanel />}
+        {view === "files" ? (
+          <FileExplorer />
+        ) : view === "search" ? (
+          <SearchPanel />
+        ) : view === "git" ? (
+          <GitPanel />
+        ) : (
+          <PermissionsPanel />
+        )}
       </div>
     </aside>
   );
