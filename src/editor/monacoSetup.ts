@@ -47,34 +47,54 @@ const monacoEnv: monaco.Environment = {
 // Use the bundled Monaco instead of the default CDN loader.
 loader.config({ monaco });
 
-/** Read a CSS token value so Monaco's theme (which needs literal hex) stays
- *  sourced from tokens.css — the single source of truth. */
-function token(name: string): string {
-  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-}
-
 let themeDefined = false;
 
-/** Define the "claude-dark" Monaco theme from the design tokens. Idempotent. */
+/** Define the Monaco editor themes — one per app palette (Phase 10). Colors are
+ *  literal hexes that mirror the design tokens (Monaco needs literals, and the
+ *  themes are defined once, decoupled from the live `data-theme` state).
+ *  Idempotent. */
 export function defineClaudeTheme() {
   if (themeDefined) return;
+  // Dark (also used by the Midnight palette — both are near-black surfaces).
   monaco.editor.defineTheme("claude-dark", {
     base: "vs-dark",
     inherit: true,
     rules: [],
     colors: {
-      "editor.background": token("--color-bg-recessed"),
-      "editor.foreground": token("--color-fg-primary"),
-      "editorLineNumber.foreground": token("--color-fg-muted"),
-      "editorLineNumber.activeForeground": token("--color-fg-secondary"),
-      "editor.lineHighlightBackground": token("--color-bg-base"),
-      "editorCursor.foreground": token("--color-accent"),
-      "editorGutter.background": token("--color-bg-recessed"),
-      "editorWidget.background": token("--color-bg-overlay"),
-      "editor.selectionBackground": token("--color-accent-quiet"),
+      "editor.background": "#0f1115",
+      "editor.foreground": "#e6e8ec",
+      "editorLineNumber.foreground": "#6b7280",
+      "editorLineNumber.activeForeground": "#9aa1ad",
+      "editor.lineHighlightBackground": "#15171c",
+      "editorCursor.foreground": "#e9a04a",
+      "editorGutter.background": "#0f1115",
+      "editorWidget.background": "#22262e",
+      "editor.selectionBackground": "#e9a04a1f",
+    },
+  });
+  monaco.editor.defineTheme("claude-light", {
+    base: "vs",
+    inherit: true,
+    rules: [],
+    colors: {
+      "editor.background": "#ffffff",
+      "editor.foreground": "#1b1e24",
+      "editorLineNumber.foreground": "#9aa1ad",
+      "editorLineNumber.activeForeground": "#545a63",
+      "editor.lineHighlightBackground": "#eef0f3",
+      "editorCursor.foreground": "#b8730f",
+      "editorGutter.background": "#ffffff",
+      "editorWidget.background": "#ffffff",
+      "editor.selectionBackground": "#b8730f29",
     },
   });
   themeDefined = true;
 }
 
+/** Default theme name (dark). Prefer `monacoThemeFor(palette)` for theme-aware UI. */
 export const MONACO_THEME = "claude-dark";
+
+/** The Monaco theme name for an app palette (Midnight reuses the dark editor). */
+export function monacoThemeFor(palette: string): string {
+  return palette === "light" ? "claude-light" : "claude-dark";
+}

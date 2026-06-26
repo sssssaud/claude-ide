@@ -21,6 +21,7 @@ import { ConversationPane } from "@/layout/ConversationPane";
 import { EditorRegion } from "@/layout/EditorRegion";
 import { ResizeSeparator } from "@/layout/ResizeSeparator";
 import { TerminalDrawer } from "@/layout/TerminalDrawer";
+import { ThemePicker } from "@/layout/ThemePicker";
 import { useLayoutShortcuts } from "@/layout/useLayoutShortcuts";
 import { pickFolder } from "@/ipc/commands";
 import { useLayout, type Region } from "@/store/layout";
@@ -184,7 +185,10 @@ function TabBar() {
           +
         </button>
       </div>
-      <PanelToggles />
+      <div className="flex items-center gap-[var(--space-3)]">
+        <ThemePicker />
+        <PanelToggles />
+      </div>
     </div>
   );
 }

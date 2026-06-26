@@ -650,9 +650,18 @@ without asking.
       `role=tablist aria-orientation=vertical`. Content area fills the rest. Typecheck +
       prod build green. Live gate: sidebar shows icons; click cycles Files↔Search↔Git↔
       Perms↔Usage; git badge shows the change count.
-- [ ] **10B — Theming.** Theme registry + picker (Dark default + Light + 1 more),
-      persisted + optional follow-OS, by overriding the `--color-*` vars under a
-      `[data-theme]` attribute (components already consume `var(--color-…)`).
+- [x] **10B — Theming.** Theme store (`store/theme.ts`) → picker (`ThemePicker.tsx`,
+      top bar): **Dark** (default), **Midnight** (true-black/OLED), **Light** (cool
+      paper), **System** (follows OS via `matchMedia`, live). Persisted to
+      `localStorage["ide:theme"]`; applied by setting `data-theme` on `<html>`, which
+      flips only the functional `--color-*` vars in `tokens.css` — zero component
+      changes (every component already reads `var(--color-…)`). On-accent text inverts
+      correctly by design: accent is bright-amber on dark, darker-amber on light.
+      Monaco re-themes too: `monacoSetup.ts` defines `claude-dark` + `claude-light`
+      and `monacoThemeFor(palette)`; EditorPane + DiffView derive a reactive `theme`
+      prop from the store. Typecheck + prod build green. Live gate: pick each theme →
+      whole app + editor + diff re-theme instantly, no reload; choice survives reload;
+      "System" tracks the OS toggle.
 - [ ] **10C — Bundle Geist Sans + Mono.** Add `@font-face` + woff2 assets (tokens
       already name Geist); keep CSP locked, no CDN.
 - [ ] **10D — Objective polish.** roving-tabindex a11y, tighten CSP, `cargo clippy

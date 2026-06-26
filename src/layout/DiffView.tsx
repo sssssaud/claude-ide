@@ -18,10 +18,11 @@ import { DiffEditor, type DiffOnMount } from "@monaco-editor/react";
 import type * as Monaco from "monaco-editor";
 import { EmptyState, LoadingState } from "@/components/states";
 import { languageForPath } from "@/editor/language";
-import { defineClaudeTheme, MONACO_THEME } from "@/editor/monacoSetup";
+import { defineClaudeTheme, monacoThemeFor } from "@/editor/monacoSetup";
 import { checkpointDiff, gitDiff, writeFile } from "@/ipc/commands";
 import { isIpcError } from "@/ipc/types";
 import { useGit } from "@/store/git";
+import { useTheme } from "@/store/theme";
 import type { EditorTab } from "@/store/editor";
 
 interface Sides {
@@ -49,6 +50,7 @@ export function DiffView({ tab, cwd }: { tab: EditorTab; cwd: string }) {
 
   const editorRef = useRef<Monaco.editor.IStandaloneDiffEditor | null>(null);
   const savedVersionRef = useRef<number>(0);
+  const monacoTheme = monacoThemeFor(useTheme((s) => s.palette));
 
   const ckptSession = checkpoint?.sessionId;
   const ckptVersion = checkpoint?.version;
@@ -140,7 +142,7 @@ export function DiffView({ tab, cwd }: { tab: EditorTab; cwd: string }) {
             language={languageForPath(file)}
             original={state.sides.original}
             modified={state.sides.modified}
-            theme={MONACO_THEME}
+            theme={monacoTheme}
             beforeMount={() => defineClaudeTheme()}
             onMount={onMount}
             options={{

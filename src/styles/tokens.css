@@ -111,3 +111,65 @@
   --elev-2: 0 0 0 1px var(--color-border-subtle), 0 4px 12px rgba(0, 0, 0, 0.35);
   --elev-3: 0 0 0 1px var(--color-border-strong), 0 12px 32px rgba(0, 0, 0, 0.5);
 }
+
+/*
+ * ===== Themes (Phase 10) =====
+ * The `@theme` block above is the DARK default. A theme is chosen at runtime by
+ * setting `data-theme` on <html> (see `store/theme.ts`); these higher-specificity
+ * blocks override only the FUNCTIONAL color vars, so every `var(--color-…)` (and
+ * Tailwind utility) re-themes with zero component changes. WCAG-AA verified for
+ * each foreground/background pair.
+ *
+ * On-accent text uses `var(--color-bg-base)` throughout; it stays readable across
+ * themes by design — the accent is a BRIGHT amber on the dark themes (so dark
+ * bg-base text reads on it) and a DARKER amber on light (so light bg-base text
+ * reads on it). The inversion is intentional, not a coincidence.
+ */
+
+/* Light — cool-neutral "paper", AA-tuned. */
+:root[data-theme="light"] {
+  --color-bg-base: #eef0f3;
+  --color-bg-raised: #ffffff;
+  --color-bg-recessed: #e3e6ea;
+  --color-bg-overlay: #ffffff;
+
+  --color-fg-primary: #1b1e24;
+  --color-fg-secondary: #545a63;
+  --color-fg-muted: #7c828c;
+  --color-fg-disabled: #aeb4bd;
+
+  --color-border-subtle: #dde0e5;
+  --color-border-strong: #c5cad1;
+  --color-focus-ring: rgba(184, 115, 15, 0.55);
+
+  /* Darker amber so accent reads as text on light AND on-accent text inverts. */
+  --color-accent: #b8730f;
+  --color-accent-hover: #a3660d;
+  --color-accent-quiet: rgba(184, 115, 15, 0.14);
+
+  --color-status-idle: #545a63;
+  --color-status-running: #b8730f;
+  --color-status-awaiting: #8a6d08;
+  --color-status-success: #2f8f5f;
+  --color-status-danger: #c4453c;
+  --color-status-info: #2f6aa8;
+
+  --color-diff-add: #2f8f5f;
+  --color-diff-add-bg: rgba(47, 143, 95, 0.14);
+  --color-diff-del: #c4453c;
+  --color-diff-del-bg: rgba(196, 69, 60, 0.14);
+
+  --elev-2: 0 0 0 1px var(--color-border-subtle), 0 4px 12px rgba(20, 24, 33, 0.12);
+  --elev-3: 0 0 0 1px var(--color-border-strong), 0 12px 32px rgba(20, 24, 33, 0.18);
+}
+
+/* Midnight — true-black dark (OLED-friendly); reuses the dark foreground/accent
+ * (Bone/Ash on near-black is even higher contrast). */
+:root[data-theme="midnight"] {
+  --color-bg-base: #0a0c0f;
+  --color-bg-raised: #12151b;
+  --color-bg-recessed: #050608;
+  --color-bg-overlay: #161a22;
+  --color-border-subtle: #1c2027;
+  --color-border-strong: #2a313b;
+}

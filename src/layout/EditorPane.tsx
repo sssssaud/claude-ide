@@ -15,10 +15,11 @@ import Editor, { type OnMount } from "@monaco-editor/react";
 import type * as Monaco from "monaco-editor";
 import { EmptyState, LoadingState } from "@/components/states";
 import { languageForPath } from "@/editor/language";
-import { defineClaudeTheme, MONACO_THEME } from "@/editor/monacoSetup";
+import { defineClaudeTheme, monacoThemeFor } from "@/editor/monacoSetup";
 import { readFile, writeFile } from "@/ipc/commands";
 import { isIpcError } from "@/ipc/types";
 import type { EditorState } from "@/store/editor";
+import { useTheme } from "@/store/theme";
 
 /** Join a workspace cwd and a root-relative tab path into an absolute path —
  *  the Monaco model URI key, so files with the same relative path in different
@@ -56,6 +57,7 @@ export function EditorPane({ cwd, store }: { cwd: string; store: StoreApi<Editor
   const activePath = useStore(store, (s) => s.activePath);
   const dirty = useStore(store, (s) => s.dirty);
   const reveal = useStore(store, (s) => s.reveal);
+  const monacoTheme = monacoThemeFor(useTheme((s) => s.palette));
 
   const disposeEntry = useCallback((path: string) => {
     const entry = modelsRef.current.get(path);
@@ -222,7 +224,7 @@ export function EditorPane({ cwd, store }: { cwd: string; store: StoreApi<Editor
         <Editor
           height="100%"
           defaultValue=""
-          theme={MONACO_THEME}
+          theme={monacoTheme}
           beforeMount={() => defineClaudeTheme()}
           onMount={(editor, monaco) => {
             editorRef.current = editor;
