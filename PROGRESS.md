@@ -635,10 +635,31 @@ demand and self-exits after ~5s idle ("idle_exit"), so "not running" is normal.
       prod build green. **Phase 9 COMPLETE.** Live gate: expand "ACTIVE SESSIONS" → see
       this session (busy) + any others; daemon shows idle; ↻ refresh re-queries.
 
+### Phase 10 — cross-platform, theming, final polish  ·  in progress
+The final phase, scoped WITH the user 2026-06-26 (the "important points at the end"):
+they chose the **vertical icon activity bar**, a **multi-theme picker** ("dev can
+select the theme — give some extra themes"), and deferred fonts to my judgement
+("go what is good for the app" → bundle Geist, offline/CSP-locked). Objective items
+(a11y roving-tabindex, CSP tighten, `clippy --fix`, per-session-delete revisit) I do
+without asking.
+- [x] **10A — Sidebar vertical icon activity bar.** Replaced the cramped 6-text-tab
+      row with a VS Code-style vertical icon bar down the sidebar's far edge (`width:
+      --space-8`, recessed bg): Files / Search / Source Control (live change badge) /
+      Permissions / Usage, each a crisp inline-SVG icon (18px, `currentColor`, theme-
+      agnostic), active = accent inner-edge bar + brightened icon, `title` tooltips,
+      `role=tablist aria-orientation=vertical`. Content area fills the rest. Typecheck +
+      prod build green. Live gate: sidebar shows icons; click cycles Files↔Search↔Git↔
+      Perms↔Usage; git badge shows the change count.
+- [ ] **10B — Theming.** Theme registry + picker (Dark default + Light + 1 more),
+      persisted + optional follow-OS, by overriding the `--color-*` vars under a
+      `[data-theme]` attribute (components already consume `var(--color-…)`).
+- [ ] **10C — Bundle Geist Sans + Mono.** Add `@font-face` + woff2 assets (tokens
+      already name Geist); keep CSP locked, no CDN.
+- [ ] **10D — Objective polish.** roving-tabindex a11y, tighten CSP, `cargo clippy
+      --fix` sweep (3 pre-existing lints), per-session-delete revisit, font/spacing pass.
+
 ### Pending (later phases)
-- Phase 10 — cross-platform, theming, and **final polish** (incl. the deferred
-  Sidebar view-switcher icon activity bar, roving-tabindex a11y, font/spacing,
-  bundle Geist, tighten CSP, `cargo clippy --fix` sweep, per-session-delete revisit).
+- (none — Phase 10 is the last phase)
 
 ## Blockers
 - None. Environment fully set up; production build green.
