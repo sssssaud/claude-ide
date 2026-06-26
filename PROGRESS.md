@@ -662,8 +662,17 @@ without asking.
       prop from the store. Typecheck + prod build green. Live gate: pick each theme →
       whole app + editor + diff re-theme instantly, no reload; choice survives reload;
       "System" tracks the OS toggle.
-- [ ] **10C — Bundle Geist Sans + Mono.** Add `@font-face` + woff2 assets (tokens
-      already name Geist); keep CSP locked, no CDN.
+- [x] **10C — Bundle Geist Sans + Mono.** Vendored both families as variable woff2
+      (one file each covers the 100–900 weight axis, ~70 KB each) under
+      `src/assets/fonts/`, with `@font-face` in `styles/fonts.css` (`font-display:
+      swap`) imported ahead of the tokens. Bundled at build time (Vite hashes the
+      asset URLs) — NOT a CDN; CSP `font-src 'self'` already covers it, app stays
+      fully offline. Sourced from the `geist` npm package, then the dep was removed so
+      the repo is self-contained (lockfile reverted — net-zero deps); SIL OFL 1.1
+      license vendored alongside (`assets/fonts/LICENSE.txt`). The `@theme` tokens
+      already named "Geist Sans"/"Geist Mono"; this is what makes the names resolve.
+      Prod build green — both woff2 emitted into `dist/assets/`. Live gate: UI renders
+      in Geist (sans chrome, mono editor/code), no flash of invisible text.
 - [ ] **10D — Objective polish.** roving-tabindex a11y, tighten CSP, `cargo clippy
       --fix` sweep (3 pre-existing lints), per-session-delete revisit, font/spacing pass.
 

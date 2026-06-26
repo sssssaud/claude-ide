@@ -1,0 +1,29 @@
+/*
+ * Bundled type faces (Phase 10, spec 4.3). Geist Sans + Geist Mono, vendored as
+ * variable woff2 (one file per family covers the full 100–900 weight axis) under
+ * `src/assets/fonts/`. Bundled at build time, never fetched from a CDN — the CSP
+ * serves no remote content (spec 2.8) and the app must work fully offline. The
+ * `@theme` font tokens in `tokens.css` already name these families; this file is
+ * what makes the names resolve to real glyphs. Geist is SIL OFL 1.1 (see
+ * `assets/fonts/LICENSE.txt`); redistribution as a bundled font is permitted.
+ *
+ * Vite rewrites the relative URLs below to hashed asset paths at build time.
+ * `font-display: swap` shows the system fallback instantly, then swaps to Geist
+ * once decoded — no invisible-text flash on first paint.
+ */
+
+@font-face {
+  font-family: "Geist Sans";
+  src: url("../assets/fonts/Geist-Variable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Geist Mono";
+  src: url("../assets/fonts/GeistMono-Variable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
