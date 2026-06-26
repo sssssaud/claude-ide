@@ -10,8 +10,10 @@ import { open as openDialog } from "@tauri-apps/plugin-dialog";
 // shape. Erased at build time, so no runtime import cycle with the store.
 import type { ConvItem } from "@/store/conversation";
 import type {
+  AgentSession,
   CheckpointDiff,
   CheckpointTimeline,
+  DaemonStatus,
   DirEntry,
   EngineEvent,
   FileContents,
@@ -485,6 +487,25 @@ export async function search(query: string, cwd?: string): Promise<SearchResults
 export async function searchSessions(query: string, cwd?: string): Promise<SessionSearchResults> {
   try {
     return await invoke<SessionSearchResults>("search_sessions", { cwd, query });
+  } catch (e) {
+    normalizeError(e);
+  }
+}
+
+/** Live `claude` sessions (interactive + background) via `claude agents --json`;
+ *  `includeCompleted` adds `--all`. Read-only. (Phase 9.) */
+export async function listAgents(includeCompleted = false): Promise<AgentSession[]> {
+  try {
+    return await invoke<AgentSession[]>("list_agents", { includeCompleted });
+  } catch (e) {
+    normalizeError(e);
+  }
+}
+
+/** Transient-daemon status (running? supervisor pid, worker count). Read-only. */
+export async function daemonStatus(): Promise<DaemonStatus> {
+  try {
+    return await invoke<DaemonStatus>("daemon_status");
   } catch (e) {
     normalizeError(e);
   }

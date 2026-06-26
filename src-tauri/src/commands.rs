@@ -11,6 +11,7 @@ use std::sync::Arc;
 use tauri::ipc::Channel;
 use tauri::State;
 
+use crate::agents::{AgentSession, DaemonStatus};
 use crate::checkpoints::{CheckpointDiff, CheckpointTimeline};
 use crate::engine::{EngineEvent, WorkspaceRegistry};
 use crate::error::{IpcError, IpcErrorKind, IpcResult};
@@ -393,4 +394,21 @@ pub fn search(cwd: Option<String>, query: String) -> IpcResult<SearchResults> {
 #[tauri::command]
 pub fn search_sessions(cwd: Option<String>, query: String) -> IpcResult<SessionSearchResults> {
     crate::session_search::search(cwd, &query)
+}
+
+// ----- Agents / parallel sessions + daemon (Phase 9) -------------------------
+// Read-only: we surface the CLI's own `claude agents` view and the daemon roster;
+// we never manage agents ourselves (the CLI owns that, per the wrapper contract).
+
+/// Live `claude` sessions (interactive + background) via `claude agents --json`.
+/// `include_completed` adds `--all`. Read-only.
+#[tauri::command]
+pub async fn list_agents(include_completed: bool) -> IpcResult<Vec<AgentSession>> {
+    crate::agents::list(include_completed).await
+}
+
+/// Transient-daemon status from `roster.json` + a supervisor-pid liveness check.
+#[tauri::command]
+pub fn daemon_status() -> IpcResult<DaemonStatus> {
+    crate::agents::daemon_status()
 }

@@ -7,6 +7,7 @@
  */
 
 import { useEffect, useState, type ReactNode } from "react";
+import { AgentsSection } from "@/layout/AgentsSection";
 import { useSessions } from "@/store/sessions";
 import { useActiveConversation } from "@/store/conversation";
 import { activeEditorStore } from "@/store/editor";
@@ -70,6 +71,7 @@ export function SessionsPanel() {
         }
       />
       <div className="min-h-0 flex-1 overflow-y-auto" style={{ padding: "var(--space-4)" }}>
+        <AgentsSection currentSessionId={activeId} />
         {error ? (
           <StateNote text={error} tone="error" />
         ) : !loaded ? (

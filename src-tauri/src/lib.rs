@@ -4,6 +4,7 @@
 //! Phase 0 command surface, and a clean app-exit teardown hook (no children to
 //! reap yet, but the seam is in place for Phase 1+).
 
+mod agents;
 mod checkpoints;
 mod commands;
 mod engine;
@@ -64,6 +65,8 @@ pub fn run(startup: Instant) {
             commands::checkpoint_diff,
             commands::workspace_usage,
             commands::search_sessions,
+            commands::list_agents,
+            commands::daemon_status,
             commands::list_dir,
             commands::read_file,
             commands::write_file,

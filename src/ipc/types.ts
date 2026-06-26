@@ -213,6 +213,28 @@ export interface SessionSearchResults {
   truncated: boolean;
 }
 
+/** Mirror of Rust `AgentSession` (Phase 9) — one live `claude` session from
+ *  `claude agents --json`. All fields optional (tolerant of CLI schema drift). */
+export interface AgentSession {
+  pid?: number;
+  cwd?: string;
+  /** "interactive" | "background" | … */
+  kind?: string;
+  sessionId?: string;
+  /** Epoch ms. */
+  startedAt?: number;
+  /** "busy" | "idle" | … (the CLI's own status). */
+  status?: string;
+}
+
+/** Mirror of Rust `DaemonStatus` (Phase 9) — transient-daemon state. */
+export interface DaemonStatus {
+  running: boolean;
+  supervisorPid?: number;
+  workerCount: number;
+  updatedAt?: number;
+}
+
 /**
  * Mirror of Rust `EngineEvent` (spec 2.3) — internally tagged by `type`.
  * Render by `type`, never by position; tolerate unknown `type`s from a newer

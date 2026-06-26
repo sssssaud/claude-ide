@@ -605,9 +605,40 @@ read from disk (and meaningless on a flat subscription).
       + prod build green. **P5 complete → Phase 8 COMPLETE.** Live gate: Search → Sessions
       → type a term → see matching sessions + snippets → click → that conversation resumes.
 
+### Phase 9 — agents/parallel dashboard + daemon status  ·  COMPLETE
+Diagnosis-first (CLI 2.1.193): the spec's "daemon / parallel agents" ARE real —
+`claude agents` manages background agents; `--bg` starts one. The wrapper-correct
+data source is **`claude agents --json`**: it prints a JSON array of every live
+`claude` session (interactive + background) machine-wide — `{pid, cwd, kind,
+sessionId, startedAt, status}` — and exits without a TTY (`--all` adds completed,
+`--cwd` filters). The **daemon is transient**: `~/.claude/daemon/roster.json`
+(`{proto, supervisorPid, updatedAt, workers}`) + `daemon.log` show it spawns on
+demand and self-exits after ~5s idle ("idle_exit"), so "not running" is normal.
+- [x] **Backend `agents.rs`** (read-only; we never manage agents — the CLI owns
+      that). `list(include_completed)` drives `claude agents --json [--all]` (reusing
+      preflight's `Command` pattern, on a blocking thread) and parses the array into
+      `AgentSession` (all fields `Option`, tolerant of schema drift; lenient
+      element-wise fallback). `daemon_status()` reads `roster.json` and checks whether
+      `supervisorPid` is actually alive (via `sysinfo`, refreshing only that pid —
+      portable, cheap), returning `{running, supervisorPid, workerCount, updatedAt}`.
+      3 golden tests (parse / junk-tolerance / dead-pid) → **42 lib tests**, zero
+      warnings (caught + fixed an unused-import warning before commit). Commands
+      `list_agents` / `daemon_status` + registration.
+- [x] **Frontend.** TS mirror (`AgentSession`/`DaemonStatus`) + IPC wrappers; new
+      **`AgentsSection`** — a collapsible **"ACTIVE SESSIONS"** block at the top of the
+      Sessions rail (lazy on first expand, manual **↻ refresh** so it never spawns
+      `claude` on a timer, a daemon dot + line "running · N workers" / "idle · starts
+      on demand", a `completed` toggle). Lists every live session as a card (cwd
+      basename + full-path tooltip, status-coloured, kind · pid · started-ago),
+      highlighting the IDE's current session ("· this"). Placed in the rail (not a 6th
+      Sidebar tab) — session-semantic + avoids worsening the tab crowding. Typecheck +
+      prod build green. **Phase 9 COMPLETE.** Live gate: expand "ACTIVE SESSIONS" → see
+      this session (busy) + any others; daemon shows idle; ↻ refresh re-queries.
+
 ### Pending (later phases)
-- Phases 9–10 — agents/parallel dashboard + daemon status,
-  cross-platform/theming/release + final polish.
+- Phase 10 — cross-platform, theming, and **final polish** (incl. the deferred
+  Sidebar view-switcher icon activity bar, roving-tabindex a11y, font/spacing,
+  bundle Geist, tighten CSP, `cargo clippy --fix` sweep, per-session-delete revisit).
 
 ## Blockers
 - None. Environment fully set up; production build green.
