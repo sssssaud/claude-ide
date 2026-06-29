@@ -181,7 +181,7 @@ pub fn list(cwd: Option<String>) -> IpcResult<Vec<SessionMeta>> {
             id,
         });
     }
-    out.sort_by(|a, b| b.last_active_ms.cmp(&a.last_active_ms));
+    out.sort_by_key(|s| std::cmp::Reverse(s.last_active_ms));
     Ok(out)
 }
 
@@ -536,12 +536,10 @@ fn probe_lines(lines: &[String], probe: &mut Probe) {
                     probe.last_prompt = Some(p);
                 }
             }
-            "user" => {
-                if probe.first_user_text.is_none() {
-                    if let Some(t) = user_text(&v) {
-                        probe.first_user_text = Some(t);
-                    }
-                }
+            // First visible user line wins; once set, never overwritten (so the
+            // arm is skipped entirely once we have it).
+            "user" if probe.first_user_text.is_none() => {
+                probe.first_user_text = user_text(&v);
             }
             _ => {}
         }

@@ -7,7 +7,7 @@
  * panel; only the active one mounts.
  */
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { FileExplorer } from "@/layout/FileExplorer";
 import { GitPanel } from "@/layout/GitPanel";
 import { PermissionsPanel } from "@/layout/PermissionsPanel";
@@ -30,6 +30,7 @@ export function Sidebar() {
   const [view, setView] = useState<View>("files");
   const changeCount = useGit((s) => s.status?.changes.length ?? 0);
   const cwd = useActiveCwd();
+  const btnRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
   // Populate the source-control badge at startup, and re-read whenever the
   // active workspace changes so the badge + status track the open folder.
@@ -37,12 +38,29 @@ export function Sidebar() {
     void useGit.getState().refresh();
   }, [cwd]);
 
+  // Roving tabindex (WAI-ARIA tabs): the active tab is the only tab stop;
+  // Up/Down (vertical orientation) wrap through the tabs, Home/End jump to the
+  // ends, each moving focus AND selection together.
+  const onKeyDown = (e: KeyboardEvent<HTMLElement>) => {
+    const idx = VIEWS.findIndex((v) => v.id === view);
+    let next = idx;
+    if (e.key === "ArrowDown") next = (idx + 1) % VIEWS.length;
+    else if (e.key === "ArrowUp") next = (idx - 1 + VIEWS.length) % VIEWS.length;
+    else if (e.key === "Home") next = 0;
+    else if (e.key === "End") next = VIEWS.length - 1;
+    else return;
+    e.preventDefault();
+    setView(VIEWS[next].id);
+    btnRefs.current[next]?.focus();
+  };
+
   return (
     <aside className="flex h-full flex-row" style={{ background: "var(--color-bg-raised)" }}>
       <nav
         role="tablist"
         aria-label="Sidebar views"
         aria-orientation="vertical"
+        onKeyDown={onKeyDown}
         className="flex shrink-0 flex-col"
         style={{
           width: "var(--space-8)",
@@ -51,7 +69,7 @@ export function Sidebar() {
           paddingTop: "var(--space-2)",
         }}
       >
-        {VIEWS.map((v) => (
+        {VIEWS.map((v, i) => (
           <ActivityButton
             key={v.id}
             label={v.label}
@@ -59,10 +77,18 @@ export function Sidebar() {
             active={view === v.id}
             badge={v.id === "git" ? changeCount || undefined : undefined}
             onClick={() => setView(v.id)}
+            buttonRef={(el) => {
+              btnRefs.current[i] = el;
+            }}
           />
         ))}
       </nav>
-      <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
+      <div
+        id="sidebar-panel"
+        role="tabpanel"
+        aria-label={`${VIEWS.find((v) => v.id === view)?.label} view`}
+        className="min-h-0 min-w-0 flex-1 overflow-hidden"
+      >
         {view === "files" ? (
           <FileExplorer />
         ) : view === "search" ? (
@@ -85,20 +111,25 @@ function ActivityButton({
   active,
   badge,
   onClick,
+  buttonRef,
 }: {
   label: string;
   icon: ReactNode;
   active: boolean;
   badge?: number;
   onClick: () => void;
+  buttonRef: (el: HTMLButtonElement | null) => void;
 }) {
   return (
     <button
+      ref={buttonRef}
       type="button"
       role="tab"
       aria-selected={active}
+      aria-controls="sidebar-panel"
       aria-label={label}
       title={label}
+      tabIndex={active ? 0 : -1}
       onClick={onClick}
       className="relative flex cursor-pointer items-center justify-center"
       style={{

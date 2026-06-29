@@ -122,7 +122,7 @@ fn root_canon(cwd: Option<String>) -> IpcResult<PathBuf> {
 /// Join `rel` onto the canonical `root` and confirm the canonical result stays
 /// inside the root — the single guard against `..` / symlink escape.
 fn resolve_within(root: &Path, rel: &str) -> IpcResult<PathBuf> {
-    let rel = rel.trim_start_matches(|c| c == '/' || c == '\\');
+    let rel = rel.trim_start_matches(['/', '\\']);
     let joined = if rel.is_empty() { root.to_path_buf() } else { root.join(rel) };
     let canon = fs::canonicalize(&joined).map_err(|_| invalid("Path not found"))?;
     if !canon.starts_with(root) {

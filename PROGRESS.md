@@ -80,6 +80,13 @@ Phase 0 and adjust with evidence" (spec 2.7, 6.1, risk register). Measured:
 
 ## Roadmap status
 
+**ALL PHASES 0–10 COMPLETE.** Phase 10 (the last phase) closed 2026-06-29: vertical
+icon activity bar (10A), runtime multi-theme picker (10B), bundled Geist fonts —
+offline (10C), objective polish — a11y / clippy-clean / CSP re-audit / per-session-
+delete re-verify / font chain (10D). Production build green, clippy 0 warnings, 42
+Rust tests pass, typecheck clean. Outstanding = **live gates only** (need the running
+app), tracked at the foot of this file — not code work.
+
 ### Phase 0 — Skeleton & preflight  ·  COMPLETE ✅
 - [x] Rust toolchain (cargo 1.96.0); Tauri deps via dnf.
 - [x] Project scaffolded: Vite+React+TS frontend, Tauri 2 backend, path alias.
@@ -635,7 +642,7 @@ demand and self-exits after ~5s idle ("idle_exit"), so "not running" is normal.
       prod build green. **Phase 9 COMPLETE.** Live gate: expand "ACTIVE SESSIONS" → see
       this session (busy) + any others; daemon shows idle; ↻ refresh re-queries.
 
-### Phase 10 — cross-platform, theming, final polish  ·  in progress
+### Phase 10 — cross-platform, theming, final polish  ·  COMPLETE (the last phase)
 The final phase, scoped WITH the user 2026-06-26 (the "important points at the end"):
 they chose the **vertical icon activity bar**, a **multi-theme picker** ("dev can
 select the theme — give some extra themes"), and deferred fonts to my judgement
@@ -673,8 +680,37 @@ without asking.
       already named "Geist Sans"/"Geist Mono"; this is what makes the names resolve.
       Prod build green — both woff2 emitted into `dist/assets/`. Live gate: UI renders
       in Geist (sans chrome, mono editor/code), no flash of invisible text.
-- [ ] **10D — Objective polish.** roving-tabindex a11y, tighten CSP, `cargo clippy
-      --fix` sweep (3 pre-existing lints), per-session-delete revisit, font/spacing pass.
+- [x] **10D — Objective polish.** Five items, each diagnosed against the real build,
+      not guessed:
+      • **roving-tabindex a11y** on the vertical activity bar (`Sidebar.tsx`): full
+        WAI-ARIA tabs pattern — only the active tab is a tab stop (`tabIndex 0`, others
+        `-1`); Up/Down wrap, Home/End jump to the ends, each moving focus AND selection;
+        `role=tab`/`tablist`/`tabpanel`, `aria-controls`/`aria-selected`/`aria-orientation`.
+      • **clippy sweep** — the 3 pre-existing style lints fixed in place: `files.rs:125`
+        (`trim_start_matches([…])`), `sessions.rs:184` (`sort_by_key(Reverse(…))`),
+        `sessions.rs:539` (collapsible `if` → match guard). `cargo clippy --all-targets`
+        now exits 0 (zero warnings); 42 tests pass.
+      • **CSP** — re-audited against the production bundle: the build genuinely uses
+        `blob:` workers + `createObjectURL` (Monaco's `new Worker`) and `data:` assets,
+        and emits codicon.ttf + both Geist woff2 as `self`. So every permissive directive
+        is load-bearing (blob workers / data: assets = Monaco, `unsafe-inline` styles =
+        React inline styles, localhost `connect-src` = Vite dev HMR). The key XSS control
+        — `script-src 'self'`, NO `unsafe-inline`/`unsafe-eval` — is already in place. No
+        blind removals made (can't validate live headlessly); already locked to the safe
+        max. Stripping dev-only `connect-src` from a prod-only CSP is the lone remaining
+        step and belongs to the live release audit (one CSP serves dev+prod).
+      • **per-session-delete** — re-verified against the installed CLI (now **2.1.195**):
+        `claude project --help` still exposes ONLY `purge` (whole-project), no
+        single-session delete; none of the `--help` session flags delete. Conclusion
+        unchanged — deletion stays `purge`-only (wrapper rule); revisit when/if the CLI
+        ships per-session delete.
+      • **font/spacing** — verified the chain resolves end-to-end: `--font-sans/-mono`
+        tokens → `@font-face` "Geist Sans"/"Geist Mono" → bundled woff2 (emitted in
+        `dist/assets/`), with system fallback stacks; spacing is token-driven
+        (`var(--space-*)`) across components. Nothing broken; no redesign (defer per
+        [[defer-cosmetic-polish]]). Typecheck + prod build + clippy + tests all green.
+      Live gate: Tab into the activity bar → Up/Down/Home/End move selection + focus and
+      switch the panel; screen-reader announces the tab + panel.
 
 ### Pending (later phases)
 - (none — Phase 10 is the last phase)
@@ -683,26 +719,23 @@ without asking.
 - None. Environment fully set up; production build green.
 
 ## Follow-ups (non-blocking)
-- **[FINAL POLISH PHASE] Sidebar view-switcher cosmetics** (user flagged 2026-06-25):
-  the Files · Search · Source Control text-tab row feels cramped/"ugly" next to
-  the workspace tab bar. Functionally fine (it's VS Code's three-view model), but
-  reconsider the treatment in the last phase — e.g. an icon activity bar instead
-  of text labels, or relocating search. Defer per [[defer-cosmetic-polish]]; do
-  NOT change mid-phase.
-- **Per-session delete** (user asked 2026-06-25): the installed CLI exposes **no**
-  single-session delete — only `claude project purge [path]`, which nukes the WHOLE
-  project (all transcripts/tasks/file-history/config). Hand-deleting a single
-  `<uuid>.jsonl` is out (we never modify `~/.claude` except read + sanctioned purge —
-  wrapper rule). So a true per-session delete needs a CLI command Anthropic doesn't yet
-  ship; a guarded "purge this project's history" action (heavy, strong confirm) is the
-  only sanctioned option. Defer to the polish phase / revisit when the CLI supports it.
-- **3 pre-existing clippy style lints** (not rustc warnings; surfaced 2026-06-26):
-  `files.rs:125` (manual char compare), `sessions.rs:184` (`sort_by_key`),
-  `sessions.rs:539` (collapsible `if`). All Phase 3/4 code, none from Phase 6; 2
-  are `--fix`-able. The established gate is zero-warning `cargo build` (clean);
-  fold a `cargo clippy --fix` sweep into the Phase 10 polish, not mid-phase.
-- Bundle Geist Sans/Mono font files (currently system-font fallback).
-- Tighten the CSP at the Phase 10 release audit.
+- **Sidebar view-switcher cosmetics** (user flagged 2026-06-25) — RESOLVED in 10A:
+  the cramped text-tab row was replaced with a VS Code-style vertical icon activity
+  bar (now keyboard-navigable per 10D). No longer outstanding.
+- **Per-session delete** — RE-VERIFIED in 10D against the installed CLI **2.1.195**:
+  still no single-session delete, only `claude project purge [path]` (whole project).
+  Hand-deleting a single `<uuid>.jsonl` stays out (we never modify `~/.claude` except
+  read + sanctioned purge — wrapper rule). A true per-session delete needs a CLI command
+  Anthropic doesn't yet ship; revisit when it does. Conclusion unchanged.
+- **3 pre-existing clippy style lints** — RESOLVED in 10D: `files.rs:125`
+  (`trim_start_matches([…])`), `sessions.rs:184` (`sort_by_key(Reverse)`),
+  `sessions.rs:539` (match guard). `cargo clippy --all-targets` exits 0; 42 tests pass.
+- Bundle Geist Sans/Mono font files — DONE in 10C (vendored variable woff2, offline).
+- **CSP** — RE-AUDITED in 10D against the real build; already locked to the safe max
+  (`script-src 'self'`, no `unsafe-inline`/`unsafe-eval`); remaining permissive
+  directives proven load-bearing (Monaco blob workers + data: assets, React inline
+  styles, Vite dev HMR). Lone remaining step = strip dev-only `connect-src` from a
+  prod-only CSP, at the live release audit (one CSP serves dev+prod).
 - Consider lazy-loading xterm too, to shave a little more off the initial chunk.
 - The env-gated cold-start marker (`CLAUDE_IDE_PERF_MARKER`) is dev/measurement
   instrumentation — keep using it to track budgets each phase.
