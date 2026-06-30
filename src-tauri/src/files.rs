@@ -111,6 +111,14 @@ pub fn write_file(cwd: Option<String>, rel: String, contents: String) -> IpcResu
     if !path.is_file() {
         return Err(invalid("Not a file"));
     }
+    // SECURITY: this slice is safe only because `resolve_within` canonicalizes an
+    // EXISTING path and the `is_file` gate rejects anything else — so `..`/symlink
+    // escape is impossible here. A future "create new file" slice CANNOT reuse
+    // this as-is: a not-yet-existing target can't be canonicalized, and skipping
+    // the canonicalize+containment check to allow it would reopen the escape hole.
+    // The correct pattern is to canonicalize the (existing) PARENT directory,
+    // confirm IT starts_with(root), then append a single validated path component
+    // (no separators, no `.`/`..`). See `resolve_within`'s SECURITY note.
     fs::write(&path, contents).map_err(|e| internal(format!("Could not save the file: {e}")))
 }
 
@@ -121,6 +129,15 @@ fn root_canon(cwd: Option<String>) -> IpcResult<PathBuf> {
 
 /// Join `rel` onto the canonical `root` and confirm the canonical result stays
 /// inside the root — the single guard against `..` / symlink escape.
+///
+/// SECURITY: containment holds because `fs::canonicalize` resolves the FULL path
+/// (every `..` and symlink) before the `starts_with(root)` check — and it only
+/// succeeds for a path that already EXISTS. That existence requirement is load-
+/// bearing: it is why this guard is sound for read/overwrite. Do NOT relax it to
+/// accept missing paths (e.g. for create-new-file) by canonicalizing only a
+/// prefix or skipping canonicalize — that reopens the escape. To support a
+/// not-yet-existing target, canonicalize its existing parent, containment-check
+/// the parent, then append one validated component (reject separators and `..`).
 fn resolve_within(root: &Path, rel: &str) -> IpcResult<PathBuf> {
     let rel = rel.trim_start_matches(['/', '\\']);
     let joined = if rel.is_empty() { root.to_path_buf() } else { root.join(rel) };
