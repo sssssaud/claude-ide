@@ -44,11 +44,15 @@ export function PermissionsPanel() {
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
+  // C1: a two-step red confirm gate before a *newly* enabled bypassPermissions
+  // is persisted (the mode that turns the review queue off entirely).
+  const [confirmingBypass, setConfirmingBypass] = useState(false);
 
   const load = useCallback(() => {
     setLoading(true);
     setError(null);
     setStatus(null);
+    setConfirmingBypass(false);
     let alive = true;
     readPermissions(cwd ?? undefined)
       .then((f) => {
@@ -69,6 +73,18 @@ export function PermissionsPanel() {
   const dirty = useMemo(() => !samePermissions(draft, saved), [draft, saved]);
 
   const save = useCallback(async () => {
+    // C1: bypassPermissions lets the agent run ANY tool with no prompt — the
+    // review queue is effectively off. Require an explicit, loud confirmation
+    // before persisting it, but only when newly enabling it (not on every
+    // re-save of an already-bypass project).
+    const enablingBypass =
+      draft.defaultMode === "bypassPermissions" && saved.defaultMode !== "bypassPermissions";
+    if (enablingBypass && !confirmingBypass) {
+      setConfirmingBypass(true);
+      setStatus(null);
+      return;
+    }
+    setConfirmingBypass(false);
     setSaving(true);
     setError(null);
     setStatus(null);
@@ -82,7 +98,7 @@ export function PermissionsPanel() {
     } finally {
       setSaving(false);
     }
-  }, [draft, cwd]);
+  }, [draft, saved, cwd, confirmingBypass]);
 
   const addRule = (key: RuleKey | "additionalDirectories", value: string) => {
     const v = value.trim();
@@ -118,12 +134,13 @@ export function PermissionsPanel() {
       <Field label="Default mode">
         <select
           value={draft.defaultMode ?? ""}
-          onChange={(e) =>
+          onChange={(e) => {
+            setConfirmingBypass(false); // mode changed — drop any pending confirm
             setDraft((d) => ({
               ...d,
               defaultMode: e.target.value ? (e.target.value as PermissionMode) : undefined,
-            }))
-          }
+            }));
+          }}
           className="w-full cursor-pointer"
           style={selectStyle}
         >
@@ -134,6 +151,18 @@ export function PermissionsPanel() {
           ))}
         </select>
       </Field>
+
+      {/* C1: loud, always-visible warning while bypassPermissions is selected. */}
+      {draft.defaultMode === "bypassPermissions" && (
+        <div role="alert" style={bypassWarnStyle}>
+          <strong style={{ color: "var(--color-status-danger)" }}>
+            bypassPermissions allows everything.
+          </strong>{" "}
+          The agent can run
+          any command and edit or delete any file with no prompt — the review
+          queue is effectively off. Only use this in a sandbox you fully trust.
+        </div>
+      )}
 
       {/* Precedence legend */}
       <div
@@ -216,6 +245,55 @@ export function PermissionsPanel() {
           </span>
         )}
       </div>
+
+      {/* C1: explicit red confirm — the actual write only happens on "Yes". */}
+      {confirmingBypass && (
+        <div role="alertdialog" aria-label="Confirm bypassPermissions" style={bypassConfirmStyle}>
+          <div
+            style={{
+              fontSize: "var(--text-sm)",
+              fontWeight: 600,
+              color: "var(--color-status-danger)",
+            }}
+          >
+            Enable bypassPermissions?
+          </div>
+          <p
+            style={{
+              fontSize: "var(--text-xs)",
+              lineHeight: 1.5,
+              color: "var(--color-fg-secondary)",
+              margin: "var(--space-1) 0 var(--space-2)",
+            }}
+          >
+            This persists “allow all without asking” to .claude/settings.json. Every
+            tool the agent chooses will run with no prompt until you change it back.
+          </p>
+          <div className="flex items-center gap-[var(--space-2)]" style={{ flexWrap: "wrap" }}>
+            <button
+              type="button"
+              onClick={() => void save()}
+              disabled={saving}
+              className="cursor-pointer"
+              style={{
+                ...btnStyle,
+                background: "var(--color-status-danger)",
+                color: "var(--color-bg-base)",
+              }}
+            >
+              {saving ? "Saving…" : "⚠ Yes, allow all without asking"}
+            </button>
+            <button
+              type="button"
+              onClick={() => setConfirmingBypass(false)}
+              className="cursor-pointer"
+              style={{ ...btnStyle, background: "transparent", color: "var(--color-fg-secondary)" }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
 
       <Tester permissions={draft} />
     </div>
@@ -594,6 +672,27 @@ const inputStyle: CSSProperties = {
 
 const selectStyle: CSSProperties = {
   ...inputStyle,
+};
+
+// C1: red-bordered danger boxes for the bypassPermissions warning + confirm.
+const bypassWarnStyle: CSSProperties = {
+  margin: "0 0 var(--space-2)",
+  padding: "var(--space-2) var(--space-3)",
+  borderRadius: "var(--radius-sm)",
+  border: "1px solid var(--color-status-danger)",
+  borderLeftWidth: "3px",
+  background: "var(--color-bg-raised)",
+  color: "var(--color-fg-secondary)",
+  fontSize: "var(--text-xs)",
+  lineHeight: 1.5,
+};
+
+const bypassConfirmStyle: CSSProperties = {
+  margin: "0 0 var(--space-3)",
+  padding: "var(--space-3)",
+  borderRadius: "var(--radius-sm)",
+  border: "1px solid var(--color-status-danger)",
+  background: "var(--color-bg-raised)",
 };
 
 const btnStyle: CSSProperties = {
