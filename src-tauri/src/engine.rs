@@ -419,11 +419,9 @@ where
     let mut line: Vec<u8> = Vec::new();
     // True while discarding the tail of a line that already overflowed the cap.
     let mut dropping = false;
-    loop {
-        let available = match reader.fill_buf().await {
-            Ok(c) => c,
-            Err(_) => break, // read error: end the reader (caller then sends Stopped)
-        };
+    // A read error ends the loop (the `while let` pattern stops matching); the
+    // caller then sends Stopped. An empty `fill_buf` result means EOF.
+    while let Ok(available) = reader.fill_buf().await {
         if available.is_empty() {
             break; // EOF
         }
