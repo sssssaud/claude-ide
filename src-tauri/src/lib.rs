@@ -6,6 +6,7 @@
 
 mod agents;
 mod checkpoints;
+mod claude_bin;
 mod commands;
 mod engine;
 mod error;
@@ -36,6 +37,9 @@ use tauri::Manager;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run(startup: Instant) {
     init_tracing();
+    // Resolve the absolute `claude` path once, before any command can spawn the
+    // CLI, so every spawn site shares one validated binary (hardening B1).
+    claude_bin::init();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())

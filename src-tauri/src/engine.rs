@@ -132,7 +132,7 @@ impl WorkspaceRegistry {
         channel: Channel<EngineEvent>,
     ) -> IpcResult<String> {
         let cwd = resolve_cwd(cwd)?;
-        let claude = locate_claude()?;
+        let claude = crate::claude_bin::path()?;
 
         let mut args: Vec<String> = [
             "-p",
@@ -165,7 +165,7 @@ impl WorkspaceRegistry {
             }
         }
 
-        let mut child = Command::new(&claude)
+        let mut child = Command::new(claude)
             .args(&args)
             .current_dir(&cwd)
             .stdin(Stdio::piped())
@@ -384,12 +384,6 @@ fn resolve_cwd(cwd: Option<String>) -> IpcResult<PathBuf> {
     // Shared with the Sessions rail (spec 3.2) so the session this engine
     // creates lands in the project dir the rail watches.
     crate::workspace::resolve_cwd(cwd)
-}
-
-/// Resolve the absolute `claude` path (GUI launches may have a thin PATH).
-fn locate_claude() -> IpcResult<PathBuf> {
-    which::which("claude")
-        .map_err(|_| IpcError::new(IpcErrorKind::Internal, "`claude` was not found on PATH"))
 }
 
 // ----- Real `claude --output-format stream-json` line parser (spec 2.3, 3.5) --

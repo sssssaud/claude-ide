@@ -44,7 +44,8 @@ pub async fn run() -> IpcResult<PreflightReport> {
 }
 
 fn probe() -> PreflightReport {
-    let claude_path = which::which("claude").ok();
+    // Same startup-resolved absolute path the engine/agents spawn (hardening B1).
+    let claude_path = crate::claude_bin::path_opt();
     let claude_found = claude_path.is_some();
 
     if !claude_found {
@@ -78,7 +79,7 @@ fn probe() -> PreflightReport {
             .map(|l| l.to_string())
     });
 
-    let path_str = claude_path.as_ref().map(|p| p.display().to_string());
+    let path_str = claude_path.map(|p| p.display().to_string());
     tracing::info!(
         version = version.as_deref().unwrap_or("?"),
         authenticated,
@@ -104,7 +105,8 @@ struct Captured {
 /// Run `claude <args>` and capture output. Returns `None` if the process could
 /// not be spawned at all (already covered by the PATH check, but defensive).
 fn run_capture(args: &[&str]) -> Option<Captured> {
-    match Command::new("claude").args(args).output() {
+    let claude = crate::claude_bin::path().ok()?;
+    match Command::new(claude).args(args).output() {
         Ok(out) => Some(Captured {
             success: out.status.success(),
             stdout: String::from_utf8_lossy(&out.stdout).into_owned(),

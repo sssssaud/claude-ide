@@ -60,7 +60,9 @@ fn list_blocking(include_completed: bool) -> IpcResult<Vec<AgentSession>> {
     if include_completed {
         args.push("--all");
     }
-    let out = Command::new("claude").args(&args).output().map_err(|e| {
+    // Startup-resolved absolute path, shared with the engine/preflight (B1).
+    let claude = crate::claude_bin::path()?;
+    let out = Command::new(claude).args(&args).output().map_err(|e| {
         IpcError::new(IpcErrorKind::Internal, format!("Could not run `claude agents`: {e}"))
     })?;
     if !out.status.success() {
