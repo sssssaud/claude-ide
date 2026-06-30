@@ -117,8 +117,13 @@ fn parse_rg_json(bytes: &[u8]) -> SearchResults {
         if files.last().map(|f| f.path != path).unwrap_or(true) {
             files.push(SearchFile { path: path.to_string(), lines: Vec::new() });
         }
-        files.last_mut().unwrap().lines.push(SearchLine { line_number, segments });
-        total += 1;
+        // `last_mut` is Some here — a group was just pushed, or the last group
+        // already matched `path`. Bind it instead of unwrapping so a future
+        // change to the grouping can't turn this into a panic across IPC.
+        if let Some(file) = files.last_mut() {
+            file.lines.push(SearchLine { line_number, segments });
+            total += 1;
+        }
     }
 
     SearchResults { files, total_matches: total, truncated }
@@ -234,5 +239,17 @@ mod tests {
         // leading plain run preserved before the highlight
         assert_eq!(r.files[1].lines[0].segments[0], Segment { text: "x ".into(), is_match: false });
         assert_eq!(r.files[1].lines[0].segments[1], Segment { text: "foo".into(), is_match: true });
+    }
+
+    #[test]
+    fn match_without_preceding_begin_starts_a_group() {
+        // A `match` arriving into an empty result (no `begin`) must create its
+        // file group — the path the totality fix protects (B3): no unwrap panic.
+        let line = r#"{"type":"match","data":{"path":{"text":"solo.rs"},"lines":{"text":"hit\n"},"line_number":7,"submatches":[{"match":{"text":"hit"},"start":0,"end":3}]}}"#;
+        let r = parse_rg_json(line.as_bytes());
+        assert_eq!(r.total_matches, 1);
+        assert_eq!(r.files.len(), 1);
+        assert_eq!(r.files[0].path, "solo.rs");
+        assert_eq!(r.files[0].lines[0].line_number, 7);
     }
 }

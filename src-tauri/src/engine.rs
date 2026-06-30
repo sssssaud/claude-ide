@@ -559,17 +559,21 @@ pub fn parse_events(line: &str) -> Vec<EngineEvent> {
         // the top level and must be echoed back verbatim in the response. Other
         // control subtypes are benign and ignored.
         "control_request" => {
-            let req = v.get("request");
-            if req.and_then(|r| r.get("subtype")).and_then(Value::as_str) == Some("can_use_tool") {
-                let req = req.unwrap();
-                vec![EngineEvent::PermissionRequest {
-                    request_id: str_field(&v, "request_id"),
-                    tool: str_field(req, "tool_name"),
-                    input: req.get("input").cloned().unwrap_or(Value::Null),
-                    tool_use_id: str_field(req, "tool_use_id"),
-                }]
-            } else {
-                vec![EngineEvent::Unknown { kind: "control_request".into() }]
+            // Bind `request` first so the permission fields are read from a value
+            // that is structurally present — no `unwrap` a future change to the
+            // guard could turn into a panic. Only `can_use_tool` is actionable.
+            match v.get("request") {
+                Some(req)
+                    if req.get("subtype").and_then(Value::as_str) == Some("can_use_tool") =>
+                {
+                    vec![EngineEvent::PermissionRequest {
+                        request_id: str_field(&v, "request_id"),
+                        tool: str_field(req, "tool_name"),
+                        input: req.get("input").cloned().unwrap_or(Value::Null),
+                        tool_use_id: str_field(req, "tool_use_id"),
+                    }]
+                }
+                _ => vec![EngineEvent::Unknown { kind: "control_request".into() }],
             }
         }
 
@@ -707,6 +711,15 @@ mod tests {
     fn other_control_request_subtypes_are_benign() {
         assert!(matches!(
             &parse_events(r#"{"type":"control_request","request_id":"r","request":{"subtype":"mcp_message"}}"#)[..],
+            [EngineEvent::Unknown { kind }] if kind == "control_request"
+        ));
+    }
+
+    #[test]
+    fn control_request_without_request_field_is_benign() {
+        // No `request` object at all: must be Unknown, never a panic (B3 totality).
+        assert!(matches!(
+            &parse_events(r#"{"type":"control_request","request_id":"r"}"#)[..],
             [EngineEvent::Unknown { kind }] if kind == "control_request"
         ));
     }
