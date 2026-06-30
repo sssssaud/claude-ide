@@ -19,6 +19,7 @@ mod pty;
 mod search;
 mod session_search;
 mod sessions;
+mod settings;
 mod state;
 mod usage;
 mod workspace;
@@ -76,6 +77,8 @@ pub fn run(startup: Instant) {
             commands::write_file,
             commands::read_permissions,
             commands::write_permissions,
+            commands::read_settings,
+            commands::write_settings,
             commands::git_status,
             commands::git_diff,
             commands::git_stage,

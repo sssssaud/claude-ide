@@ -20,11 +20,13 @@ import { SessionsPanel } from "@/layout/SessionsPanel";
 import { ConversationPane } from "@/layout/ConversationPane";
 import { EditorRegion } from "@/layout/EditorRegion";
 import { ResizeSeparator } from "@/layout/ResizeSeparator";
+import { SettingsView } from "@/layout/SettingsView";
 import { TerminalDrawer } from "@/layout/TerminalDrawer";
 import { ThemePicker } from "@/layout/ThemePicker";
 import { useLayoutShortcuts } from "@/layout/useLayoutShortcuts";
 import { pickFolder } from "@/ipc/commands";
 import { useLayout, type Region } from "@/store/layout";
+import { useSettings } from "@/store/settings";
 import { useWorkspaces, type Workspace } from "@/store/workspaces";
 
 // Each panel's content fills it and clips internally (the regions own their own
@@ -36,15 +38,18 @@ export function WorkspaceShell() {
   const sessionsVisible = useLayout((s) => s.sessions);
   const editorVisible = useLayout((s) => s.editor);
   const setVisible = useLayout((s) => s.setVisible);
+  const settingsOpen = useLayout((s) => s.settingsOpen);
 
   const sessionsRef = usePanelRef();
   const editorRef = usePanelRef();
 
   useLayoutShortcuts();
 
-  // Seed the launch workspace on first run so the tab bar is never empty.
+  // Seed the launch workspace on first run so the tab bar is never empty, and
+  // load the IDE's own settings once so the editor reflects them from the start.
   useEffect(() => {
     void useWorkspaces.getState().bootstrap();
+    void useSettings.getState().load();
   }, []);
 
   // Reconcile each collapsible side panel to the store's visibility intent.
@@ -72,7 +77,7 @@ export function WorkspaceShell() {
   return (
     <div className="flex h-full w-full flex-col">
       <TabBar />
-      <main className="min-h-0 flex-1 overflow-hidden">
+      <main className="relative min-h-0 flex-1 overflow-hidden">
         <Group
           orientation="horizontal"
           defaultLayout={layout.defaultLayout}
@@ -112,6 +117,13 @@ export function WorkspaceShell() {
             <EditorRegion />
           </Panel>
         </Group>
+        {/* Settings opens as a full-cover overlay so the panels behind it keep
+            their live state (editor models, conversation, terminals). */}
+        {settingsOpen && (
+          <div className="absolute inset-0" style={{ zIndex: 10 }}>
+            <SettingsView />
+          </div>
+        )}
       </main>
       <TerminalDrawer />
     </div>

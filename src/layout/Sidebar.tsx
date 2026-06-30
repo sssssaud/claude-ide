@@ -14,6 +14,7 @@ import { PermissionsPanel } from "@/layout/PermissionsPanel";
 import { SearchPanel } from "@/layout/SearchPanel";
 import { UsagePanel } from "@/layout/UsagePanel";
 import { useGit } from "@/store/git";
+import { useLayout } from "@/store/layout";
 import { useActiveCwd } from "@/store/workspaces";
 
 type View = "files" | "search" | "git" | "permissions" | "usage";
@@ -30,6 +31,7 @@ export function Sidebar() {
   const [view, setView] = useState<View>("files");
   const changeCount = useGit((s) => s.status?.changes.length ?? 0);
   const cwd = useActiveCwd();
+  const settingsOpen = useLayout((s) => s.settingsOpen);
   const btnRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
   // Populate the source-control badge at startup, and re-read whenever the
@@ -56,33 +58,49 @@ export function Sidebar() {
 
   return (
     <aside className="flex h-full flex-row" style={{ background: "var(--color-bg-raised)" }}>
-      <nav
-        role="tablist"
-        aria-label="Sidebar views"
-        aria-orientation="vertical"
-        onKeyDown={onKeyDown}
+      {/* Activity bar: the view tabs at the top, global actions (Settings) pinned
+          to the bottom. Settings is an action, not a tab, so it sits outside the
+          tablist and opens the full-area Settings overlay. */}
+      <div
         className="flex shrink-0 flex-col"
         style={{
           width: "var(--space-8)",
           background: "var(--color-bg-recessed)",
           borderRight: "1px solid var(--color-border-subtle)",
           paddingTop: "var(--space-2)",
+          paddingBottom: "var(--space-2)",
         }}
       >
-        {VIEWS.map((v, i) => (
-          <ActivityButton
-            key={v.id}
-            label={v.label}
-            icon={v.icon}
-            active={view === v.id}
-            badge={v.id === "git" ? changeCount || undefined : undefined}
-            onClick={() => setView(v.id)}
-            buttonRef={(el) => {
-              btnRefs.current[i] = el;
-            }}
+        <nav
+          role="tablist"
+          aria-label="Sidebar views"
+          aria-orientation="vertical"
+          onKeyDown={onKeyDown}
+          className="flex flex-col"
+        >
+          {VIEWS.map((v, i) => (
+            <ActivityButton
+              key={v.id}
+              label={v.label}
+              icon={v.icon}
+              active={view === v.id}
+              badge={v.id === "git" ? changeCount || undefined : undefined}
+              onClick={() => setView(v.id)}
+              buttonRef={(el) => {
+                btnRefs.current[i] = el;
+              }}
+            />
+          ))}
+        </nav>
+        <div style={{ marginTop: "auto" }}>
+          <ActionButton
+            label="Settings (Ctrl+,)"
+            icon={<GearIcon />}
+            active={settingsOpen}
+            onClick={() => useLayout.getState().toggleSettings()}
           />
-        ))}
-      </nav>
+        </div>
+      </div>
       <div
         id="sidebar-panel"
         role="tabpanel"
@@ -184,6 +202,55 @@ function ActivityButton({
   );
 }
 
+// A non-tab activity-bar action (e.g. Settings) — same footprint as a tab, but
+// an ordinary toggle button (not part of the roving-tabindex tablist).
+function ActionButton({
+  label,
+  icon,
+  active,
+  onClick,
+}: {
+  label: string;
+  icon: ReactNode;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      aria-pressed={active}
+      title={label}
+      onClick={onClick}
+      className="relative flex cursor-pointer items-center justify-center"
+      style={{
+        width: "var(--space-8)",
+        height: "var(--space-8)",
+        border: "none",
+        background: "transparent",
+        color: active ? "var(--color-fg-primary)" : "var(--color-fg-muted)",
+        transition: `color var(--motion-fast) var(--ease-standard)`,
+      }}
+    >
+      {active && (
+        <span
+          aria-hidden="true"
+          style={{
+            position: "absolute",
+            left: 0,
+            top: "20%",
+            bottom: "20%",
+            width: "2px",
+            background: "var(--color-accent)",
+            borderRadius: "0 2px 2px 0",
+          }}
+        />
+      )}
+      {icon}
+    </button>
+  );
+}
+
 // ---- Icons (inline SVG, 18px, stroke = currentColor) ------------------------
 // Small, crisp, theme-agnostic (they inherit the button's `color`).
 
@@ -247,6 +314,15 @@ function ChartIcon() {
       <path d="M5 15V9" />
       <path d="M9 15V4" />
       <path d="M13 15v-4" />
+    </svg>
+  );
+}
+
+function GearIcon() {
+  return (
+    <svg {...svgProps()}>
+      <circle cx="9" cy="9" r="2.5" />
+      <path d="M9 1.8v1.8M9 14.4v1.8M1.8 9h1.8M14.4 9h1.8M3.9 3.9l1.3 1.3M12.8 12.8l1.3 1.3M14.1 3.9l-1.3 1.3M5.2 12.8l-1.3 1.3" />
     </svg>
   );
 }

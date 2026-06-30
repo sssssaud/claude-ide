@@ -1,9 +1,10 @@
 /*
  * Global layout shortcuts (Phase 5). VS Code-style panel toggles, live anywhere
  * in the app: Ctrl/Cmd+B toggles the Sessions rail, Ctrl/Cmd+J toggles the
- * Terminal drawer. Bound in the capture phase so they fire even when focus is in
- * Monaco or the terminal, and `preventDefault` only for our two combos — every
- * other keystroke (including the editor's own bindings) is left untouched.
+ * Terminal drawer, Ctrl/Cmd+, toggles the Settings view. Bound in the capture
+ * phase so they fire even when focus is in Monaco or the terminal, and
+ * `preventDefault` only for our combos — every other keystroke (including the
+ * editor's own bindings) is left untouched.
  */
 
 import { useEffect } from "react";
@@ -21,6 +22,9 @@ export function useLayoutShortcuts() {
       } else if (key === "j") {
         e.preventDefault();
         useLayout.getState().toggle("terminal");
+      } else if (key === ",") {
+        e.preventDefault();
+        useLayout.getState().toggleSettings();
       }
     };
     window.addEventListener("keydown", onKeyDown, true);

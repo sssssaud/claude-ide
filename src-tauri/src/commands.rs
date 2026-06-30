@@ -23,6 +23,7 @@ use crate::preflight::{self, PreflightReport};
 use crate::pty::PtyRegistry;
 use crate::search::SearchResults;
 use crate::session_search::SessionSearchResults;
+use crate::settings::{EditorSettings, Scope, SettingsDoc};
 use crate::sessions::{SessionMeta, SessionTranscript, SessionsRegistry};
 use crate::state::AppState;
 use crate::usage::UsageReport;
@@ -303,6 +304,58 @@ pub fn read_permissions(cwd: Option<String>) -> IpcResult<ProjectPermissionsFile
 #[tauri::command]
 pub fn write_permissions(cwd: Option<String>, permissions: ProjectPermissions) -> IpcResult<()> {
     crate::permissions::write(cwd, permissions)
+}
+
+// ----- App settings (Addendum II §1, S1) -------------------------------------
+// The IDE's OWN preferences (editor font/wrap/tabs/minimap, …), persisted to the
+// app's `app_config_dir/settings.json` — NEVER `~/.claude`. Both commands take
+// the fixed config dir (resolved here from the AppHandle), no caller path: a
+// write can't escape it (§5.1 / §5.8). Values are validated/clamped in settings.rs.
+
+/// Resolve the app's per-user config directory (where `settings.json` lives).
+fn app_config_dir(app: &tauri::AppHandle) -> IpcResult<std::path::PathBuf> {
+    use tauri::Manager;
+    app.path()
+        .app_config_dir()
+        .map_err(|e| IpcError::new(IpcErrorKind::Internal, format!("No config directory: {e}")))
+}
+
+/// Read the whole settings document (global `user` scope + per-workspace
+/// overrides). Read-only; tolerant of a missing file. The frontend merges scopes.
+#[tauri::command]
+pub fn read_settings(app: tauri::AppHandle) -> IpcResult<SettingsDoc> {
+    crate::settings::read(&app_config_dir(&app)?)
+}
+
+/// Write one scope's editor settings (read-modify-write; preserves every other
+/// key). `scope` is "user" or "workspace"; for "workspace", `workspace_key` is
+/// the workspace's canonical path (used only as a map key). Validated/clamped.
+#[tauri::command]
+pub fn write_settings(
+    app: tauri::AppHandle,
+    scope: String,
+    workspace_key: Option<String>,
+    editor: EditorSettings,
+) -> IpcResult<()> {
+    let scope = match scope.as_str() {
+        "user" => Scope::User,
+        "workspace" => match workspace_key {
+            Some(key) => Scope::Workspace(key),
+            None => {
+                return Err(IpcError::new(
+                    IpcErrorKind::InvalidInput,
+                    "workspace scope requires a workspaceKey",
+                ))
+            }
+        },
+        _ => {
+            return Err(IpcError::new(
+                IpcErrorKind::InvalidInput,
+                "scope must be \"user\" or \"workspace\"",
+            ))
+        }
+    };
+    crate::settings::write(&app_config_dir(&app)?, scope, editor)
 }
 
 // ----- Git source control (spec 5.A.3, Phase 4) ------------------------------

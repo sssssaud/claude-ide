@@ -44,14 +44,22 @@ function persist(v: Visibility) {
 }
 
 interface LayoutState extends Visibility {
+  /** Whether the full-area Settings view is open over the workspace (ephemeral —
+   *  like VS Code, the settings tab doesn't persist across restarts). */
+  settingsOpen: boolean;
   /** Flip one region's visibility. */
   toggle: (region: Region) => void;
   /** Set one region's visibility explicitly (used to sync a drag-to-collapse). */
   setVisible: (region: Region, visible: boolean) => void;
+  /** Open / close / toggle the Settings view. */
+  openSettings: () => void;
+  closeSettings: () => void;
+  toggleSettings: () => void;
 }
 
 export const useLayout = create<LayoutState>((set) => ({
   ...load(),
+  settingsOpen: false,
 
   toggle: (region) =>
     set((s) => {
@@ -67,4 +75,8 @@ export const useLayout = create<LayoutState>((set) => ({
       persist({ sessions: next.sessions, editor: next.editor, terminal: next.terminal });
       return { [region]: visible } as Pick<LayoutState, Region>;
     }),
+
+  openSettings: () => set({ settingsOpen: true }),
+  closeSettings: () => set({ settingsOpen: false }),
+  toggleSettings: () => set((s) => ({ settingsOpen: !s.settingsOpen })),
 }));

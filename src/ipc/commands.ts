@@ -22,11 +22,14 @@ import type {
   GitStatus,
   PerfStats,
   PreflightReport,
+  EditorSettings,
   ProjectPermissions,
   ProjectPermissionsFile,
   SearchResults,
   SessionMeta,
   SessionSearchResults,
+  SettingsDoc,
+  SettingsScope,
   UsageReport,
 } from "./types";
 import { isIpcError } from "./types";
@@ -359,6 +362,31 @@ export async function writePermissions(
 ): Promise<void> {
   try {
     await invoke<void>("write_permissions", { cwd, permissions });
+  } catch (e) {
+    normalizeError(e);
+  }
+}
+
+/** Read the IDE's own settings document (global `user` scope + per-workspace
+ *  overrides), from the app's config dir. Read-only; the store merges scopes. */
+export async function readSettings(): Promise<SettingsDoc> {
+  try {
+    return await invoke<SettingsDoc>("read_settings");
+  } catch (e) {
+    normalizeError(e);
+  }
+}
+
+/** Write one scope's editor settings, preserving every other key. `scope` is
+ *  "user" or "workspace"; for "workspace", `workspaceKey` is the canonical path.
+ *  Persists to the app config dir (never `~/.claude`); validated at the boundary. */
+export async function writeSettings(
+  scope: SettingsScope,
+  editor: EditorSettings,
+  workspaceKey?: string,
+): Promise<void> {
+  try {
+    await invoke<void>("write_settings", { scope, workspaceKey, editor });
   } catch (e) {
     normalizeError(e);
   }

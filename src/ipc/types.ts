@@ -164,6 +164,38 @@ export interface ProjectPermissionsFile {
   permissions: ProjectPermissions;
 }
 
+/** The `editor.wordWrap` values Monaco understands (Addendum II §1). */
+export type WordWrap = "off" | "on" | "wordWrapColumn" | "bounded";
+
+/** Mirror of Rust `EditorSettings` (Addendum II §1) — the IDE's own editor
+ *  preferences. Every field is optional: present = an explicit override, absent
+ *  = fall through to the lower scope or the frontend default. */
+export interface EditorSettings {
+  fontFamily?: string;
+  fontSize?: number;
+  fontLigatures?: boolean;
+  wordWrap?: WordWrap;
+  wordWrapColumn?: number;
+  tabSize?: number;
+  insertSpaces?: boolean;
+  minimap?: boolean;
+}
+
+/** Mirror of Rust `ScopeSettings` — one scope's settings (only `editor` in S1). */
+export interface ScopeSettings {
+  editor: EditorSettings;
+}
+
+/** Mirror of Rust `SettingsDoc` — the whole settings document: the global `user`
+ *  scope plus per-workspace overrides keyed by canonical path. */
+export interface SettingsDoc {
+  user: ScopeSettings;
+  workspaces: Record<string, ScopeSettings>;
+}
+
+/** Which scope a settings write targets (Addendum II §1). */
+export type SettingsScope = "user" | "workspace";
+
 /** Mirror of Rust `TokenSums` (P4, Phase 8) — exact token counts from transcripts. */
 export interface TokenSums {
   input: number;

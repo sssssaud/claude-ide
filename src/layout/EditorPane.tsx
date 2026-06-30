@@ -9,7 +9,7 @@
  * files show a notice instead of garbage.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useStore, type StoreApi } from "zustand";
 import Editor, { type OnMount } from "@monaco-editor/react";
 import type * as Monaco from "monaco-editor";
@@ -19,7 +19,30 @@ import { defineClaudeTheme, monacoThemeFor } from "@/editor/monacoSetup";
 import { readFile, writeFile } from "@/ipc/commands";
 import { isIpcError } from "@/ipc/types";
 import type { EditorState } from "@/store/editor";
+import { mergeEffective, useSettings, type EffectiveEditor } from "@/store/settings";
 import { useTheme } from "@/store/theme";
+
+/** Map the resolved settings to Monaco's editor-level options. Model-level options
+ *  (tabSize / insertSpaces) are applied per-model separately. */
+function editorOptions(e: EffectiveEditor): Monaco.editor.IEditorOptions {
+  return {
+    fontFamily: e.fontFamily,
+    fontSize: e.fontSize,
+    fontLigatures: e.fontLigatures,
+    wordWrap: e.wordWrap,
+    wordWrapColumn: e.wordWrapColumn,
+    minimap: { enabled: e.minimap },
+  };
+}
+
+/** Static options that never depend on settings (merged under the dynamic ones). */
+const STATIC_OPTIONS: Monaco.editor.IStandaloneEditorConstructionOptions = {
+  scrollBeyondLastLine: false,
+  automaticLayout: true,
+  renderLineHighlight: "line",
+  padding: { top: 12 },
+  fixedOverflowWidgets: true,
+};
 
 /** Join a workspace cwd and a root-relative tab path into an absolute path —
  *  the Monaco model URI key, so files with the same relative path in different
@@ -59,6 +82,17 @@ export function EditorPane({ cwd, store }: { cwd: string; store: StoreApi<Editor
   const reveal = useStore(store, (s) => s.reveal);
   const monacoTheme = monacoThemeFor(useTheme((s) => s.palette));
 
+  // Effective editor settings for this workspace (DEFAULTS < user < workspace).
+  // `userEditor`/`wsEditor` are stable object refs from the store, so the memo
+  // only recomputes when a setting actually changes.
+  const userEditor = useSettings((s) => s.user);
+  const wsEditor = useSettings((s) => s.workspaces[cwd]);
+  const effective = useMemo(() => mergeEffective(userEditor, wsEditor), [userEditor, wsEditor]);
+  const options = useMemo<Monaco.editor.IStandaloneEditorConstructionOptions>(
+    () => ({ ...STATIC_OPTIONS, ...editorOptions(effective) }),
+    [effective],
+  );
+
   const disposeEntry = useCallback((path: string) => {
     const entry = modelsRef.current.get(path);
     if (entry) {
@@ -83,6 +117,10 @@ export function EditorPane({ cwd, store }: { cwd: string; store: StoreApi<Editor
       const model =
         monaco.editor.getModel(uri) ??
         monaco.editor.createModel(file.text, languageForPath(path), uri);
+      // Apply indent settings to the fresh model (a later settings change is
+      // applied to every model by the effect below).
+      const eff = mergeEffective(useSettings.getState().user, useSettings.getState().workspaces[cwd]);
+      model.updateOptions({ tabSize: eff.tabSize, insertSpaces: eff.insertSpaces });
       const changeSub = model.onDidChangeContent(() => {
         const entry = modelsRef.current.get(path);
         if (!entry) return;
@@ -172,6 +210,18 @@ export function EditorPane({ cwd, store }: { cwd: string; store: StoreApi<Editor
     store.getState().clearReveal();
   }, [reveal, activePath, contents, ready, store]);
 
+  // Re-apply indent settings to every open model when they change live. (Font,
+  // wrap, and minimap are editor-level and flow through the `options` prop.)
+  useEffect(() => {
+    if (!ready) return;
+    for (const entry of modelsRef.current.values()) {
+      entry.model.updateOptions({
+        tabSize: effective.tabSize,
+        insertSpaces: effective.insertSpaces,
+      });
+    }
+  }, [effective.tabSize, effective.insertSpaces, ready, contents]);
+
   // Dispose every model on unmount (the host unmounts when the last tab closes).
   useEffect(() => {
     const models = modelsRef.current;
@@ -232,16 +282,7 @@ export function EditorPane({ cwd, store }: { cwd: string; store: StoreApi<Editor
             editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => void saveActive());
             setReady(true);
           }}
-          options={{
-            fontFamily: "var(--font-mono)",
-            fontSize: 15,
-            minimap: { enabled: false },
-            scrollBeyondLastLine: false,
-            automaticLayout: true,
-            renderLineHighlight: "line",
-            padding: { top: 12 },
-            fixedOverflowWidgets: true,
-          }}
+          options={options}
         />
         {state?.kind !== "ready" && (
           <div className="absolute inset-0" style={{ background: "var(--color-bg-recessed)" }}>

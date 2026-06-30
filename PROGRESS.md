@@ -123,6 +123,41 @@ CSP relaxation, or dependency). All findings done:
   green. Live manual smoke pending (running app). 10 focused commits; CLAUDE.md +
   myfile.txt deliberately untouched.
 
+## Addendum II — Developer Tools, Settings & UI Polish (plan: linear-hopping-pixel)
+Plan approved (full addendum, Part 6 order, slice-by-slice). Scope decision: build
+on the current editor; editor splits/groups/git-gutter/full-breadcrumbs deferred to
+a later track. Guardrails (§5 + hardening do-not-regress) enforced each slice.
+
+### S1 — Settings skeleton + persistence + highest-value settings · COMPLETE ✅ (2026-06-30)
+The IDE's OWN preferences surface (distinct from the CLI's `.claude/settings.json`).
+- **Backend `settings.rs`** — mirrors the `permissions.rs` A7 pattern: validated
+  read-modify-write of `app_config_dir()/settings.json` (NEVER `~/.claude`).
+  Two scopes — global `user` + per-workspace overrides keyed by canonical path;
+  effective = `DEFAULTS < user < workspace` (merged frontend-side). Numbers clamped
+  (fontSize 6–72, tabSize 1–16, wrapColumn 20–400), `wordWrap` enum allow-list,
+  fontFamily trimmed/bounded; unknown keys preserved; non-object file refused (never
+  clobbered); fixed path takes no caller segment (§5.1/§5.8). **+6 tests.**
+- **Commands** `read_settings`/`write_settings` (→ 42 total) — config dir resolved
+  from the `AppHandle`; `write_settings` validates the scope enum + requires a
+  workspaceKey for workspace scope. No new capability/CSP (custom commands aren't
+  ACL-enumerated; Rust-side `std::fs` only).
+- **Frontend** — `store/settings.ts` (zustand mirror: load / setEditor / replaceEditor,
+  optimistic write + rollback-on-error, `mergeEffective` + `EDITOR_DEFAULTS`);
+  `layout/SettingsView.tsx` (full-area overlay: category rail, searchable controls,
+  User/Workspace scope toggle, per-control override dot + reset, Edit-as-JSON with
+  validate-on-apply, loading/error/empty + saveError states; tokens-only, keyboard-
+  operable, reduced-motion via existing tokens); `settingsOpen` in `store/layout.ts`;
+  bottom **Settings** action in the activity bar (`Sidebar.tsx`, gear, not a tab);
+  **Ctrl/Cmd+,** in `useLayoutShortcuts`; overlay mounted over `WorkspaceShell` `<main>`.
+- **Live wiring** — `EditorPane.tsx` hardcoded Monaco options replaced: font family/
+  size/ligatures + wordWrap(+column) + minimap flow through the `options` prop;
+  tabSize/insertSpaces applied per-model (on load + on change). Settings load once at
+  app startup so the editor reflects them with no Settings-view visit needed.
+- Gate: clippy `-D warnings` 0, **56 Rust tests** pass, typecheck clean, prod build
+  green. Backend persistence proven by round-trip tests (write→disk→read). Live
+  manual smoke (change setting → Monaco updates → persists across restart) pending
+  the running app. CLAUDE.md + myfile.txt untouched.
+
 ### Phase 0 — Skeleton & preflight  ·  COMPLETE ✅
 - [x] Rust toolchain (cargo 1.96.0); Tauri deps via dnf.
 - [x] Project scaffolded: Vite+React+TS frontend, Tauri 2 backend, path alias.
