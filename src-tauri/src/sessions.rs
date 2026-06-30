@@ -131,13 +131,13 @@ impl SessionsRegistry {
             })
             .map_err(|e| internal(format!("Could not start the session watch thread: {e}")))?;
 
-        *self.watcher.lock().expect("sessions watcher mutex poisoned") = Some(watcher);
+        *self.watcher.lock().unwrap_or_else(|e| e.into_inner()) = Some(watcher);
         Ok(())
     }
 
     /// Stop watching (drops the watcher → its thread exits) on app exit.
     pub fn shutdown_all(&self) {
-        *self.watcher.lock().expect("sessions watcher mutex poisoned") = None;
+        *self.watcher.lock().unwrap_or_else(|e| e.into_inner()) = None;
     }
 }
 

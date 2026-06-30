@@ -11,7 +11,7 @@
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 use tauri::ipc::Channel;
@@ -79,9 +79,7 @@ impl PtyRegistry {
 
         // Register before the reader starts, so an instant-exit shell is still
         // found (and reaped) by the reader's EOF path below.
-        self.sessions
-            .lock()
-            .expect("pty registry mutex poisoned")
+        self.lock_sessions()
             .insert(id.clone(), PtySession { master: pair.master, writer, child });
         tracing::info!(pty = %id, shell = %shell, cwd = %cwd.display(), "pty opened");
 
@@ -117,7 +115,7 @@ impl PtyRegistry {
 
     /// Write keystrokes (UTF-8 bytes) into the terminal.
     pub fn write(&self, id: &str, data: &[u8]) -> IpcResult<()> {
-        let mut guard = self.sessions.lock().expect("pty registry mutex poisoned");
+        let mut guard = self.lock_sessions();
         let session = guard.get_mut(id).ok_or_else(not_open)?;
         session
             .writer
@@ -132,7 +130,7 @@ impl PtyRegistry {
 
     /// Resize the PTY when the drawer resizes (spec 5.A.6).
     pub fn resize(&self, id: &str, rows: u16, cols: u16) -> IpcResult<()> {
-        let guard = self.sessions.lock().expect("pty registry mutex poisoned");
+        let guard = self.lock_sessions();
         let session = guard.get(id).ok_or_else(not_open)?;
         session
             .master
@@ -144,7 +142,7 @@ impl PtyRegistry {
     /// Close a terminal: kill + reap the child (no zombie). Dropping the master
     /// and writer closes the PTY, so the reader thread sees EOF and exits.
     pub fn close(&self, id: &str) -> IpcResult<()> {
-        let session = self.sessions.lock().expect("pty registry mutex poisoned").remove(id);
+        let session = self.lock_sessions().remove(id);
         if let Some(mut session) = session {
             let _ = session.child.kill();
             let _ = session.child.wait();
@@ -156,7 +154,7 @@ impl PtyRegistry {
     /// session and `wait()` the dead child so it leaves no zombie. A no-op if
     /// `close`/`shutdown_all` already removed it (races resolve via the lock).
     fn reap(&self, id: &str) {
-        let session = self.sessions.lock().expect("pty registry mutex poisoned").remove(id);
+        let session = self.lock_sessions().remove(id);
         if let Some(mut session) = session {
             let _ = session.child.wait();
         }
@@ -165,13 +163,21 @@ impl PtyRegistry {
     /// Tear down every terminal on app exit (spec 5.A.6 "no zombie").
     pub fn shutdown_all(&self) {
         let sessions: Vec<PtySession> = {
-            let mut guard = self.sessions.lock().expect("pty registry mutex poisoned");
+            let mut guard = self.lock_sessions();
             guard.drain().map(|(_, s)| s).collect()
         };
         for mut session in sessions {
             let _ = session.child.kill();
             let _ = session.child.wait();
         }
+    }
+
+    /// Lock the sessions map, recovering the guard if a prior holder panicked.
+    /// The map holds only process handles — not a security invariant — so a
+    /// poisoned lock is safe to recover, and recovering it beats wedging every
+    /// terminal operation forever on the first panic (hardening B4).
+    fn lock_sessions(&self) -> MutexGuard<'_, HashMap<String, PtySession>> {
+        self.sessions.lock().unwrap_or_else(|e| e.into_inner())
     }
 }
 
