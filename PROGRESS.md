@@ -83,9 +83,45 @@ Phase 0 and adjust with evidence" (spec 2.7, 6.1, risk register). Measured:
 **ALL PHASES 0–10 COMPLETE.** Phase 10 (the last phase) closed 2026-06-29: vertical
 icon activity bar (10A), runtime multi-theme picker (10B), bundled Geist fonts —
 offline (10C), objective polish — a11y / clippy-clean / CSP re-audit / per-session-
-delete re-verify / font chain (10D). Production build green, clippy 0 warnings, 42
+delete re-verify / font chain (10D). Production build green, clippy 0 warnings, 50
 Rust tests pass, typecheck clean. Outstanding = **live gates only** (need the running
 app), tracked at the foot of this file — not code work.
+
+### Security & robustness hardening pass · COMPLETE ✅ (2026-06-30)
+Acting on an external backend audit. Plan-mode first; one finding per commit; a
+test per fix where testable; no widened attack surface (no new command, capability,
+CSP relaxation, or dependency). All findings done:
+- **B1** — one validated absolute `claude` path. New `claude_bin` module resolves
+  `which("claude")` once at startup into a `OnceLock`, with an `ensure_absolute`
+  guard; engine/preflight/agents all spawn it (the latter two were spawning a bare
+  `claude`, a per-spawn PATH lookup). +3 tests.
+- **B2** — bounded engine per-line read. `read_bounded_lines` caps a single NDJSON
+  line at 16 MiB (was unbounded via `lines()`), drops an over-long line with one
+  `EngineEvent::LineTruncated` then resyncs. +3 tests; TS mirror updated.
+- **B3** — two data-dependent unwraps made structurally total (engine
+  `control_request` arm; search `last_mut`). +2 tests.
+- **B4** — mutex-poison recovery (`unwrap_or_else(|e| e.into_inner())`) at 6 pty +
+  2 sessions lock sites (registries hold only handles, no security invariant).
+- **B5** — `// SECURITY:` markers documenting the canonicalize-parent containment
+  requirement for the future create-new-file slice (files.rs).
+- **C1** — loud red, in-app two-step confirm before *newly* enabling
+  bypassPermissions (PermissionsPanel.tsx); persistent `role="alert"` while active.
+- **C2** — production CSP drops the Vite dev-only localhost entries; kept in
+  `devCsp` (schema-confirmed) so dev/HMR is unchanged.
+- **C3** — full CI gates: `.github/workflows/ci.yml` (typecheck, build, clippy
+  `-D warnings`, tests, **cargo audit + npm audit**). Baselines checked first:
+  cargo audit 0 vulns (18 upstream warnings, default exit passes); npm audit 1
+  transitive dev low → `--audit-level=high` green.
+- **C4** — *deferred, reasoned* (allowed by acceptance): audited all 26 interpolated
+  error strings — every one embeds only a `{e}` OS Display string, never a
+  path/query/secret; local single-user app (webview = backend trust domain) → no
+  remote leak. Recorded as a durable ERROR-DETAIL POLICY note on `IpcError`.
+- **Part A (do-not-regress)** all 8 re-verified intact (path containment, no-shell
+  exec, branch validation, no arbitrary-exec command, least-privilege config, stdio
+  permission gate, settings writer, robust parser).
+- Gate: clippy `-D warnings` 0, 50 Rust tests pass, prod build green, both audits
+  green. Live manual smoke pending (running app). 10 focused commits; CLAUDE.md +
+  myfile.txt deliberately untouched.
 
 ### Phase 0 — Skeleton & preflight  ·  COMPLETE ✅
 - [x] Rust toolchain (cargo 1.96.0); Tauri deps via dnf.
