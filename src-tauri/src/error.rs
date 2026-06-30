@@ -27,6 +27,20 @@ pub enum IpcErrorKind {
 }
 
 /// The serializable error that crosses the IPC boundary.
+///
+/// ERROR-DETAIL POLICY (hardening C4 — reviewed and deliberately kept):
+/// `message` stays plain-language and helpful rather than genericized. This is a
+/// LOCAL, single-user desktop app — the webview is the same trust domain as the
+/// backend, so there is no remote client to leak to; the reader of any error is
+/// the user, about their own machine. Audited: every interpolated message embeds
+/// only a `std::io::Error`/tool Display string (e.g. "Permission denied") — which
+/// Rust does NOT pepper with paths — never a path, query, session id, or secret.
+/// Stripping that detail ("Permission denied" -> a vague "Could not read") would
+/// cost self-diagnosis for no security gain. Detail is additionally tracing-logged
+/// in the process modules (preflight/agents/pty/engine/sessions). The `detail`
+/// field exists for a future structured split if a genuinely sensitive value ever
+/// needs surfacing separately; today nothing populates it. Secrets/transcripts are
+/// never logged or surfaced (spec 2.6) — that rule is upstream of this type.
 #[derive(Debug, Clone, Serialize)]
 pub struct IpcError {
     pub kind: IpcErrorKind,
