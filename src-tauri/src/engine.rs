@@ -20,7 +20,7 @@ use std::time::Duration;
 use serde::Serialize;
 use serde_json::{json, Value};
 use tauri::ipc::Channel;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin, Command};
 use tokio::sync::Mutex;
 
@@ -79,6 +79,10 @@ pub enum EngineEvent {
     Stopped,
     /// A line that could not be parsed — surfaced, never swallowed (spec 2.3).
     ParseError { raw: String },
+    /// A single stream line exceeded the per-line byte cap and was dropped; the
+    /// reader resynced at the next newline (DoS guard, hardening B2). The session
+    /// continues — only the over-long line is lost. `limit` is the cap in bytes.
+    LineTruncated { limit: usize },
     /// A newer-CLI event type we don't model — logged, benign (spec 2.3).
     Unknown { kind: String },
 }
@@ -187,34 +191,33 @@ impl WorkspaceRegistry {
         let id = format!("ws-{}", self.next_id.fetch_add(1, Ordering::SeqCst));
         let interrupting = Arc::new(AtomicBool::new(false));
 
-        // Reader: stdout -> parse_events -> channel. Interrupt-aware — a `result`
-        // arriving while an interrupt is pending becomes a clean `Stopped`.
+        // Reader: stdout -> bounded line reader -> parse_events -> channel.
+        // Interrupt-aware — a `result` arriving while an interrupt is pending
+        // becomes a clean `Stopped`. The bounded reader caps per-line memory so a
+        // stream that never emits a newline can't balloon the process (B2).
         let reader_flag = interrupting.clone();
         let reader_id = id.clone();
         tauri::async_runtime::spawn(async move {
-            let mut lines = BufReader::new(stdout).lines();
-            loop {
-                match lines.next_line().await {
-                    Ok(Some(line)) => {
-                        for ev in parse_events(&line) {
-                            let ev = match ev {
-                                EngineEvent::Result { .. }
-                                    if reader_flag.swap(false, Ordering::SeqCst) =>
-                                {
-                                    EngineEvent::Stopped
-                                }
-                                other => other,
-                            };
-                            let _ = channel.send(ev);
-                        }
-                    }
-                    Ok(None) => break, // stdout closed: the session ended
-                    Err(e) => {
-                        tracing::warn!(workspace = %reader_id, error = %e, "engine stdout read error");
-                        break;
+            read_bounded_lines(stdout, |unit| match unit {
+                LineEvent::Line(line) => {
+                    for ev in parse_events(line) {
+                        let ev = match ev {
+                            EngineEvent::Result { .. }
+                                if reader_flag.swap(false, Ordering::SeqCst) =>
+                            {
+                                EngineEvent::Stopped
+                            }
+                            other => other,
+                        };
+                        let _ = channel.send(ev);
                     }
                 }
-            }
+                LineEvent::Truncated { limit } => {
+                    tracing::warn!(workspace = %reader_id, limit, "engine stream line exceeded cap; dropped");
+                    let _ = channel.send(EngineEvent::LineTruncated { limit });
+                }
+            })
+            .await;
             // Session ended (clean close or unexpected death): unfreeze the UI.
             let _ = channel.send(EngineEvent::Stopped);
             tracing::info!(workspace = %reader_id, "engine session reader exited");
@@ -384,6 +387,86 @@ fn resolve_cwd(cwd: Option<String>) -> IpcResult<PathBuf> {
     // Shared with the Sessions rail (spec 3.2) so the session this engine
     // creates lands in the project dir the rail watches.
     crate::workspace::resolve_cwd(cwd)
+}
+
+/// Per-line byte cap for the engine's NDJSON stream (DoS guard, hardening B2).
+/// Generous for legitimate events (a large tool result or file content) but
+/// bounds memory against a runaway or malicious stream that emits bytes without
+/// a newline — without this, one such line would grow the process unbounded.
+const MAX_LINE_BYTES: usize = 16 * 1024 * 1024; // 16 MiB
+
+/// One unit yielded by [`read_bounded_lines`].
+enum LineEvent<'a> {
+    /// A complete NDJSON line, newline excluded.
+    Line(&'a str),
+    /// A line exceeded [`MAX_LINE_BYTES`] and was dropped; the reader resynced at
+    /// the next newline. `limit` is the cap that was exceeded.
+    Truncated { limit: usize },
+}
+
+/// Read newline-delimited lines from `reader`, invoking `sink` for each complete
+/// line and once for each over-long line that is dropped. Memory is bounded to
+/// the `BufReader` capacity plus at most [`MAX_LINE_BYTES`] regardless of input:
+/// bytes are pulled in fixed `fill_buf` chunks, and a line that overflows the cap
+/// is dropped (one `Truncated`) then resynced at the next newline — so a stream
+/// that never emits a newline can't balloon the process (DoS guard, hardening B2).
+async fn read_bounded_lines<R, F>(reader: R, mut sink: F)
+where
+    R: AsyncRead + Unpin,
+    F: FnMut(LineEvent<'_>),
+{
+    let mut reader = BufReader::new(reader);
+    let mut line: Vec<u8> = Vec::new();
+    // True while discarding the tail of a line that already overflowed the cap.
+    let mut dropping = false;
+    loop {
+        let available = match reader.fill_buf().await {
+            Ok(c) => c,
+            Err(_) => break, // read error: end the reader (caller then sends Stopped)
+        };
+        if available.is_empty() {
+            break; // EOF
+        }
+        let consumed = match available.iter().position(|&b| b == b'\n') {
+            Some(pos) => {
+                if dropping {
+                    dropping = false; // the over-long line ends at this newline
+                } else if line.len() + pos > MAX_LINE_BYTES {
+                    sink(LineEvent::Truncated { limit: MAX_LINE_BYTES });
+                    line.clear();
+                } else {
+                    line.extend_from_slice(&available[..pos]); // newline excluded
+                    {
+                        let text = String::from_utf8_lossy(&line);
+                        sink(LineEvent::Line(text.as_ref()));
+                    }
+                    line.clear();
+                }
+                pos + 1 // consume through the newline
+            }
+            None => {
+                let len = available.len();
+                if !dropping {
+                    if line.len() + len > MAX_LINE_BYTES {
+                        // Overflow with no newline yet: drop the line and discard
+                        // until the next newline (exactly one Truncated).
+                        sink(LineEvent::Truncated { limit: MAX_LINE_BYTES });
+                        line.clear();
+                        dropping = true;
+                    } else {
+                        line.extend_from_slice(available);
+                    }
+                }
+                len
+            }
+        };
+        reader.consume(consumed);
+    }
+    // A trailing partial line at EOF (no final newline) is still a real line.
+    if !dropping && !line.is_empty() {
+        let text = String::from_utf8_lossy(&line);
+        sink(LineEvent::Line(text.as_ref()));
+    }
 }
 
 // ----- Real `claude --output-format stream-json` line parser (spec 2.3, 3.5) --
@@ -626,5 +709,43 @@ mod tests {
             &parse_events(r#"{"type":"control_request","request_id":"r","request":{"subtype":"mcp_message"}}"#)[..],
             [EngineEvent::Unknown { kind }] if kind == "control_request"
         ));
+    }
+
+    // ----- Bounded line reader (hardening B2) --------------------------------
+
+    /// Drive `read_bounded_lines` over an in-memory reader, tagging each unit so
+    /// lines and truncations are distinguishable and ordered.
+    fn collect_lines(input: &[u8]) -> Vec<String> {
+        let mut out = Vec::new();
+        tauri::async_runtime::block_on(read_bounded_lines(input, |unit| match unit {
+            LineEvent::Line(l) => out.push(format!("L:{l}")),
+            LineEvent::Truncated { limit } => out.push(format!("T:{limit}")),
+        }));
+        out
+    }
+
+    #[test]
+    fn bounded_reader_splits_complete_lines() {
+        assert_eq!(collect_lines(b"one\ntwo\nthree\n"), vec!["L:one", "L:two", "L:three"]);
+    }
+
+    #[test]
+    fn bounded_reader_emits_trailing_partial_line() {
+        // A final line with no trailing newline is still a real line (EOF mid-line).
+        assert_eq!(collect_lines(b"a\nbc"), vec!["L:a", "L:bc"]);
+    }
+
+    #[test]
+    fn bounded_reader_drops_overlong_line_and_resyncs() {
+        // One line far past the cap (no newline for a long stretch), then a normal
+        // line: the over-long line yields exactly one Truncated and is dropped, and
+        // the following line parses normally — the reader resynced at the newline.
+        let mut input = vec![b'x'; MAX_LINE_BYTES + 4096];
+        input.push(b'\n');
+        input.extend_from_slice(b"after\n");
+        assert_eq!(
+            collect_lines(&input),
+            vec![format!("T:{MAX_LINE_BYTES}"), "L:after".to_string()],
+        );
     }
 }

@@ -267,6 +267,7 @@ export type EngineEvent =
     }
   | { type: "stopped" }
   | { type: "parse_error"; raw: string }
+  | { type: "line_truncated"; limit: number }
   | { type: "unknown"; kind: string };
 
 /** Type guard for errors thrown by the invoke wrappers. */
