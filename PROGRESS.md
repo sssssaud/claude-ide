@@ -341,6 +341,37 @@ diff instead. Found and fixed 5 real issues:
 - Gate: typecheck/build/clippy/64 Rust tests green; live-started the dev
   server, clean boot. Committed as `603ec6e`.
 
+### S5 — Status bar + editor toolbar (chrome polish) · COMPLETE ✅ (2026-07-02)
+- **Status Bar** (bottom strip, hides in zen mode): left = branch+ahead/behind
+  (→ Source Control view) and agent running/idle (click stops a running
+  turn); right = Ln:Col (→ Go to Line), selection length (→ copy to
+  clipboard), indent, EOL (click toggles LF/CRLF), language (→ fuzzy
+  language-mode picker, reusing `FuzzyOverlay`), cost/tokens (→ Usage view),
+  theme (→ Settings — a deep-link, not a dropdown, keeping the earlier
+  "theme lives only in Settings" decision). **Deliberately not built:** a
+  Problems count and a notification bell — neither has a real backing system
+  (no diagnostics provider; no notification system at all), and faking either
+  would be worse than waiting for the real thing.
+- New `store/editorStatus.ts` — the first REACTIVE per-file status (cursor,
+  selection, language, indent, EOL); `EditorPane` pushes into it from the same
+  points it already manages `activeEditorHandle`, cleared via the same
+  still-registered-handle identity check so a workspace switch can't leave
+  stale data behind.
+- **Editor toolbar**: a "…" button pinned top-right of the tab strip — Format
+  Document / Go to Line always, the five Claude selection actions (S4) when
+  something's selected — reuses `commands/agentActions.ts` rather than a
+  second copy of the prompt-building logic.
+- Also fixed a real latent gap opened back in S3: the git-status refresh
+  lived in `ActivityBar`, which unmounts in zen mode — hoisted into
+  `useSessionBootstrap` so both the Status Bar's branch segment and the
+  activity bar's Source-Control badge stay live regardless of what's
+  mounted. Consolidated three copies of the open-Settings helper into one
+  export.
+- Gate: typecheck/build/clippy/64 Rust tests green (no backend changes);
+  confirmed Monaco stayed out of the eager bundle; live-started the dev
+  server, clean boot, idle WebKitWebProcess CPU still ~0%. Committed as
+  `7674c3b`.
+
 ### Phase 0 — Skeleton & preflight  ·  COMPLETE ✅
 - [x] Rust toolchain (cargo 1.96.0); Tauri deps via dnf.
 - [x] Project scaffolded: Vite+React+TS frontend, Tauri 2 backend, path alias.
