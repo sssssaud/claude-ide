@@ -158,6 +158,73 @@ The IDE's OWN preferences surface (distinct from the CLI's `.claude/settings.jso
   manual smoke (change setting → Monaco updates → persists across restart) pending
   the running app. CLAUDE.md + myfile.txt untouched.
 
+### Post-S1 live-smoke feedback → VS Code layout + staged Settings tab + perf fix · COMPLETE ✅ (2026-07-01)
+User feedback after live-smoking S1 superseded the overlay design: theme dropdown
+removed from the top bar (theme now lives only in Settings > Appearance); activity
+bar + a collapsible Side panel moved to the far left (Explorer/Search/Git/Sessions/
+Permissions/Usage), Conversation + Editor filling the rest (`ActivityBar.tsx`,
+`SidePanel.tsx`, new `useSessionBootstrap.ts` hoisting session init out of
+`SessionsPanel`; `Sidebar.tsx` removed). Settings now opens as a **closable editor
+tab** (gear icon or Ctrl/Cmd+,) with **staged Apply** — edits a draft, nothing takes
+effect until Apply, closing with unapplied changes prompts Keep editing / Discard &
+close / Apply & close (`store/settings.ts` rewritten, `SettingsView.tsx` rewritten,
+`EditorRegion.tsx`/`EditorTabs.tsx` wired for the settings "tab").
+- **Perf fix**: diagnosed a reported cursor/input-lag bug (~1s delay updating the
+  cursor icon on mouse move) via instantaneous `top -b -d1` sampling (not `ps
+  %cpu`, which is a lifetime average and misleading). Root cause: the
+  `.status-lamp-pulse` infinite opacity animation ran unconditionally (tab-bar lamp,
+  active-session dot) — under WebKitGTK's software compositor (dmabuf renderer
+  disabled) this cost ~10-11% continuous CPU, enough to lag GTK cursor-shape
+  updates. Fix: both lamps now gate on `streaming` (only animate while the agent is
+  actually running; idle = static dot, idle color). Verified via `top -b -n
+  8 -d 1 -p <main>,<WebKitWebProcess>`: idle CPU dropped from ~10-11% to ~0%.
+- Gate: typecheck/build/clippy/56 tests all green; idle-CPU fix verified live.
+  Committed as `9bece35`. CLAUDE.md + myfile.txt untouched.
+
+### S2 — Data-safety defaults · COMPLETE ✅ (2026-07-01)
+- **Backend** `settings.rs`: `formatOnSave`/`formatOnPaste`/`trimTrailingWhitespace`/
+  `insertFinalNewline`/`trimFinalNewlines`/`autoSave`/`autoSaveDelay` added to
+  `EditorSettings`; `autoSave` enum-checked (off/afterDelay/onFocusChange/
+  onWindowChange), delay clamped 200ms–60s. **+2 tests** (60 total).
+- **Frontend**: `EDITOR_DEFAULTS` favors not losing work over reformatting —
+  `autoSave: onFocusChange`, `trimTrailingWhitespace: true`, `insertFinalNewline:
+  true`; format-on-save/paste stay opt-in (a registered formatter can reflow code
+  unasked). New pure `editor/saveTransforms.ts` (`trimTrailingWhitespace` — skips
+  Markdown, where trailing spaces are a hard line-break — and
+  `normalizeFinalNewlines`), sanity-checked against 10 hand-picked edge cases.
+  `EditorPane.tsx`'s save path became `saveFile(path)`: format-on-save runs only
+  when the model is the one attached to the editor widget (the format action can't
+  safely act on a detached model), then the trim/newline transforms apply as one
+  grouped undo edit before writing. Auto-save wired three ways: `afterDelay`
+  debounces off the model's own change event (reset per keystroke), `onFocusChange`
+  listens to the editor's own blur, `onWindowChange` listens to the window's blur
+  but only fires if this pane's editor actually had focus. New Settings "Files"
+  category holds the new controls; "Format On Save/Paste" joined Text Editor.
+- Gate: typecheck/build/clippy/60 tests green. Committed as `8fdecea`.
+
+### S2.5 — Account sign-in/out · COMPLETE ✅ (2026-07-01, added mid-build, user-requested)
+User's ask: "we need a login button... when someone download it we need to login."
+Never hand-rolled: both operations shell out to the installed CLI.
+- **Backend** new `auth.rs`: `status()` runs `claude auth status --json` (mirrors
+  `preflight.rs`'s existing read-only probe), `logout()` runs `claude auth logout`
+  (non-interactive). **+2 tests** (62 total). `login` is deliberately NOT a backend
+  command — it's an interactive browser/OAuth flow (sometimes SSO/email-code), so
+  it isn't guessed at non-interactively.
+- **Frontend** new `components/InlineTerminal.tsx`: a small one-shot xterm+PTY that
+  types one command in on mount and reports back on process exit — hosts
+  `claude auth login` for real, wherever it's needed. New `store/auth.ts` (status +
+  logout). Settings gets an **Account** category (status/email/plan, Log out; Log in
+  → `InlineTerminal` when signed out). The Preflight gate (which blocks BEFORE auth
+  is confirmed and must never spawn anything itself — no `WorkspaceShell`/terminal
+  drawer mounted yet) gets a real **Sign in** button using the same
+  `InlineTerminal`, replacing the old "go run this yourself" text; the manual
+  command + Retry check stay as a fallback.
+- Gate: typecheck/build/clippy/62 tests green; live-started the dev server (no
+  runtime crash, preflight still reports `authenticated=true`); did NOT click
+  through Login/Logout live (that would touch the real signed-in Anthropic
+  session) — manual click-through of Settings > Account and the gate's Sign-in
+  button is still owed by a live smoke pass. Committed as `f8607cb`.
+
 ### Phase 0 — Skeleton & preflight  ·  COMPLETE ✅
 - [x] Rust toolchain (cargo 1.96.0); Tauri deps via dnf.
 - [x] Project scaffolded: Vite+React+TS frontend, Tauri 2 backend, path alias.
