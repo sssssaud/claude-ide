@@ -5,6 +5,7 @@
 //! reap yet, but the seam is in place for Phase 1+).
 
 mod agents;
+mod auth;
 mod checkpoints;
 mod claude_bin;
 mod commands;
@@ -50,6 +51,8 @@ pub fn run(startup: Instant) {
         .manage(Arc::new(SessionsRegistry::default()))
         .invoke_handler(tauri::generate_handler![
             commands::preflight,
+            commands::auth_status,
+            commands::auth_logout,
             commands::report_ready,
             commands::perf_stats,
             commands::default_workspace,

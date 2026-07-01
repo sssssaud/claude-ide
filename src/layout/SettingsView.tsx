@@ -12,17 +12,20 @@
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { EmptyState, ErrorState, LoadingState } from "@/components/states";
+import { InlineTerminal } from "@/components/InlineTerminal";
 import { ThemePicker } from "@/layout/ThemePicker";
 import type { AutoSave, EditorSettings, SettingsScope, WordWrap } from "@/ipc/types";
+import { useAuth } from "@/store/auth";
 import { EDITOR_DEFAULTS, EDITOR_KEYS, useSettings } from "@/store/settings";
 import { useActiveCwd } from "@/store/workspaces";
 
-type Category = "editor" | "files" | "appearance";
+type Category = "editor" | "files" | "appearance" | "account";
 
 const CATEGORIES: { id: Category; label: string }[] = [
   { id: "editor", label: "Text Editor" },
   { id: "files", label: "Files" },
   { id: "appearance", label: "Appearance" },
+  { id: "account", label: "Account" },
 ];
 
 interface ControlDef {
@@ -191,6 +194,7 @@ export function SettingsView() {
                     ))}
                     {showAppearance && <ThemeRow />}
                   </div>
+                  {!q && category === "account" && <AccountSection />}
                 </>
               )}
             </div>
@@ -438,6 +442,77 @@ function ThemeRow() {
         <p style={{ color: "var(--color-fg-secondary)", fontSize: "var(--text-xs)", marginTop: "var(--space-1)" }}>The app palette. Applies globally and instantly (not part of Apply).</p>
       </div>
       <ThemePicker />
+    </div>
+  );
+}
+
+// ---- Account (Addendum II §S2.5) --------------------------------------------
+// Never hand-rolled: status is read via `claude auth status`, logout via
+// `claude auth logout`, and "Log in" hosts the CLI's own interactive
+// `claude auth login` in an `InlineTerminal` (browser/OAuth, possibly SSO).
+
+function AccountSection() {
+  const status = useAuth((s) => s.status);
+  const loaded = useAuth((s) => s.loaded);
+  const loadError = useAuth((s) => s.loadError);
+  const loggingOut = useAuth((s) => s.loggingOut);
+  const logoutError = useAuth((s) => s.logoutError);
+  const [signingIn, setSigningIn] = useState(false);
+
+  useEffect(() => {
+    if (!loaded) void useAuth.getState().refresh();
+  }, [loaded]);
+
+  return (
+    <div style={{ marginTop: "var(--space-2)", padding: "var(--space-4) var(--space-3)", borderTop: "1px solid var(--color-border-subtle)" }}>
+      <p style={{ color: "var(--color-fg-primary)", fontSize: "var(--text-sm)", fontWeight: 600 }}>Claude Account</p>
+
+      {!loaded ? (
+        <p style={{ color: "var(--color-fg-secondary)", fontSize: "var(--text-xs)", marginTop: "var(--space-2)" }}>Checking sign-in status…</p>
+      ) : loadError ? (
+        <div style={{ marginTop: "var(--space-2)" }}>
+          <ErrorState title="Couldn't check sign-in status" error={{ kind: "internal", message: loadError }} onRetry={() => void useAuth.getState().refresh()} />
+        </div>
+      ) : status?.loggedIn ? (
+        <>
+          <p style={{ color: "var(--color-fg-secondary)", fontSize: "var(--text-xs)", marginTop: "var(--space-2)" }}>
+            Signed in as {status.email ?? "unknown"}
+            {status.subscriptionType ? ` · ${status.subscriptionType}` : ""}
+            {status.authMethod ? ` · ${status.authMethod}` : ""}
+          </p>
+          {logoutError && <Banner tone="error" text={logoutError} />}
+          <div style={{ marginTop: "var(--space-3)" }}>
+            <Button onClick={() => void useAuth.getState().logout()} disabled={loggingOut}>
+              {loggingOut ? "Signing out…" : "Log out"}
+            </Button>
+          </div>
+        </>
+      ) : (
+        <>
+          <p style={{ color: "var(--color-fg-secondary)", fontSize: "var(--text-xs)", marginTop: "var(--space-2)" }}>Not signed in.</p>
+          {!signingIn ? (
+            <div style={{ marginTop: "var(--space-3)" }}>
+              <Button primary onClick={() => setSigningIn(true)}>
+                Log in
+              </Button>
+            </div>
+          ) : (
+            <div style={{ marginTop: "var(--space-3)" }}>
+              <p style={{ color: "var(--color-fg-secondary)", fontSize: "var(--text-xs)", marginBottom: "var(--space-2)" }}>
+                Running <code>claude auth login</code> — follow the prompt below (it opens your browser).
+              </p>
+              <InlineTerminal
+                key="settings-login"
+                command="claude auth login"
+                onExit={() => {
+                  setSigningIn(false);
+                  void useAuth.getState().refresh();
+                }}
+              />
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }

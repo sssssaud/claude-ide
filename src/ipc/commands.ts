@@ -11,6 +11,7 @@ import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import type { ConvItem } from "@/store/conversation";
 import type {
   AgentSession,
+  AuthStatus,
   CheckpointDiff,
   CheckpointTimeline,
   DaemonStatus,
@@ -48,6 +49,25 @@ function normalizeError(e: unknown): never {
 export async function preflight(): Promise<PreflightReport> {
   try {
     return await invoke<PreflightReport>("preflight");
+  } catch (e) {
+    normalizeError(e);
+  }
+}
+
+/** Account status (Addendum II §S2.5): `claude auth status --json`, read-only. */
+export async function authStatus(): Promise<AuthStatus> {
+  try {
+    return await invoke<AuthStatus>("auth_status");
+  } catch (e) {
+    normalizeError(e);
+  }
+}
+
+/** Sign out: `claude auth logout`, non-interactive. Signing in runs
+ *  `claude auth login` inside an `InlineTerminal` instead (interactive). */
+export async function authLogout(): Promise<void> {
+  try {
+    await invoke<void>("auth_logout");
   } catch (e) {
     normalizeError(e);
   }

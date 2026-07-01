@@ -26,6 +26,19 @@ export interface PreflightReport {
   ok: boolean;
 }
 
+/** Mirror of Rust `AuthStatus` (Addendum II §S2.5) — `claude auth status --json`.
+ *  Every field but `loggedIn` is optional (tolerant of a logged-out response,
+ *  or a future CLI, omitting some of them). */
+export interface AuthStatus {
+  loggedIn: boolean;
+  authMethod: string | null;
+  apiProvider: string | null;
+  email: string | null;
+  orgId: string | null;
+  orgName: string | null;
+  subscriptionType: string | null;
+}
+
 /** Mirror of Rust `PerfStats` (spec 2.7). */
 export interface PerfStats {
   coldStartMs: number | null;

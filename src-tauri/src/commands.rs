@@ -12,6 +12,7 @@ use tauri::ipc::Channel;
 use tauri::State;
 
 use crate::agents::{AgentSession, DaemonStatus};
+use crate::auth::AuthStatus;
 use crate::checkpoints::{CheckpointDiff, CheckpointTimeline};
 use crate::engine::{EngineEvent, WorkspaceRegistry};
 use crate::error::{IpcError, IpcErrorKind, IpcResult};
@@ -35,6 +36,20 @@ const MAX_PROMPT_LEN: usize = 100_000;
 #[tauri::command]
 pub async fn preflight() -> IpcResult<PreflightReport> {
     preflight::run().await
+}
+
+/// Account status (Addendum II §S2.5): `claude auth status --json`, read-only.
+#[tauri::command]
+pub async fn auth_status() -> IpcResult<AuthStatus> {
+    crate::auth::status().await
+}
+
+/// Sign out (Addendum II §S2.5): `claude auth logout`, non-interactive.
+/// Signing IN runs inside the terminal drawer instead (see `pty_open`) since
+/// it's an interactive browser/OAuth flow the CLI owns.
+#[tauri::command]
+pub async fn auth_logout() -> IpcResult<()> {
+    crate::auth::logout().await
 }
 
 /// Called once by the frontend on first paint to anchor the cold-start budget.

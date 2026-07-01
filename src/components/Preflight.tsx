@@ -4,15 +4,17 @@
  * On success the parent renders the workspace shell.
  */
 
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { useAppStore } from "@/store/app";
 import { AppButton, ErrorState, LoadingState } from "@/components/states";
+import { InlineTerminal } from "@/components/InlineTerminal";
 
 export function PreflightGate() {
   const phase = useAppStore((s) => s.preflightPhase);
   const report = useAppStore((s) => s.report);
   const error = useAppStore((s) => s.error);
   const runPreflight = useAppStore((s) => s.runPreflight);
+  const [signingIn, setSigningIn] = useState(false);
 
   if (phase === "checking") {
     return (
@@ -59,20 +61,36 @@ export function PreflightGate() {
         <p style={{ color: "var(--color-fg-secondary)", maxWidth: "46ch" }}>
           {body}
         </p>
-        <code
-          className="select-all"
-          style={{
-            fontFamily: "var(--font-mono)",
-            fontSize: "var(--text-sm)",
-            color: "var(--color-accent)",
-            background: "var(--color-bg-recessed)",
-            border: "1px solid var(--color-border-subtle)",
-            borderRadius: "var(--radius-md)",
-            padding: "var(--space-3) var(--space-5)",
-          }}
-        >
-          {command}
-        </code>
+        {!missing && signingIn ? (
+          <div style={{ width: "min(480px, 90vw)" }}>
+            <p style={{ color: "var(--color-fg-secondary)", fontSize: "var(--text-xs)", marginBottom: "var(--space-2)" }}>
+              Running <code>claude auth login</code> — follow the prompt below (it opens your browser).
+            </p>
+            <InlineTerminal
+              key="preflight-login"
+              command="claude auth login"
+              onExit={() => {
+                setSigningIn(false);
+                void runPreflight();
+              }}
+            />
+          </div>
+        ) : (
+          <code
+            className="select-all"
+            style={{
+              fontFamily: "var(--font-mono)",
+              fontSize: "var(--text-sm)",
+              color: "var(--color-accent)",
+              background: "var(--color-bg-recessed)",
+              border: "1px solid var(--color-border-subtle)",
+              borderRadius: "var(--radius-md)",
+              padding: "var(--space-3) var(--space-5)",
+            }}
+          >
+            {command}
+          </code>
+        )}
         {report?.version && (
           <p
             style={{
@@ -84,7 +102,10 @@ export function PreflightGate() {
             detected: {report.version}
           </p>
         )}
-        <AppButton onClick={() => void runPreflight()}>Retry check</AppButton>
+        <div className="flex items-center gap-[var(--space-3)]">
+          {!missing && !signingIn && <AppButton onClick={() => setSigningIn(true)}>Sign in</AppButton>}
+          <AppButton onClick={() => void runPreflight()}>Retry check</AppButton>
+        </div>
       </div>
     </CenteredCard>
   );
