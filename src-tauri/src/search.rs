@@ -20,6 +20,9 @@ const MAX_TOTAL_MATCHES: usize = 2000;
 const MAX_PER_FILE: &str = "200";
 /// Truncate very long lines (e.g. minified files) so the payload stays small.
 const MAX_LINE_LEN: usize = 400;
+/// Cap on the file list Quick Open fuzzy-searches over (a huge monorepo
+/// shouldn't ship its entire tree to the webview).
+const MAX_FILES: usize = 20_000;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -74,6 +77,39 @@ pub fn search(cwd: Option<String>, query: String) -> IpcResult<SearchResults> {
     // rg exits 1 when there are simply no matches — that is success for us.
     match out.status.code() {
         Some(0) | Some(1) => Ok(parse_rg_json(&out.stdout)),
+        _ => Err(IpcError::new(
+            IpcErrorKind::Internal,
+            format!("ripgrep failed: {}", String::from_utf8_lossy(&out.stderr).trim()),
+        )),
+    }
+}
+
+/// List every file in the workspace (Quick Open, Addendum II §S3) via
+/// `rg --files`, which walks the tree respecting `.gitignore` for free — the
+/// same "generic dev tool" exemption `search()` above already relies on.
+/// Paths come back workspace-relative, forward-slashed, capped at `MAX_FILES`.
+pub fn list_files(cwd: Option<String>) -> IpcResult<Vec<String>> {
+    let root = crate::workspace::resolve_cwd(cwd)?;
+
+    let out = Command::new("rg")
+        .current_dir(&root)
+        .args(["--files", "--hidden", "--glob", "!.git/"])
+        .output()
+        .map_err(|e| {
+            IpcError::new(IpcErrorKind::Internal, format!("Could not run ripgrep (rg): {e}"))
+        })?;
+    // rg --files exits 1 on "no files found" in some edge cases too — that's
+    // success for us (an empty workspace), same tolerance as `search()`.
+    match out.status.code() {
+        Some(0) | Some(1) => {
+            let text = String::from_utf8_lossy(&out.stdout);
+            Ok(text
+                .lines()
+                .filter(|l| !l.is_empty())
+                .take(MAX_FILES)
+                .map(|l| l.replace('\\', "/"))
+                .collect())
+        }
         _ => Err(IpcError::new(
             IpcErrorKind::Internal,
             format!("ripgrep failed: {}", String::from_utf8_lossy(&out.stderr).trim()),

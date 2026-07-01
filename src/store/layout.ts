@@ -62,6 +62,11 @@ function persist(p: Persisted) {
 interface LayoutState extends Visibility {
   /** The currently selected side-panel view (Files / Search / … / Sessions). */
   view: View;
+  /** Zen mode (Addendum II §S3): hides the activity bar, side panel, and
+   *  terminal regardless of their own visibility, without touching it — so
+   *  exiting zen restores exactly what was showing before. Never persisted
+   *  (resets each launch; the Command Palette can always toggle it back). */
+  zen: boolean;
   /** Flip one region's visibility. */
   toggle: (region: Region) => void;
   /** Set one region's visibility explicitly (used to sync a drag-to-collapse). */
@@ -69,6 +74,7 @@ interface LayoutState extends Visibility {
   /** Select a side-panel view. Selecting the active view while the panel is open
    *  collapses it (VS Code-style); otherwise it opens the panel on that view. */
   selectView: (view: View) => void;
+  toggleZen: () => void;
 }
 
 export const useLayout = create<LayoutState>((set, get) => {
@@ -82,6 +88,7 @@ export const useLayout = create<LayoutState>((set, get) => {
 
   return {
     ...initial,
+    zen: false,
 
     toggle: (region) =>
       set((s) => {
@@ -112,5 +119,7 @@ export const useLayout = create<LayoutState>((set, get) => {
       persist(snapshot(next));
       set({ view, sidebar: true });
     },
+
+    toggleZen: () => set((s) => ({ zen: !s.zen })),
   };
 });

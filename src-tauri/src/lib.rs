@@ -94,6 +94,7 @@ pub fn run(startup: Instant) {
             commands::git_create_branch,
             commands::git_discard,
             commands::search,
+            commands::list_files,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

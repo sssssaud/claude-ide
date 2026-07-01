@@ -16,8 +16,10 @@ import type { CSSProperties } from "react";
 import { useCallback, useEffect } from "react";
 import { Group, Panel, useDefaultLayout, usePanelRef } from "react-resizable-panels";
 import { ActivityBar } from "@/layout/ActivityBar";
+import { CommandPalette } from "@/layout/CommandPalette";
 import { ConversationPane } from "@/layout/ConversationPane";
 import { EditorRegion } from "@/layout/EditorRegion";
+import { QuickOpen } from "@/layout/QuickOpen";
 import { ResizeSeparator } from "@/layout/ResizeSeparator";
 import { SidePanel } from "@/layout/SidePanel";
 import { TerminalDrawer } from "@/layout/TerminalDrawer";
@@ -28,6 +30,7 @@ import { useActiveConversation } from "@/store/conversation";
 import { useLayout, type Region } from "@/store/layout";
 import { useSettings } from "@/store/settings";
 import { useWorkspaces, type Workspace } from "@/store/workspaces";
+import { uiZoomFactor, useZoom } from "@/store/zoom";
 
 // Each panel's content fills it and clips internally (the regions own their own
 // scroll); applied to the nested content div the library renders.
@@ -37,7 +40,11 @@ export function WorkspaceShell() {
   const layout = useDefaultLayout({ id: "ide:workspace" });
   const sidebarVisible = useLayout((s) => s.sidebar);
   const editorVisible = useLayout((s) => s.editor);
+  const zen = useLayout((s) => s.zen);
   const setVisible = useLayout((s) => s.setVisible);
+  // Zen mode (§S3) overrides the Side panel to hidden without touching the
+  // underlying toggle, so turning zen back off restores exactly what was shown.
+  const effectiveSidebarVisible = sidebarVisible && !zen;
 
   const sidebarRef = usePanelRef();
   const editorRef = usePanelRef();
@@ -58,11 +65,19 @@ export function WorkspaceShell() {
   // expand() are no-ops when already in the target state, so this is safe on
   // every change (and on mount, to honour persisted visibility).
   useEffect(() => {
-    sidebarRef.current?.[sidebarVisible ? "expand" : "collapse"]();
-  }, [sidebarVisible, sidebarRef]);
+    sidebarRef.current?.[effectiveSidebarVisible ? "expand" : "collapse"]();
+  }, [effectiveSidebarVisible, sidebarRef]);
   useEffect(() => {
     editorRef.current?.[editorVisible ? "expand" : "collapse"]();
   }, [editorVisible, editorRef]);
+
+  // Whole-app zoom (§S3): a CSS `zoom` factor on the document root. WebKitGTK
+  // (this app's target) supports the non-standard `zoom` property; set via
+  // `setProperty` since it isn't in the standard CSSStyleDeclaration typing.
+  const uiLevel = useZoom((s) => s.uiLevel);
+  useEffect(() => {
+    document.documentElement.style.setProperty("zoom", String(uiZoomFactor(uiLevel)));
+  }, [uiLevel]);
 
   // Sync a manual drag-to-collapse (or drag-open) back into the store so the
   // toggles reflect reality. The mount callback (prev === undefined) is skipped
@@ -72,6 +87,10 @@ export function WorkspaceShell() {
     (region: Region) =>
     (size: { inPixels: number }, _id: unknown, prev: unknown) => {
       if (prev === undefined) return;
+      // Zen mode drives the sidebar panel via collapse()/expand() without
+      // touching the stored toggle (so turning zen off restores exactly what
+      // was showing) — a resize caused by that must not sync back and clobber it.
+      if (zen) return;
       setVisible(region, size.inPixels > 0);
     };
 
@@ -79,7 +98,7 @@ export function WorkspaceShell() {
     <div className="flex h-full w-full flex-col">
       <TabBar />
       <main className="flex min-h-0 flex-1 flex-row overflow-hidden">
-        <ActivityBar />
+        {!zen && <ActivityBar />}
         {/* The panels Group gets a stable, flex-sized wrapper and fills it at
             width:100% — measuring a flex-item Group directly can oscillate into a
             ResizeObserver loop (which also thrashes Monaco's automaticLayout). */}
@@ -104,7 +123,7 @@ export function WorkspaceShell() {
           >
             <SidePanel />
           </Panel>
-          {sidebarVisible && <ResizeSeparator orientation="horizontal" />}
+          {effectiveSidebarVisible && <ResizeSeparator orientation="horizontal" />}
           <Panel id="conversation" minSize="320px" style={PANEL}>
             <ConversationPane />
           </Panel>
@@ -126,6 +145,8 @@ export function WorkspaceShell() {
         </div>
       </main>
       <TerminalDrawer />
+      <CommandPalette />
+      <QuickOpen />
     </div>
   );
 }

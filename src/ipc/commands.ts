@@ -530,6 +530,15 @@ export async function search(query: string, cwd?: string): Promise<SearchResults
   }
 }
 
+/** Every file in the workspace, respecting `.gitignore` (Quick Open). */
+export async function listFiles(cwd?: string): Promise<string[]> {
+  try {
+    return await invoke<string[]>("list_files", { cwd });
+  } catch (e) {
+    normalizeError(e);
+  }
+}
+
 /** Full-text search across the workspace's session transcripts (user + assistant
  *  message text), grouped by session with snippets. Read-only. (P5, Phase 8.) */
 export async function searchSessions(query: string, cwd?: string): Promise<SessionSearchResults> {

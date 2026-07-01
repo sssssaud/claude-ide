@@ -68,7 +68,7 @@ function WorkspaceEditor({ cwd, active }: { cwd: string; active: boolean }) {
           // preserved and a hidden editor can't bleed through the Settings view.
           <div className="absolute inset-0" style={{ display: showSettings ? "none" : "block" }}>
             <Suspense fallback={<LoadingState label="Loading editor…" />}>
-              <EditorPane cwd={cwd} store={store} />
+              <EditorPane cwd={cwd} store={store} active={active} />
             </Suspense>
             {showDiff && activeTab && (
               <div className="absolute inset-0">

@@ -455,6 +455,13 @@ pub fn search(cwd: Option<String>, query: String) -> IpcResult<SearchResults> {
     crate::search::search(cwd, query)
 }
 
+/// Every file in the workspace, respecting `.gitignore` (Quick Open, Addendum
+/// II §S3). Read-only.
+#[tauri::command]
+pub fn list_files(cwd: Option<String>) -> IpcResult<Vec<String>> {
+    crate::search::list_files(cwd)
+}
+
 // ----- Cross-session search (P5, Phase 8) ------------------------------------
 
 /// Full-text search across the workspace's `claude` session transcripts (user +

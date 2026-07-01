@@ -19,9 +19,15 @@ import { defineClaudeTheme, monacoThemeFor } from "@/editor/monacoSetup";
 import { normalizeFinalNewlines, trimTrailingWhitespace } from "@/editor/saveTransforms";
 import { readFile, writeFile } from "@/ipc/commands";
 import { isIpcError } from "@/ipc/types";
+import { getActiveEditorHandle, setActiveEditorHandle } from "@/store/activeEditorHandle";
 import type { EditorState } from "@/store/editor";
 import { mergeEffective, useSettings, type EffectiveEditor } from "@/store/settings";
 import { useTheme } from "@/store/theme";
+import { useZoom } from "@/store/zoom";
+
+/** Editor font size bounds (mirrors the backend's clamp in settings.rs). */
+const FONT_SIZE_MIN = 6;
+const FONT_SIZE_MAX = 72;
 
 /** Map the resolved settings to Monaco's editor-level options. Model-level options
  *  (tabSize / insertSpaces) are applied per-model separately. */
@@ -67,7 +73,18 @@ interface ModelEntry {
   changeSub: Monaco.IDisposable;
 }
 
-export function EditorPane({ cwd, store }: { cwd: string; store: StoreApi<EditorState> }) {
+export function EditorPane({
+  cwd,
+  store,
+  active,
+}: {
+  cwd: string;
+  store: StoreApi<EditorState>;
+  /** Whether this is the currently-shown workspace's editor (§S3): only the
+   *  active one registers itself as the Command Palette's target for
+   *  Save/Go-to-Line/editor-zoom. */
+  active: boolean;
+}) {
   const editorRef = useRef<Parameters<OnMount>[0] | null>(null);
   const monacoRef = useRef<Parameters<OnMount>[1] | null>(null);
   const modelsRef = useRef<Map<string, ModelEntry>>(new Map());
@@ -93,10 +110,13 @@ export function EditorPane({ cwd, store }: { cwd: string; store: StoreApi<Editor
   const userEditor = useSettings((s) => s.user);
   const wsEditor = useSettings((s) => s.workspaces[cwd]);
   const effective = useMemo(() => mergeEffective(userEditor, wsEditor), [userEditor, wsEditor]);
-  const options = useMemo<Monaco.editor.IStandaloneEditorConstructionOptions>(
-    () => ({ ...STATIC_OPTIONS, ...editorOptions(effective) }),
-    [effective],
-  );
+  // Editor-font zoom (§S3): an ephemeral delta layered over the effective
+  // (settings-backed) font size — never written back to settings.
+  const editorZoomDelta = useZoom((s) => s.editorDelta);
+  const options = useMemo<Monaco.editor.IStandaloneEditorConstructionOptions>(() => {
+    const fontSize = Math.min(FONT_SIZE_MAX, Math.max(FONT_SIZE_MIN, effective.fontSize + editorZoomDelta));
+    return { ...STATIC_OPTIONS, ...editorOptions(effective), fontSize };
+  }, [effective, editorZoomDelta]);
 
   const disposeEntry = useCallback((path: string) => {
     const entry = modelsRef.current.get(path);
@@ -314,6 +334,22 @@ export function EditorPane({ cwd, store }: { cwd: string; store: StoreApi<Editor
     window.addEventListener("blur", onWindowBlur);
     return () => window.removeEventListener("blur", onWindowBlur);
   }, [cwd, store, saveFile]);
+
+  // Register this pane as the Command Palette's target (Save / Go to Line /
+  // editor zoom) while it's the active workspace's editor. Only clears on
+  // cleanup if we're still the one registered — order-independent, so a race
+  // between this pane deactivating and another activating can't clobber the
+  // newly-active one regardless of effect run order.
+  useEffect(() => {
+    if (!active || !ready) return;
+    const editor = editorRef.current;
+    if (!editor) return;
+    const handle = { editor, save: saveActive };
+    setActiveEditorHandle(handle);
+    return () => {
+      if (getActiveEditorHandle() === handle) setActiveEditorHandle(null);
+    };
+  }, [active, ready, saveActive]);
 
   const state = activePath ? contents[activePath] : undefined;
   const isReadOnly = activePath ? !!modelsRef.current.get(activePath)?.readOnly : false;

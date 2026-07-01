@@ -34,8 +34,10 @@ const MIN_TERM_HEIGHT = 100;
 export function TerminalDrawer() {
   // Visibility lives in the layout store so the top-bar toggle and Ctrl/Cmd+J
   // can dock the drawer too; hiding keeps every shell alive (hosts stay mounted)
-  // so reopening is instant and never restarts a process.
-  const visible = useLayout((s) => s.terminal);
+  // so reopening is instant and never restarts a process. Zen mode (§S3)
+  // overrides this to hidden without touching the stored toggle, so turning
+  // zen back off restores exactly what was showing.
+  const visible = useLayout((s) => s.terminal && !s.zen);
   const toggleTerminal = useLayout((s) => s.toggle);
   const workspaces = useWorkspaces((s) => s.workspaces);
   const activeId = useWorkspaces((s) => s.activeId);
