@@ -7,6 +7,7 @@
 
 import { useState } from "react";
 import { useStore, type StoreApi } from "zustand";
+import { EditorToolbar } from "@/layout/EditorToolbar";
 import type { EditorState } from "@/store/editor";
 import { useSettings } from "@/store/settings";
 
@@ -30,15 +31,18 @@ export function EditorTabs({ store }: { store: StoreApi<EditorState> }) {
 
   return (
     <div
-      role="tablist"
-      aria-label="Open editors"
-      className="flex shrink-0 overflow-x-auto"
+      className="flex shrink-0 items-center"
       style={{
         height: "var(--space-7)",
         background: "var(--color-bg-raised)",
         borderBottom: "1px solid var(--color-border-subtle)",
       }}
     >
+      <div
+        role="tablist"
+        aria-label="Open editors"
+        className="flex h-full min-w-0 flex-1 overflow-x-auto"
+      >
       {tabs.map((tab) => {
         const active = tab.path === activePath;
         const isDiff = tab.kind === "diff";
@@ -119,6 +123,8 @@ export function EditorTabs({ store }: { store: StoreApi<EditorState> }) {
           </div>
         );
       })}
+      </div>
+      <EditorToolbar />
     </div>
   );
 }

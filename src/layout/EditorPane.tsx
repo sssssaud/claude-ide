@@ -22,6 +22,7 @@ import { readFile, writeFile } from "@/ipc/commands";
 import { isIpcError } from "@/ipc/types";
 import { getActiveEditorHandle, setActiveEditorHandle } from "@/store/activeEditorHandle";
 import type { EditorState } from "@/store/editor";
+import { useEditorStatus } from "@/store/editorStatus";
 import { mergeEffective, useSettings, type EffectiveEditor } from "@/store/settings";
 import { useTheme } from "@/store/theme";
 import { useZoom } from "@/store/zoom";
@@ -99,6 +100,14 @@ export function EditorPane({
   // dirty-tracking and auto-save scheduling for these, so saving a file can't
   // flicker its dirty dot or schedule a stray auto-save against itself.
   const savingRef = useRef<Set<string>>(new Set());
+  // `active` kept fresh for the persistent cursor/selection listeners
+  // registered once in onMount (Addendum II §S5 — the Status Bar's live
+  // Ln:Col/selection) — they must not update the shared status store for a
+  // workspace that isn't the one currently in front.
+  const activeRef = useRef(active);
+  useEffect(() => {
+    activeRef.current = active;
+  }, [active]);
 
   const [ready, setReady] = useState(false);
   const [contents, setContents] = useState<Record<string, ContentState>>({});
@@ -137,6 +146,31 @@ export function EditorPane({
       autoSaveTimersRef.current.delete(path);
     }
   }, []);
+
+  /** Push a full status snapshot (cursor, selection, language, indent, EOL) for
+   *  `path` to the Status Bar's store — only while this is the active pane. */
+  const pushStatusSnapshot = useCallback(
+    (entry: ModelEntry, path: string) => {
+      if (!active) return;
+      const editor = editorRef.current;
+      if (!editor) return;
+      const pos = editor.getPosition();
+      const sel = editor.getSelection();
+      const selectionLength = sel ? entry.model.getValueInRange(sel).length : 0;
+      const opts = entry.model.getOptions();
+      useEditorStatus.getState().set({
+        path,
+        language: entry.model.getLanguageId(),
+        line: pos?.lineNumber ?? 1,
+        column: pos?.column ?? 1,
+        selectionLength,
+        tabSize: opts.tabSize,
+        insertSpaces: opts.insertSpaces,
+        eol: entry.model.getEOL() === "\r\n" ? "CRLF" : "LF",
+      });
+    },
+    [active],
+  );
 
   /** Save one tab's model to disk: format-on-save first (only when it's the
    *  model currently attached to the editor widget — the format action acts on
@@ -301,8 +335,9 @@ export function EditorPane({
       if (entry.viewState) editor.restoreViewState(entry.viewState);
       editor.updateOptions({ readOnly: entry.readOnly });
       shownRef.current = activePath;
+      pushStatusSnapshot(entry, activePath);
     }
-  }, [activePath, contents, ready]);
+  }, [activePath, contents, ready, pushStatusSnapshot]);
 
   // Jump to a requested line (e.g. a search hit) once its model is the shown one.
   // Declared after the show-active effect so the model swap has already happened.
@@ -330,7 +365,12 @@ export function EditorPane({
         insertSpaces: effective.insertSpaces,
       });
     }
-  }, [effective.tabSize, effective.insertSpaces, ready, contents]);
+    // The Status Bar's indent segment should reflect a live settings change too.
+    if (activePath) {
+      const entry = modelsRef.current.get(activePath);
+      if (entry) pushStatusSnapshot(entry, activePath);
+    }
+  }, [effective.tabSize, effective.insertSpaces, ready, contents, activePath, pushStatusSnapshot]);
 
   // Dispose every model on unmount (the host unmounts when the last tab closes).
   useEffect(() => {
@@ -363,12 +403,43 @@ export function EditorPane({
     if (!active || !ready) return;
     const editor = editorRef.current;
     if (!editor) return;
-    const handle = { editor, save: saveActive, getActivePath: () => store.getState().activePath };
-    setActiveEditorHandle(handle);
-    return () => {
-      if (getActiveEditorHandle() === handle) setActiveEditorHandle(null);
+    const handle = {
+      editor,
+      save: saveActive,
+      getActivePath: () => store.getState().activePath,
+      setLanguage: (id: string) => {
+        const monaco = monacoRef.current;
+        const model = editor.getModel();
+        if (!monaco || !model) return;
+        monaco.editor.setModelLanguage(model, id);
+        const p = store.getState().activePath;
+        const entry = p ? modelsRef.current.get(p) : undefined;
+        if (p && entry) pushStatusSnapshot(entry, p);
+      },
+      setEol: (eol: "LF" | "CRLF") => {
+        const monaco = monacoRef.current;
+        const model = editor.getModel();
+        if (!monaco || !model) return;
+        model.setEOL(eol === "CRLF" ? monaco.editor.EndOfLineSequence.CRLF : monaco.editor.EndOfLineSequence.LF);
+        const p = store.getState().activePath;
+        const entry = p ? modelsRef.current.get(p) : undefined;
+        if (p && entry) pushStatusSnapshot(entry, p);
+      },
     };
-  }, [active, ready, saveActive]);
+    setActiveEditorHandle(handle);
+    // This pane just became the active one — push its currently-shown file's
+    // status (the show-active-tab effect only fires on a tab/content change,
+    // not on becoming active, so a workspace switch needs its own push here).
+    const path = store.getState().activePath;
+    const entry = path ? modelsRef.current.get(path) : undefined;
+    if (path && entry) pushStatusSnapshot(entry, path);
+    return () => {
+      if (getActiveEditorHandle() === handle) {
+        setActiveEditorHandle(null);
+        useEditorStatus.getState().clear();
+      }
+    };
+  }, [active, ready, saveActive, pushStatusSnapshot, store]);
 
   const state = activePath ? contents[activePath] : undefined;
   const isReadOnly = activePath ? !!modelsRef.current.get(activePath)?.readOnly : false;
@@ -420,6 +491,19 @@ export function EditorPane({
                 run: () => sendAgentAction(kind),
               });
             }
+            // Status Bar (§S5): live Ln:Col + selection length, for whichever
+            // workspace is actually in front — `activeRef` (not the `active`
+            // prop) since this closure is captured once, at mount.
+            editor.onDidChangeCursorPosition((e) => {
+              if (!activeRef.current) return;
+              useEditorStatus.getState().set({ line: e.position.lineNumber, column: e.position.column });
+            });
+            editor.onDidChangeCursorSelection((e) => {
+              if (!activeRef.current) return;
+              const model = editor.getModel();
+              const selectionLength = model ? model.getValueInRange(e.selection).length : 0;
+              useEditorStatus.getState().set({ selectionLength });
+            });
             setReady(true);
           }}
           options={options}

@@ -22,6 +22,7 @@ import { EditorRegion } from "@/layout/EditorRegion";
 import { QuickOpen } from "@/layout/QuickOpen";
 import { ResizeSeparator } from "@/layout/ResizeSeparator";
 import { SidePanel } from "@/layout/SidePanel";
+import { StatusBar } from "@/layout/StatusBar";
 import { TerminalDrawer } from "@/layout/TerminalDrawer";
 import { useLayoutShortcuts } from "@/layout/useLayoutShortcuts";
 import { useSessionBootstrap } from "@/layout/useSessionBootstrap";
@@ -145,6 +146,7 @@ export function WorkspaceShell() {
         </div>
       </main>
       <TerminalDrawer />
+      {!zen && <StatusBar />}
       <CommandPalette />
       <QuickOpen />
     </div>

@@ -1,16 +1,18 @@
 /*
- * Session bootstrap (Addendum II layout pass). The Sessions rail used to be an
- * always-mounted column whose effects loaded the workspace's sessions and
- * continued the most recent one on open (`claude -c` behaviour). Now that
- * Sessions is a collapsible side-panel *view*, those effects can't live there —
- * they'd only run when the user opened the Sessions view. This hook hoists them
- * into the always-mounted shell so the behaviour is unchanged regardless of which
- * side-panel view is showing.
+ * Workspace bootstrap (Addendum II layout pass). The Sessions rail (and the
+ * Source-Control badge/status) used to live in always-mounted columns whose
+ * effects loaded the workspace's sessions / git status on open. Now that both
+ * are collapsible side-panel *views* (and the activity bar itself hides in
+ * zen mode), those effects can't live there — they'd only run when the
+ * relevant view/bar happened to be visible. This hook hoists them into the
+ * always-mounted shell so the behaviour is unchanged regardless of which
+ * side-panel view is showing or whether zen mode is on.
  */
 
 import { useEffect } from "react";
 import { useSessions } from "@/store/sessions";
 import { useActiveConversation } from "@/store/conversation";
+import { useGit } from "@/store/git";
 import { useActiveCwd } from "@/store/workspaces";
 
 export function useSessionBootstrap() {
@@ -31,4 +33,11 @@ export function useSessionBootstrap() {
   useEffect(() => {
     if (loaded && sessions.length > 0) maybeContinue(sessions[0].id);
   }, [loaded, sessions, maybeContinue]);
+
+  // Keep git status live as the active workspace changes — the Status Bar's
+  // branch/ahead-behind segment and the activity bar's Source-Control badge
+  // both read from this, regardless of which is currently mounted/visible.
+  useEffect(() => {
+    void useGit.getState().refresh();
+  }, [cwd]);
 }

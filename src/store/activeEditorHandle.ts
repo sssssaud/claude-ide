@@ -17,6 +17,12 @@ export interface ActiveEditorHandle {
    *  re-registered. `null` if nothing's open (shouldn't happen while a pane
    *  registers itself, but keeps this honest). */
   getActivePath: () => string | null;
+  /** Change the active file's Monaco language mode (Status Bar's language
+   *  picker, §S5). Routed through here rather than importing `monaco-editor`
+   *  into callers, which would pull it out of its lazy chunk. */
+  setLanguage: (id: string) => void;
+  /** Change the active file's line-ending style (Status Bar's EOL segment, §S5). */
+  setEol: (eol: "LF" | "CRLF") => void;
 }
 
 let current: ActiveEditorHandle | null = null;

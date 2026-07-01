@@ -35,7 +35,9 @@ export interface Command {
 
 const hasActiveEditor = () => getActiveEditorHandle() !== null;
 
-const openSettings = () => {
+/** Open (or focus) the Settings tab. Shared with `ActivityBar`'s gear icon and
+ *  the Status Bar's theme segment, so there's one implementation. */
+export const openSettings = () => {
   useLayout.getState().setVisible("editor", true);
   activeEditorStore().getState().openSettings();
 };

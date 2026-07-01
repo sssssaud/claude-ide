@@ -10,11 +10,11 @@
  * store so the strip and the panel stay in sync.
  */
 
-import { useEffect, useRef, type KeyboardEvent, type ReactNode } from "react";
+import { useRef, type KeyboardEvent, type ReactNode } from "react";
+import { openSettings } from "@/commands/registry";
 import { useGit } from "@/store/git";
-import { activeEditorStore, useActiveEditor, SETTINGS_TAB_ID } from "@/store/editor";
+import { useActiveEditor, SETTINGS_TAB_ID } from "@/store/editor";
 import { useLayout, type View } from "@/store/layout";
-import { useActiveCwd } from "@/store/workspaces";
 
 const VIEWS: { id: View; label: string; icon: ReactNode }[] = [
   { id: "files", label: "Files", icon: <FilesIcon /> },
@@ -31,14 +31,11 @@ export function ActivityBar() {
   const selectView = useLayout((s) => s.selectView);
   const changeCount = useGit((s) => s.status?.changes.length ?? 0);
   const settingsActive = useActiveEditor((s) => s.activePath === SETTINGS_TAB_ID);
-  const cwd = useActiveCwd();
   const btnRefs = useRef<(HTMLButtonElement | null)[]>([]);
-
-  // Keep the Source-Control badge live as the active workspace changes. Lives
-  // here (always mounted) so the badge is correct even when the panel is closed.
-  useEffect(() => {
-    void useGit.getState().refresh();
-  }, [cwd]);
+  // Git status refresh-on-cwd-change now lives in `useSessionBootstrap`
+  // (mounted in the shell, unaffected by zen mode hiding this bar) so the
+  // Source-Control badge here and the Status Bar's branch segment both stay
+  // live regardless of which side-panel view is showing or zen mode.
 
   // Roving tabindex (WAI-ARIA tabs): the selected view is the only tab stop;
   // Up/Down wrap, Home/End jump to the ends — moving focus AND selection together.
@@ -53,11 +50,6 @@ export function ActivityBar() {
     e.preventDefault();
     selectView(VIEWS[next].id);
     btnRefs.current[next]?.focus();
-  };
-
-  const openSettings = () => {
-    useLayout.getState().setVisible("editor", true);
-    activeEditorStore().getState().openSettings();
   };
 
   return (
