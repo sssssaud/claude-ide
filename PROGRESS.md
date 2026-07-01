@@ -281,6 +281,31 @@ a full relaunch that nothing on screen mentioned.
   the palette/Quick Open/zoom/zen live (no GUI automation available for the
   native window) — that manual smoke pass is still owed. Committed as `cf3720f`.
 
+### S4 — Agent-bridge: select code, ask Claude · COMPLETE ✅ (2026-07-01)
+The differentiator slice — no new backend surface at all, by design.
+- `commands/agentActions.ts`: one shared implementation for Explain / Refactor
+  / Fix This / Add Tests / Add Docstring — builds a structured prompt (task +
+  file path + line range + fenced code block of the selection) and sends it
+  via `useActiveConversation().send`, the exact path the prompt bar itself
+  already uses (-> the existing `engine_send`, no new IPC command).
+- Exposed two ways, both calling that one function: Monaco's own right-click
+  menu + F1 command list (`editor.addAction`, gated on the built-in
+  `editorHasSelection` precondition) registered in `EditorPane`'s `onMount`,
+  and 5 new Command Palette rows (category "Claude") gated on
+  `hasAgentActionTarget()` (a selection exists and no turn is already
+  in flight).
+- `ActiveEditorHandle` grew `getActivePath()` (read fresh, not frozen at
+  registration — the Monaco instance is shared across a workspace's tabs and
+  can show a different file without the handle re-registering).
+  `store/conversation.ts` grew `activeConversationStore()` (mirrors
+  `store/editor.ts`'s `activeEditorStore()`) for the same outside-a-component
+  imperative access the palette's `enabled()` checks need.
+- Gate: typecheck/build/clippy/61 Rust tests green (no Rust changes this
+  slice); live-started the dev server, clean boot. Did NOT click through the
+  right-click menu/palette entries live (no GUI automation for the native
+  window) — manual smoke (select code → Explain → a real turn streams back)
+  is still owed. Committed as `1d60c3a`.
+
 ### Phase 0 — Skeleton & preflight  ·  COMPLETE ✅
 - [x] Rust toolchain (cargo 1.96.0); Tauri deps via dnf.
 - [x] Project scaffolded: Vite+React+TS frontend, Tauri 2 backend, path alias.
