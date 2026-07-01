@@ -13,14 +13,15 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { EmptyState, ErrorState, LoadingState } from "@/components/states";
 import { ThemePicker } from "@/layout/ThemePicker";
-import type { EditorSettings, SettingsScope, WordWrap } from "@/ipc/types";
+import type { AutoSave, EditorSettings, SettingsScope, WordWrap } from "@/ipc/types";
 import { EDITOR_DEFAULTS, EDITOR_KEYS, useSettings } from "@/store/settings";
 import { useActiveCwd } from "@/store/workspaces";
 
-type Category = "editor" | "appearance";
+type Category = "editor" | "files" | "appearance";
 
 const CATEGORIES: { id: Category; label: string }[] = [
   { id: "editor", label: "Text Editor" },
+  { id: "files", label: "Files" },
   { id: "appearance", label: "Appearance" },
 ];
 
@@ -56,6 +57,28 @@ const EDITOR_CONTROLS: ControlDef[] = [
   { key: "tabSize", label: "Tab Size", description: "The number of spaces a tab is equal to.", keywords: "indent indentation tab", kind: "number", min: 1, max: 16 },
   { key: "insertSpaces", label: "Insert Spaces", description: "Insert spaces when pressing Tab.", keywords: "indent spaces tab", kind: "boolean" },
   { key: "minimap", label: "Minimap", description: "Show the code overview minimap on the right edge.", keywords: "overview map", kind: "boolean" },
+  { key: "formatOnSave", label: "Format On Save", description: "Run the language's formatter (if one is registered — JSON, CSS, HTML, TypeScript, and the like) when you save.", keywords: "format prettier save", kind: "boolean" },
+  { key: "formatOnPaste", label: "Format On Paste", description: "Run the language's formatter (if one is registered) on text you paste in.", keywords: "format paste", kind: "boolean" },
+];
+
+const FILES_CONTROLS: ControlDef[] = [
+  {
+    key: "autoSave",
+    label: "Auto Save",
+    description: "When to save edited files automatically.",
+    keywords: "autosave save files",
+    kind: "select",
+    options: [
+      { value: "off", label: "Off" },
+      { value: "afterDelay", label: "After a delay" },
+      { value: "onFocusChange", label: "On focus change" },
+      { value: "onWindowChange", label: "On window change" },
+    ],
+  },
+  { key: "autoSaveDelay", label: "Auto Save Delay", description: "Delay in milliseconds before saving, when Auto Save is “After a delay”.", keywords: "autosave delay files", kind: "number", min: 200, max: 60000 },
+  { key: "trimTrailingWhitespace", label: "Trim Trailing Whitespace", description: "Strip trailing whitespace on save. Skipped for Markdown, where trailing spaces are a significant line break.", keywords: "whitespace trim files save", kind: "boolean" },
+  { key: "insertFinalNewline", label: "Insert Final Newline", description: "Ensure a file ends with a newline character on save.", keywords: "newline eof files save", kind: "boolean" },
+  { key: "trimFinalNewlines", label: "Trim Final Newlines", description: "Trim extra blank lines at the end of a file on save.", keywords: "newline eof files save", kind: "boolean" },
 ];
 
 export function SettingsView() {
@@ -101,8 +124,12 @@ export function SettingsView() {
     () => (q ? EDITOR_CONTROLS.filter(matches) : category === "editor" ? EDITOR_CONTROLS : []),
     [q, category],
   );
+  const visibleFiles = useMemo(
+    () => (q ? FILES_CONTROLS.filter(matches) : category === "files" ? FILES_CONTROLS : []),
+    [q, category],
+  );
   const showAppearance = q ? themeMatches : category === "appearance";
-  const nothingFound = !!q && visibleEditor.length === 0 && !themeMatches;
+  const nothingFound = !!q && visibleEditor.length === 0 && visibleFiles.length === 0 && !themeMatches;
 
   return (
     <section aria-label="Settings" className="relative flex h-full w-full flex-col" style={{ background: "var(--color-bg-base)" }}>
@@ -141,6 +168,17 @@ export function SettingsView() {
                   )}
                   <div className="flex flex-col">
                     {visibleEditor.map((c) => (
+                      <ControlRow
+                        key={c.key}
+                        def={c}
+                        value={draft[c.key] ?? fallback(c.key)}
+                        isSet={draft[c.key] !== undefined}
+                        disabled={workspaceUnavailable}
+                        onChange={(v) => useSettings.getState().setDraft(c.key, v)}
+                        onReset={() => useSettings.getState().setDraft(c.key, undefined)}
+                      />
+                    ))}
+                    {visibleFiles.map((c) => (
                       <ControlRow
                         key={c.key}
                         def={c}
@@ -348,7 +386,7 @@ function ControlInput({
   }
   if (def.kind === "select") {
     return (
-      <select id={id} value={String(value)} disabled={disabled} onChange={(e) => onChange(e.target.value as WordWrap)} className={disabled ? undefined : "cursor-pointer"} style={{ ...fieldStyle, width: "160px" }}>
+      <select id={id} value={String(value)} disabled={disabled} onChange={(e) => onChange(e.target.value as WordWrap | AutoSave)} className={disabled ? undefined : "cursor-pointer"} style={{ ...fieldStyle, width: "160px" }}>
         {def.options?.map((o) => (
           <option key={o.value} value={o.value}>
             {o.label}

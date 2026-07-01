@@ -167,6 +167,9 @@ export interface ProjectPermissionsFile {
 /** The `editor.wordWrap` values Monaco understands (Addendum II §1). */
 export type WordWrap = "off" | "on" | "wordWrapColumn" | "bounded";
 
+/** The `editor.autoSave` values the frontend understands (Addendum II §1.2, S2). */
+export type AutoSave = "off" | "afterDelay" | "onFocusChange" | "onWindowChange";
+
 /** Mirror of Rust `EditorSettings` (Addendum II §1) — the IDE's own editor
  *  preferences. Every field is optional: present = an explicit override, absent
  *  = fall through to the lower scope or the frontend default. */
@@ -179,6 +182,13 @@ export interface EditorSettings {
   tabSize?: number;
   insertSpaces?: boolean;
   minimap?: boolean;
+  formatOnSave?: boolean;
+  formatOnPaste?: boolean;
+  trimTrailingWhitespace?: boolean;
+  insertFinalNewline?: boolean;
+  trimFinalNewlines?: boolean;
+  autoSave?: AutoSave;
+  autoSaveDelay?: number;
 }
 
 /** Mirror of Rust `ScopeSettings` — one scope's settings (only `editor` in S1). */

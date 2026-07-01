@@ -16,7 +16,7 @@ import { create } from "zustand";
 import { readSettings, writeSettings } from "@/ipc/commands";
 import { SETTINGS_TAB_ID, activeEditorStore } from "@/store/editor";
 import { activeCwd } from "@/store/workspaces";
-import { isIpcError, type EditorSettings, type SettingsScope, type WordWrap } from "@/ipc/types";
+import { isIpcError, type AutoSave, type EditorSettings, type SettingsScope, type WordWrap } from "@/ipc/types";
 
 /** The concrete editor config Monaco needs — every field resolved (no optionals).
  *  This is what `DEFAULTS < user < workspace` produces. */
@@ -29,11 +29,23 @@ export interface EffectiveEditor {
   tabSize: number;
   insertSpaces: boolean;
   minimap: boolean;
+  formatOnSave: boolean;
+  formatOnPaste: boolean;
+  trimTrailingWhitespace: boolean;
+  insertFinalNewline: boolean;
+  trimFinalNewlines: boolean;
+  autoSave: AutoSave;
+  autoSaveDelay: number;
 }
 
 /** Frontend defaults — the single source of truth for "unset" (matches the
  *  editor's prior hardcoded options so behaviour is unchanged until overridden).
- *  `var(--font-mono)` resolves through Monaco's CSS, keeping fonts token-driven. */
+ *  `var(--font-mono)` resolves through Monaco's CSS, keeping fonts token-driven.
+ *  Data-safety defaults (Addendum II §1.2, S2) favour not losing work over
+ *  reformatting it: auto-save on focus change, trailing whitespace trimmed
+ *  (Markdown excluded elsewhere — trailing spaces are a hard break there),
+ *  a trailing newline kept; format-on-save/paste are opt-in since a registered
+ *  formatter can reflow code the user didn't ask to have touched. */
 export const EDITOR_DEFAULTS: EffectiveEditor = {
   fontFamily: "var(--font-mono)",
   fontSize: 15,
@@ -43,6 +55,13 @@ export const EDITOR_DEFAULTS: EffectiveEditor = {
   tabSize: 2,
   insertSpaces: true,
   minimap: false,
+  formatOnSave: false,
+  formatOnPaste: false,
+  trimTrailingWhitespace: true,
+  insertFinalNewline: true,
+  trimFinalNewlines: false,
+  autoSave: "onFocusChange",
+  autoSaveDelay: 1000,
 };
 
 /** The editor keys we model, in display order. */
@@ -55,6 +74,13 @@ export const EDITOR_KEYS: (keyof EditorSettings)[] = [
   "tabSize",
   "insertSpaces",
   "minimap",
+  "formatOnSave",
+  "formatOnPaste",
+  "trimTrailingWhitespace",
+  "insertFinalNewline",
+  "trimFinalNewlines",
+  "autoSave",
+  "autoSaveDelay",
 ];
 
 /** Merge `DEFAULTS < user < workspace` into a fully-resolved editor config. */
@@ -78,6 +104,13 @@ export function mergeEffective(
     tabSize: pick("tabSize"),
     insertSpaces: pick("insertSpaces"),
     minimap: pick("minimap"),
+    formatOnSave: pick("formatOnSave"),
+    formatOnPaste: pick("formatOnPaste"),
+    trimTrailingWhitespace: pick("trimTrailingWhitespace"),
+    insertFinalNewline: pick("insertFinalNewline"),
+    trimFinalNewlines: pick("trimFinalNewlines"),
+    autoSave: pick("autoSave"),
+    autoSaveDelay: pick("autoSaveDelay"),
   };
 }
 

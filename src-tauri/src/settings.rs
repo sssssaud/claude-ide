@@ -43,6 +43,12 @@ const TAB_SIZE_MAX: u16 = 16;
 /// The `wordWrap` values Monaco understands (verified against `editor.IEditorOptions`).
 const WORD_WRAP_MODES: [&str; 4] = ["off", "on", "wordWrapColumn", "bounded"];
 
+/// The `autoSave` modes the frontend understands (Addendum II §1.2, S2).
+const AUTO_SAVE_MODES: [&str; 4] = ["off", "afterDelay", "onFocusChange", "onWindowChange"];
+/// Auto-save delay bounds, only meaningful for the `afterDelay` mode.
+const AUTO_SAVE_DELAY_MIN: u32 = 200;
+const AUTO_SAVE_DELAY_MAX: u32 = 60_000;
+
 /// The modelled editor settings. **Every field is optional**: a present value is
 /// an explicit override, an absent one means "fall through" to the lower scope or
 /// the frontend default. camelCase on the wire (the file is hand-editable).
@@ -66,6 +72,25 @@ pub struct EditorSettings {
     pub insert_spaces: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub minimap: Option<bool>,
+    /// Run the registered formatter (if any) on save (Addendum II §1.2, S2).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub format_on_save: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub format_on_paste: Option<bool>,
+    /// Strip trailing whitespace on save (skipped for Markdown — trailing spaces
+    /// are a significant hard-break there).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trim_trailing_whitespace: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub insert_final_newline: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trim_final_newlines: Option<bool>,
+    /// One of `AUTO_SAVE_MODES`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto_save: Option<String>,
+    /// Delay in ms, only meaningful when `auto_save` is `afterDelay`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto_save_delay: Option<u32>,
 }
 
 /// One scope's settings (a category bag; only `editor` exists in S1, more land
@@ -224,6 +249,13 @@ fn extract_editor(obj: &Map<String, Value>) -> EditorSettings {
         tab_size: obj.get("tabSize").and_then(Value::as_u64).map(|n| n as u16),
         insert_spaces: obj.get("insertSpaces").and_then(Value::as_bool),
         minimap: obj.get("minimap").and_then(Value::as_bool),
+        format_on_save: obj.get("formatOnSave").and_then(Value::as_bool),
+        format_on_paste: obj.get("formatOnPaste").and_then(Value::as_bool),
+        trim_trailing_whitespace: obj.get("trimTrailingWhitespace").and_then(Value::as_bool),
+        insert_final_newline: obj.get("insertFinalNewline").and_then(Value::as_bool),
+        trim_final_newlines: obj.get("trimFinalNewlines").and_then(Value::as_bool),
+        auto_save: obj.get("autoSave").and_then(Value::as_str).map(str::to_owned),
+        auto_save_delay: obj.get("autoSaveDelay").and_then(Value::as_u64).map(|n| n as u32),
     }
 }
 
@@ -263,6 +295,24 @@ fn sanitize_editor(mut e: EditorSettings) -> IpcResult<EditorSettings> {
     };
     e.word_wrap_column = e.word_wrap_column.map(|n| n.clamp(WRAP_COLUMN_MIN, WRAP_COLUMN_MAX));
     e.tab_size = e.tab_size.map(|n| n.clamp(TAB_SIZE_MIN, TAB_SIZE_MAX));
+    e.auto_save = match e.auto_save {
+        Some(a) => {
+            let a = a.trim();
+            if a.is_empty() {
+                None
+            } else if AUTO_SAVE_MODES.contains(&a) {
+                Some(a.to_owned())
+            } else {
+                return Err(invalid(
+                    "Unknown autoSave (use off, afterDelay, onFocusChange, or onWindowChange)",
+                ));
+            }
+        }
+        None => None,
+    };
+    e.auto_save_delay = e
+        .auto_save_delay
+        .map(|n| n.clamp(AUTO_SAVE_DELAY_MIN, AUTO_SAVE_DELAY_MAX));
     Ok(e)
 }
 
@@ -278,6 +328,17 @@ fn apply_editor(obj: &mut Map<String, Value>, e: &EditorSettings) {
     set_or_remove(obj, "tabSize", e.tab_size.map(|n| Value::Number(n.into())));
     set_or_remove(obj, "insertSpaces", e.insert_spaces.map(Value::Bool));
     set_or_remove(obj, "minimap", e.minimap.map(Value::Bool));
+    set_or_remove(obj, "formatOnSave", e.format_on_save.map(Value::Bool));
+    set_or_remove(obj, "formatOnPaste", e.format_on_paste.map(Value::Bool));
+    set_or_remove(
+        obj,
+        "trimTrailingWhitespace",
+        e.trim_trailing_whitespace.map(Value::Bool),
+    );
+    set_or_remove(obj, "insertFinalNewline", e.insert_final_newline.map(Value::Bool));
+    set_or_remove(obj, "trimFinalNewlines", e.trim_final_newlines.map(Value::Bool));
+    set_or_remove(obj, "autoSave", e.auto_save.clone().map(Value::String));
+    set_or_remove(obj, "autoSaveDelay", e.auto_save_delay.map(|n| Value::Number(n.into())));
 }
 
 fn set_or_remove(obj: &mut Map<String, Value>, key: &str, value: Option<Value>) {
@@ -413,6 +474,55 @@ mod tests {
         assert!(matches!(err.kind, IpcErrorKind::InvalidInput));
         // The malformed file is left exactly as it was (never clobbered).
         assert_eq!(std::fs::read_to_string(settings_path(&dir)).unwrap(), "[1, 2, 3]");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn write_validates_auto_save_and_clamps_delay() {
+        let dir = temp_dir();
+        write(
+            &dir,
+            Scope::User,
+            EditorSettings {
+                auto_save: Some("afterDelay".into()),
+                auto_save_delay: Some(1),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let got = read(&dir).unwrap();
+        assert_eq!(got.user.editor.auto_save.as_deref(), Some("afterDelay"));
+        assert_eq!(got.user.editor.auto_save_delay, Some(AUTO_SAVE_DELAY_MIN));
+
+        let bad = write(
+            &dir,
+            Scope::User,
+            EditorSettings { auto_save: Some("sometimes".into()), ..Default::default() },
+        );
+        assert!(matches!(bad.unwrap_err().kind, IpcErrorKind::InvalidInput));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn write_round_trips_data_safety_flags() {
+        let dir = temp_dir();
+        write(
+            &dir,
+            Scope::User,
+            EditorSettings {
+                format_on_save: Some(true),
+                trim_trailing_whitespace: Some(false),
+                insert_final_newline: Some(true),
+                trim_final_newlines: Some(false),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let got = read(&dir).unwrap();
+        assert_eq!(got.user.editor.format_on_save, Some(true));
+        assert_eq!(got.user.editor.trim_trailing_whitespace, Some(false));
+        assert_eq!(got.user.editor.insert_final_newline, Some(true));
+        assert_eq!(got.user.editor.trim_final_newlines, Some(false));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
