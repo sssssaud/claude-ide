@@ -306,6 +306,41 @@ The differentiator slice — no new backend surface at all, by design.
   window) — manual smoke (select code → Explain → a real turn streams back)
   is still owed. Committed as `1d60c3a`.
 
+### Manual code review of S1–S4 + the perf/onboarding fixes · COMPLETE ✅ (2026-07-01)
+User asked to check today's work before starting S5. Started as an 8-angle
+multi-agent `/code-review high`; the user stopped 7 of the 8 background
+agents before they reported (only the efficiency angle finished), so the rest
+was done as a direct manual read-through of the full `@{upstream}...HEAD`
+diff instead. Found and fixed 5 real issues:
+- **`ActivityBar.tsx`** — the Sidebar→ActivityBar rewrite dropped
+  `aria-controls` linking each view tab to the side panel (old `Sidebar.tsx`
+  had it; new `SidePanel.tsx` has the matching id/role but nothing referenced
+  it) — restored, and `aria-selected` now reflects the logical current view
+  instead of being gated on the panel being open (no tab was ever "selected"
+  while collapsed).
+- **`store/auth.ts` + `auth.rs`** — `logout()` bundled the post-logout status
+  refresh into the same try/catch as the logout call, so a status-probe
+  hiccup right after a successful sign-out was misreported as the sign-out
+  failing (UI stayed on stale "Signed in"). Decoupled the two; also hardened
+  `probe_status` to treat unparseable output on a non-zero exit as logged-out
+  rather than a hard error (mirrors preflight.rs's established non-zero =
+  not-authenticated signal). **+3 tests** (64 total).
+- **`EditorPane.tsx`** — `saveFile`'s own trim-whitespace/final-newline edit
+  fired `onDidChangeContent` like a real keystroke, flickering the dirty dot
+  on every save that changed anything and (short `autoSaveDelay` + a slow
+  write) risking a redundant concurrent save. Added a per-path `savingRef`
+  guard the change handler checks and skips.
+- **`FuzzyOverlay.tsx`** — the highlighted row was only clamped when the
+  result count shrank, never reset to the top match per keystroke, so
+  reshuffled rankings could commit a different item than the one last seen
+  highlighted. Now resets to index 0 on every query change.
+- **`QuickOpen.tsx` + `commands/fuzzy.ts`** — every open re-spawned
+  `rg --files` and rescored the whole list with no memoized lowercase target.
+  Added a per-workspace stale-while-revalidate cache (30s TTL, instant on
+  repeat opens) and a lowercase-target cache in the fuzzy matcher.
+- Gate: typecheck/build/clippy/64 Rust tests green; live-started the dev
+  server, clean boot. Committed as `603ec6e`.
+
 ### Phase 0 — Skeleton & preflight  ·  COMPLETE ✅
 - [x] Rust toolchain (cargo 1.96.0); Tauri deps via dnf.
 - [x] Project scaffolded: Vite+React+TS frontend, Tauri 2 backend, path alias.
