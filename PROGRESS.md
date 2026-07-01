@@ -243,6 +243,44 @@ a full relaunch that nothing on screen mentioned.
   destabilize other tests sharing the process.
 - Gate: clippy `-D warnings` 0, 61 Rust tests pass. Committed as `741ffca`.
 
+### S3 — Developer command set + Command Palette + Quick Open · COMPLETE ✅ (2026-07-01)
+- **Backend**: new `search::list_files` (`rg --files`, same generic-dev-tool
+  exemption as `search()`, respects `.gitignore`, capped 20k) exposed as
+  `list_files`.
+- **Registry** (`commands/registry.ts`): one flat list of every command, each
+  optionally carrying a default global keybinding (`combo`, e.g. "mod+b") and
+  an `enabled?()` gate. `commands/keybindings.ts` matches a `KeyboardEvent`
+  against a combo string. `useLayoutShortcuts.ts` is no longer a hardcoded
+  if/else — it iterates the registry and runs whatever combo matches (still
+  capture-phase, still `preventDefault`-only-on-match, so Monaco's own
+  bindings like Ctrl+S/Ctrl+G are untouched).
+- **Command Palette** (Ctrl/Cmd+Shift+P) and **Quick Open** (Ctrl/Cmd+P) share
+  one overlay shell, `FuzzyOverlay`, over a hand-rolled subsequence fuzzy
+  matcher (`commands/fuzzy.ts` — no new npm dependency; sanity-checked against
+  hand-picked cases). Quick Open fetches the file list fresh every open (not
+  cached) and opens the pick in the active workspace's editor. The palette
+  shows each command's keybinding per row.
+- **Active editor handle** (`store/activeEditorHandle.ts`): File: Save, Go to
+  Line, and editor-font zoom need the live Monaco instance; rather than
+  threading it through React, the active workspace's `EditorPane` registers a
+  small handle imperatively — set only while active, cleared only if it's
+  still the one registered (order-independent: a race between one pane
+  deactivating and another activating can't clobber the newly-active one).
+- **Zoom** (`store/zoom.ts`: editor-font delta + whole-app `zoom` CSS factor)
+  and **Zen Mode** (`layout.ts`'s new `zen` flag) are both deliberately
+  EPHEMERAL — reset every launch, never touch Settings' staged Apply model
+  (a silently-persisted zoom/zen with no on-screen explanation would be more
+  confusing than useful; the palette can always get you back). Zen overlays
+  the activity bar/side panel/terminal to hidden WITHOUT mutating their own
+  toggles, so turning it off restores exactly what was showing — the
+  sidebar's onResize->store sync is guarded against zen's own `collapse()`
+  calls so they can't leak into the persisted toggle.
+- Gate: typecheck/build/clippy/61 Rust tests green; live-started the dev
+  server (no crash) and re-confirmed idle WebKitWebProcess CPU is still ~0%
+  (no regression from the earlier pulse-animation fix). Did NOT click through
+  the palette/Quick Open/zoom/zen live (no GUI automation available for the
+  native window) — that manual smoke pass is still owed. Committed as `cf3720f`.
+
 ### Phase 0 — Skeleton & preflight  ·  COMPLETE ✅
 - [x] Rust toolchain (cargo 1.96.0); Tauri deps via dnf.
 - [x] Project scaffolded: Vite+React+TS frontend, Tauri 2 backend, path alias.
