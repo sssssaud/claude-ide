@@ -14,6 +14,7 @@ import { useStore, type StoreApi } from "zustand";
 import Editor, { type OnMount } from "@monaco-editor/react";
 import type * as Monaco from "monaco-editor";
 import { EmptyState, LoadingState } from "@/components/states";
+import { AGENT_ACTION_LABELS, sendAgentAction, type AgentActionKind } from "@/commands/agentActions";
 import { languageForPath } from "@/editor/language";
 import { defineClaudeTheme, monacoThemeFor } from "@/editor/monacoSetup";
 import { normalizeFinalNewlines, trimTrailingWhitespace } from "@/editor/saveTransforms";
@@ -344,7 +345,7 @@ export function EditorPane({
     if (!active || !ready) return;
     const editor = editorRef.current;
     if (!editor) return;
-    const handle = { editor, save: saveActive };
+    const handle = { editor, save: saveActive, getActivePath: () => store.getState().activePath };
     setActiveEditorHandle(handle);
     return () => {
       if (getActiveEditorHandle() === handle) setActiveEditorHandle(null);
@@ -387,6 +388,20 @@ export function EditorPane({
               const path = store.getState().activePath;
               if (path && store.getState().dirty[path]) void saveFile(path);
             });
+            // Agent-bridge (§S4): selection actions in Monaco's own right-click
+            // menu and command list (F1), so "ask Claude" is a real, discoverable
+            // action on the code itself, not just a palette entry.
+            let order = 1;
+            for (const kind of ["explain", "refactor", "fix", "tests", "docstring"] as AgentActionKind[]) {
+              editor.addAction({
+                id: `claude.${kind}`,
+                label: `Claude: ${AGENT_ACTION_LABELS[kind]}`,
+                contextMenuGroupId: "9_claude",
+                contextMenuOrder: order++,
+                precondition: "editorHasSelection",
+                run: () => sendAgentAction(kind),
+              });
+            }
             setReady(true);
           }}
           options={options}

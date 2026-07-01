@@ -445,6 +445,13 @@ export function useActiveConversation<T>(selector: (s: ConversationState) => T):
   return useStore(activeId ? conversationStoreFor(activeId) : emptyStore, selector);
 }
 
+/** The active workspace's conversation store — for imperative access (e.g. the
+ *  agent-bridge commands sending a turn from outside a component). */
+export function activeConversationStore(): StoreApi<ConversationState> {
+  const id = useWorkspaces.getState().activeId;
+  return id ? conversationStoreFor(id) : emptyStore;
+}
+
 // When a workspace tab closes, reap its `claude` session and drop its store so
 // no orphan process lingers (spec 2.5 "no zombie"). App-exit teardown reaps
 // everything anyway; this just makes a per-tab close prompt.

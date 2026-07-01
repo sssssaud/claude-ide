@@ -13,6 +13,7 @@
  * (rebinding, conflict warnings) is later work (S6); today's bindings are fixed.
  */
 
+import { AGENT_ACTION_LABELS, hasAgentActionTarget, sendAgentAction, type AgentActionKind } from "@/commands/agentActions";
 import { getActiveEditorHandle } from "@/store/activeEditorHandle";
 import { activeEditorStore } from "@/store/editor";
 import { useLayout } from "@/store/layout";
@@ -155,6 +156,17 @@ export const COMMANDS: Command[] = [
     category: "Editor",
     run: () => useZoom.getState().resetEditorZoom(),
   },
+
+  // ---- Agent bridge (§S4) — select code, ask Claude -----------------------
+  ...(["explain", "refactor", "fix", "tests", "docstring"] as AgentActionKind[]).map(
+    (kind): Command => ({
+      id: `claude.${kind}`,
+      title: `Claude: ${AGENT_ACTION_LABELS[kind]}`,
+      category: "Claude",
+      enabled: hasAgentActionTarget,
+      run: () => sendAgentAction(kind),
+    }),
+  ),
 ];
 
 /** Commands actually runnable right now (palette hides disabled ones). */

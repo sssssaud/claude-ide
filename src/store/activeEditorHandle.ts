@@ -11,6 +11,12 @@ import type * as Monaco from "monaco-editor";
 export interface ActiveEditorHandle {
   editor: Monaco.editor.IStandaloneCodeEditor;
   save: () => Promise<void>;
+  /** The workspace-relative path of whichever tab is currently shown, read
+   *  fresh each call — the editor instance is shared across a workspace's
+   *  tabs, so this can change (on tab switch) without the handle itself being
+   *  re-registered. `null` if nothing's open (shouldn't happen while a pane
+   *  registers itself, but keeps this honest). */
+  getActivePath: () => string | null;
 }
 
 let current: ActiveEditorHandle | null = null;
