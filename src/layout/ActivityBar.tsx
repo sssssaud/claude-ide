@@ -1,48 +1,47 @@
 /*
- * Left sidebar (spec 5.A.3). A VS Code-style **vertical icon activity bar** down
- * the far edge switches between the workspace views — Files, Search, Source
- * Control (live change badge), Permissions, Usage — and the chosen view fills the
- * rest of the panel. Phase 10 replaced the old cramped horizontal text-tab row
- * with this icon bar so the switcher scales without crowding. Each view fills the
- * panel; only the active one mounts.
+ * Activity bar (Addendum II layout pass — VS Code-style). The always-visible
+ * vertical icon strip on the far left of the app. It switches the side panel's
+ * view — Files, Search, Source Control (live change badge), Permissions, Usage,
+ * Sessions — and clicking the active view's icon collapses the panel (the strip
+ * stays). A Settings cog pinned to the bottom opens Settings as an editor tab.
+ *
+ * The strip itself never hides; only its content panel (`SidePanel`) collapses,
+ * so the views are always one click away. View selection lives in the layout
+ * store so the strip and the panel stay in sync.
  */
 
-import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
-import { FileExplorer } from "@/layout/FileExplorer";
-import { GitPanel } from "@/layout/GitPanel";
-import { PermissionsPanel } from "@/layout/PermissionsPanel";
-import { SearchPanel } from "@/layout/SearchPanel";
-import { UsagePanel } from "@/layout/UsagePanel";
+import { useEffect, useRef, type KeyboardEvent, type ReactNode } from "react";
 import { useGit } from "@/store/git";
-import { useLayout } from "@/store/layout";
+import { activeEditorStore, useActiveEditor, SETTINGS_TAB_ID } from "@/store/editor";
+import { useLayout, type View } from "@/store/layout";
 import { useActiveCwd } from "@/store/workspaces";
-
-type View = "files" | "search" | "git" | "permissions" | "usage";
 
 const VIEWS: { id: View; label: string; icon: ReactNode }[] = [
   { id: "files", label: "Files", icon: <FilesIcon /> },
   { id: "search", label: "Search", icon: <SearchIcon /> },
   { id: "git", label: "Source Control", icon: <GitIcon /> },
+  { id: "sessions", label: "Sessions", icon: <SessionsIcon /> },
   { id: "permissions", label: "Permissions", icon: <ShieldIcon /> },
   { id: "usage", label: "Usage", icon: <ChartIcon /> },
 ];
 
-export function Sidebar() {
-  const [view, setView] = useState<View>("files");
+export function ActivityBar() {
+  const view = useLayout((s) => s.view);
+  const sidebarOpen = useLayout((s) => s.sidebar);
+  const selectView = useLayout((s) => s.selectView);
   const changeCount = useGit((s) => s.status?.changes.length ?? 0);
+  const settingsActive = useActiveEditor((s) => s.activePath === SETTINGS_TAB_ID);
   const cwd = useActiveCwd();
-  const settingsOpen = useLayout((s) => s.settingsOpen);
   const btnRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
-  // Populate the source-control badge at startup, and re-read whenever the
-  // active workspace changes so the badge + status track the open folder.
+  // Keep the Source-Control badge live as the active workspace changes. Lives
+  // here (always mounted) so the badge is correct even when the panel is closed.
   useEffect(() => {
     void useGit.getState().refresh();
   }, [cwd]);
 
-  // Roving tabindex (WAI-ARIA tabs): the active tab is the only tab stop;
-  // Up/Down (vertical orientation) wrap through the tabs, Home/End jump to the
-  // ends, each moving focus AND selection together.
+  // Roving tabindex (WAI-ARIA tabs): the selected view is the only tab stop;
+  // Up/Down wrap, Home/End jump to the ends — moving focus AND selection together.
   const onKeyDown = (e: KeyboardEvent<HTMLElement>) => {
     const idx = VIEWS.findIndex((v) => v.id === view);
     let next = idx;
@@ -52,80 +51,65 @@ export function Sidebar() {
     else if (e.key === "End") next = VIEWS.length - 1;
     else return;
     e.preventDefault();
-    setView(VIEWS[next].id);
+    selectView(VIEWS[next].id);
     btnRefs.current[next]?.focus();
   };
 
+  const openSettings = () => {
+    useLayout.getState().setVisible("editor", true);
+    activeEditorStore().getState().openSettings();
+  };
+
   return (
-    <aside className="flex h-full flex-row" style={{ background: "var(--color-bg-raised)" }}>
-      {/* Activity bar: the view tabs at the top, global actions (Settings) pinned
-          to the bottom. Settings is an action, not a tab, so it sits outside the
-          tablist and opens the full-area Settings overlay. */}
-      <div
-        className="flex shrink-0 flex-col"
-        style={{
-          width: "var(--space-8)",
-          background: "var(--color-bg-recessed)",
-          borderRight: "1px solid var(--color-border-subtle)",
-          paddingTop: "var(--space-2)",
-          paddingBottom: "var(--space-2)",
-        }}
+    <div
+      className="flex h-full shrink-0 flex-col"
+      style={{
+        width: "var(--space-8)",
+        background: "var(--color-bg-recessed)",
+        borderRight: "1px solid var(--color-border-subtle)",
+        paddingTop: "var(--space-2)",
+        paddingBottom: "var(--space-2)",
+      }}
+    >
+      <ActionButton
+        label={sidebarOpen ? "Hide side panel (Ctrl+B)" : "Show side panel (Ctrl+B)"}
+        icon={<ChevronIcon open={sidebarOpen} />}
+        active={false}
+        onClick={() => useLayout.getState().toggle("sidebar")}
+      />
+      <nav
+        role="tablist"
+        aria-label="Activity bar"
+        aria-orientation="vertical"
+        onKeyDown={onKeyDown}
+        className="flex flex-col"
       >
-        <nav
-          role="tablist"
-          aria-label="Sidebar views"
-          aria-orientation="vertical"
-          onKeyDown={onKeyDown}
-          className="flex flex-col"
-        >
-          {VIEWS.map((v, i) => (
-            <ActivityButton
-              key={v.id}
-              label={v.label}
-              icon={v.icon}
-              active={view === v.id}
-              badge={v.id === "git" ? changeCount || undefined : undefined}
-              onClick={() => setView(v.id)}
-              buttonRef={(el) => {
-                btnRefs.current[i] = el;
-              }}
-            />
-          ))}
-        </nav>
-        <div style={{ marginTop: "auto" }}>
-          <ActionButton
-            label="Settings (Ctrl+,)"
-            icon={<GearIcon />}
-            active={settingsOpen}
-            onClick={() => useLayout.getState().toggleSettings()}
+        {VIEWS.map((v, i) => (
+          <ActivityButton
+            key={v.id}
+            label={v.label}
+            icon={v.icon}
+            selected={view === v.id}
+            active={view === v.id && sidebarOpen}
+            badge={v.id === "git" ? changeCount || undefined : undefined}
+            onClick={() => selectView(v.id)}
+            buttonRef={(el) => {
+              btnRefs.current[i] = el;
+            }}
           />
-        </div>
+        ))}
+      </nav>
+      <div style={{ marginTop: "auto" }}>
+        <ActionButton label="Settings (Ctrl+,)" icon={<GearIcon />} active={settingsActive} onClick={openSettings} />
       </div>
-      <div
-        id="sidebar-panel"
-        role="tabpanel"
-        aria-label={`${VIEWS.find((v) => v.id === view)?.label} view`}
-        className="min-h-0 min-w-0 flex-1 overflow-hidden"
-      >
-        {view === "files" ? (
-          <FileExplorer />
-        ) : view === "search" ? (
-          <SearchPanel />
-        ) : view === "git" ? (
-          <GitPanel />
-        ) : view === "permissions" ? (
-          <PermissionsPanel />
-        ) : (
-          <UsagePanel />
-        )}
-      </div>
-    </aside>
+    </div>
   );
 }
 
 function ActivityButton({
   label,
   icon,
+  selected,
   active,
   badge,
   onClick,
@@ -133,6 +117,9 @@ function ActivityButton({
 }: {
   label: string;
   icon: ReactNode;
+  /** The current view (drives roving tabindex + the accent when the panel is open). */
+  selected: boolean;
+  /** Selected AND the panel is open — shows the accent bar. */
   active: boolean;
   badge?: number;
   onClick: () => void;
@@ -144,10 +131,9 @@ function ActivityButton({
       type="button"
       role="tab"
       aria-selected={active}
-      aria-controls="sidebar-panel"
       aria-label={label}
       title={label}
-      tabIndex={active ? 0 : -1}
+      tabIndex={selected ? 0 : -1}
       onClick={onClick}
       className="relative flex cursor-pointer items-center justify-center"
       style={{
@@ -159,7 +145,6 @@ function ActivityButton({
         transition: `color var(--motion-fast) var(--ease-standard)`,
       }}
     >
-      {/* Active indicator: accent bar on the inner edge (VS Code-style). */}
       {active && (
         <span
           aria-hidden="true"
@@ -202,8 +187,8 @@ function ActivityButton({
   );
 }
 
-// A non-tab activity-bar action (e.g. Settings) — same footprint as a tab, but
-// an ordinary toggle button (not part of the roving-tabindex tablist).
+// A non-tab activity-bar action (Settings) — same footprint as a tab, but an
+// ordinary toggle button (not part of the roving-tabindex tablist).
 function ActionButton({
   label,
   icon,
@@ -252,7 +237,6 @@ function ActionButton({
 }
 
 // ---- Icons (inline SVG, 18px, stroke = currentColor) ------------------------
-// Small, crisp, theme-agnostic (they inherit the button's `color`).
 
 function svgProps() {
   return {
@@ -266,6 +250,15 @@ function svgProps() {
     strokeLinejoin: "round" as const,
     "aria-hidden": true,
   };
+}
+
+function ChevronIcon({ open }: { open: boolean }) {
+  // Points left to collapse the panel, right to reveal it.
+  return (
+    <svg {...svgProps()}>
+      {open ? <path d="M11 4L6 9l5 5" /> : <path d="M7 4l5 5-5 5" />}
+    </svg>
+  );
 }
 
 function FilesIcon() {
@@ -298,6 +291,19 @@ function GitIcon() {
   );
 }
 
+function SessionsIcon() {
+  // A timeline: nodes down a rail (matches the Sessions rail's visual language).
+  return (
+    <svg {...svgProps()}>
+      <circle cx="5" cy="4" r="1.6" />
+      <circle cx="5" cy="9" r="1.6" />
+      <circle cx="5" cy="14" r="1.6" />
+      <path d="M5 5.6v1.8M5 10.6v1.8" />
+      <path d="M9 4h5M9 9h5M9 14h5" />
+    </svg>
+  );
+}
+
 function ShieldIcon() {
   return (
     <svg {...svgProps()}>
@@ -319,10 +325,21 @@ function ChartIcon() {
 }
 
 function GearIcon() {
+  // A proper cog (Lucide "settings"); own viewBox 24 so the path reads cleanly.
   return (
-    <svg {...svgProps()}>
-      <circle cx="9" cy="9" r="2.5" />
-      <path d="M9 1.8v1.8M9 14.4v1.8M1.8 9h1.8M14.4 9h1.8M3.9 3.9l1.3 1.3M12.8 12.8l1.3 1.3M14.1 3.9l-1.3 1.3M5.2 12.8l-1.3 1.3" />
+    <svg
+      width={18}
+      height={18}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.8}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+      <circle cx="12" cy="12" r="3" />
     </svg>
   );
 }

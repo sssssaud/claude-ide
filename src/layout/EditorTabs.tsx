@@ -8,6 +8,7 @@
 import { useState } from "react";
 import { useStore, type StoreApi } from "zustand";
 import type { EditorState } from "@/store/editor";
+import { useSettings } from "@/store/settings";
 
 export function EditorTabs({ store }: { store: StoreApi<EditorState> }) {
   const tabs = useStore(store, (s) => s.tabs);
@@ -15,7 +16,17 @@ export function EditorTabs({ store }: { store: StoreApi<EditorState> }) {
   const dirty = useStore(store, (s) => s.dirty);
   const activate = useStore(store, (s) => s.activate);
   const close = useStore(store, (s) => s.close);
+  // The Settings tab's dirty/close go through the settings store (staged Apply),
+  // so closing with unapplied changes can prompt first.
+  const settingsDirty = useSettings((s) => s.dirty);
   const [hovered, setHovered] = useState<string | null>(null);
+
+  // Close a tab: the Settings tab routes through requestClose (which prompts on
+  // unapplied changes); everything else closes immediately.
+  const closeTab = (path: string, kind: EditorState["tabs"][number]["kind"]) => {
+    if (kind === "settings") useSettings.getState().requestClose();
+    else close(path);
+  };
 
   return (
     <div
@@ -31,12 +42,15 @@ export function EditorTabs({ store }: { store: StoreApi<EditorState> }) {
       {tabs.map((tab) => {
         const active = tab.path === activePath;
         const isDiff = tab.kind === "diff";
-        const isDirty = !isDiff && !!dirty[tab.path];
+        const isSettings = tab.kind === "settings";
+        const isDirty = isSettings ? settingsDirty : !isDiff && !!dirty[tab.path];
         const showClose = hovered === tab.path || active;
         const title =
-          isDiff && tab.diff
-            ? `${tab.diff.file} — ${tab.diff.staged ? "Staged changes" : "Working tree"} (diff)`
-            : tab.path;
+          isSettings
+            ? "Settings"
+            : isDiff && tab.diff
+              ? `${tab.diff.file} — ${tab.diff.staged ? "Staged changes" : "Working tree"} (diff)`
+              : tab.path;
         return (
           <div
             key={tab.path}
@@ -48,7 +62,7 @@ export function EditorTabs({ store }: { store: StoreApi<EditorState> }) {
             onMouseDown={(e) => {
               if (e.button === 1) {
                 e.preventDefault();
-                close(tab.path); // middle-click closes
+                closeTab(tab.path, tab.kind); // middle-click closes
               }
             }}
             onClick={() => activate(tab.path)}
@@ -75,7 +89,7 @@ export function EditorTabs({ store }: { store: StoreApi<EditorState> }) {
             }}
           >
             <span aria-hidden="true" style={{ opacity: 0.7 }}>
-              {isDiff ? "⇄" : "📄"}
+              {isSettings ? "⚙" : isDiff ? "⇄" : "📄"}
             </span>
             <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
               {tab.name}
@@ -85,7 +99,7 @@ export function EditorTabs({ store }: { store: StoreApi<EditorState> }) {
               aria-label={isDirty ? `Close ${tab.name} (unsaved)` : `Close ${tab.name}`}
               onClick={(e) => {
                 e.stopPropagation();
-                close(tab.path);
+                closeTab(tab.path, tab.kind);
               }}
               className="flex cursor-pointer items-center justify-center"
               style={{

@@ -22,23 +22,12 @@ export function SessionsPanel() {
   const sessions = slice?.sessions ?? [];
   const loaded = slice?.loaded ?? false;
   const error = slice?.error ?? null;
-  const init = useSessions((s) => s.init);
   const activeId = useActiveConversation((s) => s.sessionId);
   const streaming = useActiveConversation((s) => s.streaming);
   const resume = useActiveConversation((s) => s.resume);
   const newSession = useActiveConversation((s) => s.newSession);
-  const maybeContinue = useActiveConversation((s) => s.maybeContinue);
-
-  useEffect(() => {
-    if (cwd) void init(cwd);
-  }, [cwd, init]);
-
-  // `claude -c` behaviour: once this workspace's sessions are known, continue
-  // the most recent one (sessions are newest-first). One-shot in the store, so
-  // this re-fires harmlessly on watcher updates and tab switches.
-  useEffect(() => {
-    if (loaded && sessions.length > 0) maybeContinue(sessions[0].id);
-  }, [loaded, sessions, maybeContinue]);
+  // The session-load + auto-continue effects live in `useSessionBootstrap`
+  // (mounted in the shell), so they run even when this view isn't open.
 
   return (
     <aside
@@ -126,7 +115,7 @@ function RailItem({
       {/* Rail column: node dot + connector line */}
       <div className="relative flex w-[14px] shrink-0 flex-col items-center">
         <span
-          className={active ? "status-lamp-pulse" : undefined}
+          className={active && disabled ? "status-lamp-pulse" : undefined}
           style={{
             width: "10px",
             height: "10px",

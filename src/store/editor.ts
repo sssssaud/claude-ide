@@ -16,15 +16,20 @@
 import { createStore, useStore, type StoreApi } from "zustand";
 import { useWorkspaces } from "@/store/workspaces";
 
+/** The stable id of the Settings tab (a synthetic, non-path id so it can never
+ *  collide with a real file tab or be fetched as a file). */
+export const SETTINGS_TAB_ID = "settings:app";
+
 export interface EditorTab {
   /** Stable tab id. For a file = its workspace-relative path (and model uri);
-   *  for a diff = a synthetic `diff:…` / `ckpt:…` id (never a real path, so it
-   *  can't collide with a file tab or be fetched as a file). */
+   *  for a diff = a synthetic `diff:…` / `ckpt:…` id; for Settings = the fixed
+   *  `SETTINGS_TAB_ID` (never a real path, so it can't collide with a file). */
   path: string;
   /** Basename, for the tab label. */
   name: string;
-  /** "file" (default) opens in the text editor; "diff" opens a read-only diff. */
-  kind?: "file" | "diff";
+  /** "file" (default) opens in the text editor; "diff" a read-only diff;
+   *  "settings" the Settings surface. */
+  kind?: "file" | "diff" | "settings";
   /** Present only for diff tabs: which file, whether the staged git diff, and —
    *  for a checkpoint preview (Phase 7 P2) — the session + version to compare
    *  the saved snapshot against the current file (read-only, no restore). */
@@ -51,6 +56,8 @@ export interface EditorState {
   /** Open a read-only checkpoint preview: a session's saved snapshot of `file`
    *  at `version` vs the current file (Phase 7 P2; no restore). */
   openCheckpointDiff: (file: string, sessionId: string, version: number) => void;
+  /** Open (or focus) the Settings tab. */
+  openSettings: () => void;
   /** Focus an already-open tab. */
   activate: (path: string) => void;
   /** Close a tab; focus falls to the left neighbor (VS Code-style). */
@@ -116,6 +123,14 @@ const makeEditorStore = (): StoreApi<EditorState> =>
         });
       }
       set({ activePath: id });
+    },
+
+    openSettings: () => {
+      const { tabs } = get();
+      if (!tabs.some((t) => t.path === SETTINGS_TAB_ID)) {
+        set({ tabs: [...tabs, { path: SETTINGS_TAB_ID, name: "Settings", kind: "settings" }] });
+      }
+      set({ activePath: SETTINGS_TAB_ID });
     },
 
     activate: (path) => set({ activePath: path }),

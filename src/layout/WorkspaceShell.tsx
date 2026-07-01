@@ -1,30 +1,30 @@
 /*
- * Workspace shell (spec 4.4). The three-region layout — Sessions + Timeline
- * Rail / Conversation hero (widest) / Editor — over a collapsible Terminal
- * drawer, under a workspace tab bar. The three columns are drag-resizable
- * (react-resizable-panels): the sidebar and editor hold their pixel width when
- * the window resizes while the hero absorbs the slack, and the user's chosen
- * split is remembered across reloads via `useDefaultLayout` (localStorage).
+ * Workspace shell (spec 4.4; Addendum II layout pass). VS Code-style layout: a
+ * far-left Activity bar (always visible) beside a collapsible Side panel
+ * (Explorer / Search / Source Control / Sessions / Permissions / Usage), then the
+ * Conversation hero (widest, never hidden), then the Editor — over a collapsible
+ * Terminal drawer, under a workspace tab bar.
  *
- * Phase 5: the Sessions rail and Editor are also dockable — hidden/shown from
- * the top-bar toggles or Ctrl/Cmd+B (and Ctrl/Cmd+J for the terminal), with the
- * conversation hero absorbing the freed space. The hero is never hidden. The
- * `layout` store holds visibility intent; the panels reconcile to it, and a
- * manual drag-to-collapse syncs the store back so the toggles stay truthful.
+ * The Side panel and Editor are drag-resizable and dockable: hidden/shown from
+ * the activity bar, the top-bar toggles, or Ctrl/Cmd+B (side panel) and
+ * Ctrl/Cmd+J (terminal). The conversation hero absorbs freed space. The `layout`
+ * store holds visibility intent; the panels reconcile to it, and a manual
+ * drag-to-collapse syncs the store back so the toggles stay truthful.
  */
 
 import type { CSSProperties } from "react";
 import { useCallback, useEffect } from "react";
 import { Group, Panel, useDefaultLayout, usePanelRef } from "react-resizable-panels";
-import { SessionsPanel } from "@/layout/SessionsPanel";
+import { ActivityBar } from "@/layout/ActivityBar";
 import { ConversationPane } from "@/layout/ConversationPane";
 import { EditorRegion } from "@/layout/EditorRegion";
 import { ResizeSeparator } from "@/layout/ResizeSeparator";
-import { SettingsView } from "@/layout/SettingsView";
+import { SidePanel } from "@/layout/SidePanel";
 import { TerminalDrawer } from "@/layout/TerminalDrawer";
-import { ThemePicker } from "@/layout/ThemePicker";
 import { useLayoutShortcuts } from "@/layout/useLayoutShortcuts";
+import { useSessionBootstrap } from "@/layout/useSessionBootstrap";
 import { pickFolder } from "@/ipc/commands";
+import { useActiveConversation } from "@/store/conversation";
 import { useLayout, type Region } from "@/store/layout";
 import { useSettings } from "@/store/settings";
 import { useWorkspaces, type Workspace } from "@/store/workspaces";
@@ -35,15 +35,17 @@ const PANEL: CSSProperties = { height: "100%", overflow: "hidden" };
 
 export function WorkspaceShell() {
   const layout = useDefaultLayout({ id: "ide:workspace" });
-  const sessionsVisible = useLayout((s) => s.sessions);
+  const sidebarVisible = useLayout((s) => s.sidebar);
   const editorVisible = useLayout((s) => s.editor);
   const setVisible = useLayout((s) => s.setVisible);
-  const settingsOpen = useLayout((s) => s.settingsOpen);
 
-  const sessionsRef = usePanelRef();
+  const sidebarRef = usePanelRef();
   const editorRef = usePanelRef();
 
   useLayoutShortcuts();
+  // The Sessions rail is now a side-panel view, so its load + auto-continue
+  // effects live here (always mounted), not in the panel itself.
+  useSessionBootstrap();
 
   // Seed the launch workspace on first run so the tab bar is never empty, and
   // load the IDE's own settings once so the editor reflects them from the start.
@@ -52,21 +54,20 @@ export function WorkspaceShell() {
     void useSettings.getState().load();
   }, []);
 
-  // Reconcile each collapsible side panel to the store's visibility intent.
-  // collapse()/expand() are no-ops when already in the target state, so this is
-  // safe to run on every change (and on mount, to honour persisted visibility).
+  // Reconcile each collapsible panel to the store's visibility intent. collapse()/
+  // expand() are no-ops when already in the target state, so this is safe on
+  // every change (and on mount, to honour persisted visibility).
   useEffect(() => {
-    sessionsRef.current?.[sessionsVisible ? "expand" : "collapse"]();
-  }, [sessionsVisible, sessionsRef]);
+    sidebarRef.current?.[sidebarVisible ? "expand" : "collapse"]();
+  }, [sidebarVisible, sidebarRef]);
   useEffect(() => {
     editorRef.current?.[editorVisible ? "expand" : "collapse"]();
   }, [editorVisible, editorRef]);
 
   // Sync a manual drag-to-collapse (or drag-open) back into the store so the
   // toggles reflect reality. The mount callback (prev === undefined) is skipped
-  // so the store's persisted intent — not the library's restored layout — wins
-  // at startup; setVisible is a no-op when unchanged, so the store-driven path
-  // above can't loop with this one.
+  // so the store's persisted intent wins at startup; setVisible is a no-op when
+  // unchanged, so the store-driven path above can't loop with this one.
   const syncFromDrag =
     (region: Region) =>
     (size: { inPixels: number }, _id: unknown, prev: unknown) => {
@@ -77,28 +78,33 @@ export function WorkspaceShell() {
   return (
     <div className="flex h-full w-full flex-col">
       <TabBar />
-      <main className="relative min-h-0 flex-1 overflow-hidden">
-        <Group
-          orientation="horizontal"
-          defaultLayout={layout.defaultLayout}
-          onLayoutChanged={layout.onLayoutChanged}
-          style={{ height: "100%", width: "100%" }}
-        >
+      <main className="flex min-h-0 flex-1 flex-row overflow-hidden">
+        <ActivityBar />
+        {/* The panels Group gets a stable, flex-sized wrapper and fills it at
+            width:100% — measuring a flex-item Group directly can oscillate into a
+            ResizeObserver loop (which also thrashes Monaco's automaticLayout). */}
+        <div className="min-w-0 flex-1" style={{ height: "100%" }}>
+          <Group
+            orientation="horizontal"
+            defaultLayout={layout.defaultLayout}
+            onLayoutChanged={layout.onLayoutChanged}
+            style={{ height: "100%", width: "100%" }}
+          >
           <Panel
-            id="sessions"
+            id="sidebar"
             defaultSize="260px"
-            minSize="180px"
+            minSize="160px"
             maxSize="40%"
             collapsible
             collapsedSize={0}
-            panelRef={sessionsRef}
-            onResize={syncFromDrag("sessions")}
+            panelRef={sidebarRef}
+            onResize={syncFromDrag("sidebar")}
             groupResizeBehavior="preserve-pixel-size"
             style={PANEL}
           >
-            <SessionsPanel />
+            <SidePanel />
           </Panel>
-          {sessionsVisible && <ResizeSeparator orientation="horizontal" />}
+          {sidebarVisible && <ResizeSeparator orientation="horizontal" />}
           <Panel id="conversation" minSize="320px" style={PANEL}>
             <ConversationPane />
           </Panel>
@@ -116,14 +122,8 @@ export function WorkspaceShell() {
           >
             <EditorRegion />
           </Panel>
-        </Group>
-        {/* Settings opens as a full-cover overlay so the panels behind it keep
-            their live state (editor models, conversation, terminals). */}
-        {settingsOpen && (
-          <div className="absolute inset-0" style={{ zIndex: 10 }}>
-            <SettingsView />
-          </div>
-        )}
+          </Group>
+        </div>
       </main>
       <TerminalDrawer />
     </div>
@@ -135,6 +135,7 @@ function TabBar() {
   const activeId = useWorkspaces((s) => s.activeId);
   const activate = useWorkspaces((s) => s.activate);
   const close = useWorkspaces((s) => s.close);
+  const streaming = useActiveConversation((s) => s.streaming);
 
   const openFolder = useCallback(async () => {
     const path = await pickFolder();
@@ -153,15 +154,16 @@ function TabBar() {
     >
       <div className="flex min-w-0 items-center gap-[var(--space-2)]">
         <span
-          className="status-lamp-pulse"
+          className={streaming ? "status-lamp-pulse" : undefined}
           aria-hidden="true"
+          title={streaming ? "Agent running" : "Idle"}
           style={{
             flexShrink: 0,
             marginLeft: "var(--space-1)",
             width: "8px",
             height: "8px",
             borderRadius: "50%",
-            background: "var(--color-status-running)",
+            background: streaming ? "var(--color-status-running)" : "var(--color-status-idle)",
           }}
         />
         <div role="tablist" aria-label="Workspaces" className="flex min-w-0 items-center gap-[2px]">
@@ -197,10 +199,7 @@ function TabBar() {
           +
         </button>
       </div>
-      <div className="flex items-center gap-[var(--space-3)]">
-        <ThemePicker />
-        <PanelToggles />
-      </div>
+      <PanelToggles />
     </div>
   );
 }
@@ -274,17 +273,17 @@ function WorkspaceTab({
   );
 }
 
-// Top-bar dock toggles for the three hideable regions. The conversation hero is
-// the center of gravity and has no toggle. Active = region visible.
+// Top-bar dock toggles for the hideable regions. The conversation hero is the
+// center of gravity and has no toggle. Active = region visible.
 function PanelToggles() {
-  const sessions = useLayout((s) => s.sessions);
+  const sidebar = useLayout((s) => s.sidebar);
   const editor = useLayout((s) => s.editor);
   const terminal = useLayout((s) => s.terminal);
   const toggle = useLayout((s) => s.toggle);
 
   return (
     <div role="group" aria-label="Toggle panels" className="flex items-center gap-[var(--space-1)]">
-      <ToggleButton glyph="◧" label="Sessions rail" shortcut="Ctrl+B" active={sessions} onClick={() => toggle("sessions")} />
+      <ToggleButton glyph="◧" label="Side panel" shortcut="Ctrl+B" active={sidebar} onClick={() => toggle("sidebar")} />
       <ToggleButton glyph="◨" label="Editor" active={editor} onClick={() => toggle("editor")} />
       <ToggleButton glyph="▁" label="Terminal" shortcut="Ctrl+J" active={terminal} onClick={() => toggle("terminal")} />
     </div>
