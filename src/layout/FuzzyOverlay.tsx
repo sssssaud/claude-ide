@@ -48,11 +48,13 @@ export function FuzzyOverlay<T>({
     return () => cancelAnimationFrame(id);
   }, [open]);
 
-  // Keep the selection in range as the filtered list shrinks (e.g. backspacing
-  // after a narrow query widens it, or a keystroke narrows it under `selected`).
+  // Reset to the top (best) match on every query change — ranking can reorder
+  // results between keystrokes, so keeping a fixed index selected (only
+  // clamping it) could silently commit a different item than the one last
+  // seen highlighted.
   useEffect(() => {
-    setSelected((i) => Math.min(i, Math.max(0, filtered.length - 1)));
-  }, [filtered.length]);
+    setSelected(0);
+  }, [query]);
 
   if (!open) return null;
 

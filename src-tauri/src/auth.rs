@@ -48,9 +48,36 @@ fn probe_status() -> IpcResult<AuthStatus> {
         .args(["auth", "status", "--json"])
         .output()
         .map_err(|e| internal(format!("Could not run `claude auth status`: {e}")))?;
-    let text = String::from_utf8_lossy(&out.stdout);
-    serde_json::from_str::<AuthStatus>(&text)
-        .map_err(|e| internal(format!("Could not read the auth status: {e}")))
+    parse_status(&String::from_utf8_lossy(&out.stdout), out.status.success())
+}
+
+/// Parse `claude auth status --json`'s stdout. Factored out of `probe_status`
+/// so the non-zero-exit fallback is testable without spawning a process.
+fn parse_status(text: &str, success: bool) -> IpcResult<AuthStatus> {
+    match serde_json::from_str::<AuthStatus>(text) {
+        Ok(status) => Ok(status),
+        // `preflight.rs` established that the non-JSON `claude auth status`
+        // exits non-zero when NOT logged in; if `--json` mode ever does the
+        // same without emitting parseable JSON on that path, treat it as
+        // logged-out rather than surfacing a scary error for the ordinary
+        // "you're signed out" case.
+        Err(e) if !success => {
+            tracing::debug!(
+                error = %e,
+                "auth status --json didn't parse on a non-zero exit; treating as logged out"
+            );
+            Ok(AuthStatus {
+                logged_in: false,
+                auth_method: None,
+                api_provider: None,
+                email: None,
+                org_id: None,
+                org_name: None,
+                subscription_type: None,
+            })
+        }
+        Err(e) => Err(internal(format!("Could not read the auth status: {e}"))),
+    }
 }
 
 /// `claude auth logout`. Non-interactive; reports failure only on a non-zero
@@ -107,5 +134,24 @@ mod tests {
         let status: AuthStatus = serde_json::from_str(raw).unwrap();
         assert!(!status.logged_in);
         assert!(status.email.is_none());
+    }
+
+    #[test]
+    fn treats_unparseable_output_on_a_non_zero_exit_as_logged_out() {
+        let status = parse_status("", false).unwrap();
+        assert!(!status.logged_in);
+    }
+
+    #[test]
+    fn surfaces_an_error_for_unparseable_output_on_a_zero_exit() {
+        let err = parse_status("not json", true).unwrap_err();
+        assert!(matches!(err.kind, IpcErrorKind::Internal));
+    }
+
+    #[test]
+    fn trusts_parsed_json_even_on_a_non_zero_exit() {
+        let status = parse_status(r#"{"loggedIn": true, "email": "a@b.com"}"#, false).unwrap();
+        assert!(status.logged_in);
+        assert_eq!(status.email.as_deref(), Some("a@b.com"));
     }
 }

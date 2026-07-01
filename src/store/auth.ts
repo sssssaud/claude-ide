@@ -22,7 +22,7 @@ interface AuthState {
   logout: () => Promise<void>;
 }
 
-export const useAuth = create<AuthState>((set) => ({
+export const useAuth = create<AuthState>((set, get) => ({
   status: null,
   loaded: false,
   loadError: null,
@@ -42,10 +42,14 @@ export const useAuth = create<AuthState>((set) => ({
     set({ loggingOut: true, logoutError: null });
     try {
       await authLogout();
-      const status = await authStatus();
-      set({ status, loggingOut: false });
     } catch (e) {
       set({ loggingOut: false, logoutError: isIpcError(e) ? e.message : "Could not sign out" });
+      return;
     }
+    // The logout itself succeeded — refresh status as a separate concern, so a
+    // hiccup probing status right after can't be mistaken for the sign-out
+    // having failed (it didn't; `status` just hasn't been re-checked yet).
+    set({ loggingOut: false });
+    await get().refresh();
   },
 }));

@@ -3,7 +3,12 @@
  * the active workspace (respecting `.gitignore`, via the backend's `rg
  * --files`), Enter opens it in the editor. Loading/error surface as the
  * overlay's empty-state text (no separate spinner UI needed for a list this
- * shape) — fetched fresh each time it opens, not cached (files come and go).
+ * shape).
+ *
+ * The file list is cached per workspace (stale-while-revalidate, `CACHE_TTL_MS`):
+ * reopening the same workspace shows the cached list instantly with no spinner,
+ * while a fresh `rg --files` runs in the background to catch files that came or
+ * went — instead of re-walking a large tree from scratch on every single open.
  */
 
 import { useEffect, useState } from "react";
@@ -14,6 +19,9 @@ import { activeEditorStore } from "@/store/editor";
 import { useLayout } from "@/store/layout";
 import { useOverlays } from "@/store/overlays";
 import { useActiveCwd } from "@/store/workspaces";
+
+const CACHE_TTL_MS = 30_000;
+const fileListCache = new Map<string, { files: string[]; fetchedAt: number }>();
 
 export function QuickOpen() {
   const open = useOverlays((s) => s.quickOpen);
@@ -26,22 +34,41 @@ export function QuickOpen() {
 
   useEffect(() => {
     if (!open) return;
+    const key = cwd ?? "";
+    const cached = fileListCache.get(key);
     let cancelled = false;
-    setLoading(true);
-    setError(null);
-    void listFiles(cwd ?? undefined)
-      .then((f) => {
-        if (!cancelled) {
-          setFiles(f);
-          setLoading(false);
-        }
-      })
-      .catch((e) => {
-        if (!cancelled) {
-          setError(isIpcError(e) ? e.message : "Could not list files");
-          setLoading(false);
-        }
-      });
+
+    if (cached) {
+      // Instant, no spinner — even if this turns out stale, a background
+      // refresh below will catch up silently.
+      setFiles(cached.files);
+      setLoading(false);
+      setError(null);
+    } else {
+      setLoading(true);
+      setError(null);
+    }
+
+    const stale = !cached || Date.now() - cached.fetchedAt > CACHE_TTL_MS;
+    if (stale) {
+      void listFiles(cwd ?? undefined)
+        .then((f) => {
+          fileListCache.set(key, { files: f, fetchedAt: Date.now() });
+          if (!cancelled) {
+            setFiles(f);
+            setLoading(false);
+          }
+        })
+        .catch((e) => {
+          // Already showing a cached list — a failed background refresh
+          // shouldn't replace it with an error banner.
+          if (!cancelled && !cached) {
+            setError(isIpcError(e) ? e.message : "Could not list files");
+            setLoading(false);
+          }
+        });
+    }
+
     return () => {
       cancelled = true;
     };

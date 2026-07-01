@@ -5,11 +5,26 @@
  * score higher. No dependency — the matching rule is simple enough to hand-roll.
  */
 
+// Quick Open can fuzzy-filter thousands of file paths on every keystroke;
+// `target` values repeat across calls (same file list, new query each time),
+// so its lowercased form is worth caching — `query` changes every keystroke
+// and isn't. Bounded in practice by the number of distinct paths/command
+// titles ever shown, capped well below anything that matters memory-wise.
+const lowerCache = new Map<string, string>();
+function cachedLower(s: string): string {
+  let v = lowerCache.get(s);
+  if (v === undefined) {
+    v = s.toLowerCase();
+    lowerCache.set(s, v);
+  }
+  return v;
+}
+
 /** `null` = no match at all. Higher score = better match. */
 export function fuzzyScore(query: string, target: string): number | null {
   if (query === "") return 0;
   const q = query.toLowerCase();
-  const t = target.toLowerCase();
+  const t = cachedLower(target);
 
   let ti = 0;
   let score = 0;

@@ -94,6 +94,11 @@ export function EditorPane({
   // Pending "afterDelay" auto-save timers, keyed by tab path (debounced: reset
   // on every keystroke, matching VS Code's `files.autoSave: afterDelay`).
   const autoSaveTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  // Paths whose model is mid-edit from `saveFile`'s own trim/final-newline
+  // normalization (not a real user change) — the content-change handler skips
+  // dirty-tracking and auto-save scheduling for these, so saving a file can't
+  // flicker its dirty dot or schedule a stray auto-save against itself.
+  const savingRef = useRef<Set<string>>(new Set());
 
   const [ready, setReady] = useState(false);
   const [contents, setContents] = useState<Record<string, ContentState>>({});
@@ -144,6 +149,13 @@ export function EditorPane({
       if (!entry || entry.readOnly) return;
       const eff = mergeEffective(useSettings.getState().user, useSettings.getState().workspaces[cwd]);
       const editor = editorRef.current;
+      // Format-on-save and the trim/final-newline transforms below edit the
+      // model themselves, which would otherwise fire onDidChangeContent like a
+      // real keystroke — flickering the dirty dot and scheduling a stray
+      // "afterDelay" auto-save against the file we're already saving. Suppress
+      // that handler for the duration; `setDirty`/`savedVersionId` below still
+      // set the definitive post-save state once we're done.
+      savingRef.current.add(path);
       try {
         if (eff.formatOnSave && editor && editor.getModel() === entry.model) {
           await editor.getAction("editor.action.formatDocument")?.run();
@@ -170,6 +182,8 @@ export function EditorPane({
           ...c,
           [path]: isIpcError(e) ? e.message : "Save failed",
         }));
+      } finally {
+        savingRef.current.delete(path);
       }
     },
     [cwd, store],
@@ -202,6 +216,10 @@ export function EditorPane({
       const changeSub = model.onDidChangeContent(() => {
         const entry = modelsRef.current.get(path);
         if (!entry) return;
+        // Our own format-on-save / trim / final-newline edit, not a real user
+        // change — skip dirty-tracking and auto-save scheduling for it (saveFile
+        // sets the definitive post-save dirty/savedVersionId itself once done).
+        if (savingRef.current.has(path)) return;
         const dirty = model.getAlternativeVersionId() !== entry.savedVersionId;
         store.getState().setDirty(path, dirty);
 

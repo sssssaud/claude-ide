@@ -130,7 +130,8 @@ function ActivityButton({
       ref={buttonRef}
       type="button"
       role="tab"
-      aria-selected={active}
+      aria-selected={selected}
+      aria-controls="side-panel"
       aria-label={label}
       title={label}
       tabIndex={selected ? 0 : -1}
