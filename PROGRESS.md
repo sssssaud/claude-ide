@@ -185,7 +185,7 @@ close / Apply & close (`store/settings.ts` rewritten, `SettingsView.tsx` rewritt
 - **Backend** `settings.rs`: `formatOnSave`/`formatOnPaste`/`trimTrailingWhitespace`/
   `insertFinalNewline`/`trimFinalNewlines`/`autoSave`/`autoSaveDelay` added to
   `EditorSettings`; `autoSave` enum-checked (off/afterDelay/onFocusChange/
-  onWindowChange), delay clamped 200ms–60s. **+2 tests** (60 total).
+  onWindowChange), delay clamped 200ms–60s. **+2 tests** (58 total).
 - **Frontend**: `EDITOR_DEFAULTS` favors not losing work over reformatting —
   `autoSave: onFocusChange`, `trimTrailingWhitespace: true`, `insertFinalNewline:
   true`; format-on-save/paste stay opt-in (a registered formatter can reflow code
@@ -207,7 +207,7 @@ User's ask: "we need a login button... when someone download it we need to login
 Never hand-rolled: both operations shell out to the installed CLI.
 - **Backend** new `auth.rs`: `status()` runs `claude auth status --json` (mirrors
   `preflight.rs`'s existing read-only probe), `logout()` runs `claude auth logout`
-  (non-interactive). **+2 tests** (62 total). `login` is deliberately NOT a backend
+  (non-interactive). **+2 tests** (60 total). `login` is deliberately NOT a backend
   command — it's an interactive browser/OAuth flow (sometimes SSO/email-code), so
   it isn't guessed at non-interactively.
 - **Frontend** new `components/InlineTerminal.tsx`: a small one-shot xterm+PTY that
@@ -219,11 +219,29 @@ Never hand-rolled: both operations shell out to the installed CLI.
   drawer mounted yet) gets a real **Sign in** button using the same
   `InlineTerminal`, replacing the old "go run this yourself" text; the manual
   command + Retry check stay as a fallback.
-- Gate: typecheck/build/clippy/62 tests green; live-started the dev server (no
+- Gate: typecheck/build/clippy/60 tests green; live-started the dev server (no
   runtime crash, preflight still reports `authenticated=true`); did NOT click
   through Login/Logout live (that would touch the real signed-in Anthropic
   session) — manual click-through of Settings > Account and the gate's Sign-in
   button is still owed by a live smoke pass. Committed as `f8607cb`.
+
+### Onboarding fix: Retry check now detects a CLI installed mid-session · COMPLETE ✅ (2026-07-01)
+User asked through the actual install-order scenario: install the IDE, then
+install Claude Code CLI, then log in — how does that actually work? Traced it
+and found a real gap: `claude_bin`'s PATH resolution was cached exactly once at
+process startup (hardening B1), so someone who opened Claude IDE first, saw
+"not installed," went and installed the CLI, and clicked **Retry check** would
+still see "not installed" — the cache never re-checked PATH, silently requiring
+a full relaunch that nothing on screen mentioned.
+- Fix (user picked "fix the re-probe" over just improving the message): the
+  cache is now **sticky once found, retryable while absent** — a binary that's
+  never been found and trusted has nothing for the anti-hijack guarantee to
+  protect, so it's safe to re-run `which` on every miss; once found, it locks
+  in exactly as before and is never re-resolved (B1 intact). **+1 test** (61
+  total) against a fake probe, deterministic (miss, miss, hit, then a post-hit
+  miss that must NOT re-probe) — doesn't touch real PATH/env, so it can't
+  destabilize other tests sharing the process.
+- Gate: clippy `-D warnings` 0, 61 Rust tests pass. Committed as `741ffca`.
 
 ### Phase 0 — Skeleton & preflight  ·  COMPLETE ✅
 - [x] Rust toolchain (cargo 1.96.0); Tauri deps via dnf.
