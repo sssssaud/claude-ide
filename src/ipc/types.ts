@@ -177,6 +177,27 @@ export interface ProjectPermissionsFile {
   permissions: ProjectPermissions;
 }
 
+/** Mirror of Rust `AgentDef` (Addendum II §S8) — a project-scoped custom
+ *  sub-agent definition (`.claude/agents/<slug>.md`). Project-only for now;
+ *  the user-global `~/.claude/agents/` directory is a later phase. */
+export interface AgentDef {
+  slug: string;
+  description: string;
+  /** Empty = the CLI inherits all built-in tools. */
+  tools: string[];
+  /** Empty = the CLI inherits the session's default model. */
+  model: string;
+  prompt: string;
+}
+
+/** Mirror of Rust `AgentDefSummary` — the list-view row. */
+export interface AgentDefSummary {
+  slug: string;
+  description: string;
+  tools: string[];
+  model: string;
+}
+
 /** The `editor.wordWrap` values Monaco understands (Addendum II §1). */
 export type WordWrap = "off" | "on" | "wordWrapColumn" | "bounded";
 

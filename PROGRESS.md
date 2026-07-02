@@ -1195,3 +1195,58 @@ without asking.
 - Consider lazy-loading xterm too, to shave a little more off the initial chunk.
 - The env-gated cold-start marker (`CLAUDE_IDE_PERF_MARKER`) is dev/measurement
   instrumentation — keep using it to track budgets each phase.
+
+## Addendum III — Differentiators (Agents, Context Awareness, Usage Insight)
+
+Addendum II made the IDE a genuinely usable place to work; this addendum makes it
+*worth choosing over the bare CLI* — the user's framing: "we need the ppl trust."
+Three slices, each independently gated: a project-scoped custom sub-agent builder,
+a context/compact-full warning banner, and capture-first usage/rate-limit logging
+(no fabricated numbers — the CLI exposes no reset-time API today; see S10).
+
+### S8 — Agent definitions: author + quick-launch (project-scoped) · COMPLETE ✅ (2026-07-02)
+- **Backend** (`src-tauri/src/agent_defs.rs`, new module): list/read/create/
+  update/delete `.claude/agents/*.md` — the real file format the `claude` CLI
+  loads custom sub-agents from (confirmed against real files shipped with
+  installed plugins: YAML frontmatter `name`/`description`/`tools`/`model`,
+  then a markdown body as the system prompt). Deliberately named `agent_defs`,
+  not `agents` — `agents.rs`/`AgentsSection.tsx` already exist for the
+  unrelated live/background-session dashboard over `claude agents --json`.
+- **No new YAML dependency**: `serde_yaml` is deprecated/archived and the
+  schema this app writes is four flat, single-line scalars — a small
+  hand-rolled writer (always double-quotes description/model with correct
+  backslash/quote escaping) and a tolerant best-effort reader (never hides a
+  file it can't fully parse — blank fields instead) is simpler and more
+  honest than a YAML crate for that shape.
+- **Path confinement, extended one level past `files.rs`'s `create_entry`**:
+  `.claude` and `.claude/agents` are fixed literal components (never
+  caller-supplied), created via `create_dir_all` off the canonical workspace
+  root; only THEN is the caller-chosen slug — restricted to lowercase
+  kebab-case by `validate_slug`, so it cannot contain a separator or `..` —
+  appended as a single path component. Read/update/delete resolve the
+  (already-existing) target directly via a `resolve_within`-style
+  canonicalize + `starts_with` containment check scoped to the agents dir.
+  Renaming (slug change on update) writes the new file before removing the
+  old one, so a mid-way failure never leaves zero copies behind.
+- +12 Rust tests (round-trip, duplicate/bad-slug rejection, rename, delete,
+  tolerant parse of a real unquoted example file, a no-frontmatter file still
+  gets listed not hidden, quote/unquote escaping). `cargo clippy --all-targets
+  -- -D warnings` clean.
+- **Frontend**: new `layout/AgentDefsPanel.tsx` — list / create / edit form /
+  delete (inline confirm, no `window.confirm`) — mounted as a new "Agents"
+  activity-bar tab (`store/layout.ts` `View` gains `"agentDefs"`, distinct
+  icon from the Sessions rail's timeline glyph). **Quick-launch** reuses
+  Addendum II §S7's "Open Terminal Here" mechanism verbatim — the same
+  `getActivePtyId(cwd)` + `ptyWrite` pair writes `claude --agent <slug>` into
+  the workspace's already-open real shell. Zero new exec surface: it's typing
+  into a shell the user already owns, not a new spawn path.
+- **Scope, per explicit user decision**: project-only (`.claude/agents/`).
+  The user-global `~/.claude/agents/` directory is deferred — "for now do for
+  project only but after the final work... we will focus it on project with
+  globaly."
+- Gate: typecheck/build/clippy/84 Rust tests green. Live `tauri dev` boot
+  confirmed clean (preflight OK, PTY opens/reaps normally, no runtime errors)
+  via process + log inspection.
+
+### S9 — Context/compact-full warning banner · pending
+### S10 — Usage/rate-limit capture-first instrumentation · pending

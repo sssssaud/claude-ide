@@ -18,7 +18,7 @@ import { create } from "zustand";
 export type Region = "sidebar" | "editor" | "terminal";
 
 /** The side-panel views, selected from the activity bar. */
-export type View = "files" | "search" | "git" | "permissions" | "usage" | "sessions";
+export type View = "files" | "search" | "git" | "permissions" | "usage" | "sessions" | "agentDefs";
 
 /** The Bottom Panel's tabs (Addendum II §S6). Not persisted — always opens on
  *  Terminal, like a fresh restart of any panel-tab app. */
@@ -31,7 +31,7 @@ type Visibility = Record<Region, boolean>;
 const DEFAULTS: Visibility = { sidebar: true, editor: true, terminal: true };
 const DEFAULT_VIEW: View = "files";
 
-const VIEW_VALUES: View[] = ["files", "search", "git", "permissions", "usage", "sessions"];
+const VIEW_VALUES: View[] = ["files", "search", "git", "permissions", "usage", "sessions", "agentDefs"];
 
 interface Persisted extends Visibility {
   view: View;

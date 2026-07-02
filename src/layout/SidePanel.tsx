@@ -7,6 +7,7 @@
  * away (VS Code-style).
  */
 
+import { AgentDefsPanel } from "@/layout/AgentDefsPanel";
 import { FileExplorer } from "@/layout/FileExplorer";
 import { GitPanel } from "@/layout/GitPanel";
 import { PermissionsPanel } from "@/layout/PermissionsPanel";
@@ -20,6 +21,7 @@ const LABELS: Record<View, string> = {
   search: "Search",
   git: "Source Control",
   sessions: "Sessions",
+  agentDefs: "Agents",
   permissions: "Permissions",
   usage: "Usage",
 };
@@ -42,6 +44,8 @@ export function SidePanel() {
         <GitPanel />
       ) : view === "sessions" ? (
         <SessionsPanel />
+      ) : view === "agentDefs" ? (
+        <AgentDefsPanel />
       ) : view === "permissions" ? (
         <PermissionsPanel />
       ) : (

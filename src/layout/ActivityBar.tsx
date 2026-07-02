@@ -21,6 +21,7 @@ const VIEWS: { id: View; label: string; icon: ReactNode }[] = [
   { id: "search", label: "Search", icon: <SearchIcon /> },
   { id: "git", label: "Source Control", icon: <GitIcon /> },
   { id: "sessions", label: "Sessions", icon: <SessionsIcon /> },
+  { id: "agentDefs", label: "Agents", icon: <AgentIcon /> },
   { id: "permissions", label: "Permissions", icon: <ShieldIcon /> },
   { id: "usage", label: "Usage", icon: <ChartIcon /> },
 ];
@@ -293,6 +294,21 @@ function SessionsIcon() {
       <circle cx="5" cy="14" r="1.6" />
       <path d="M5 5.6v1.8M5 10.6v1.8" />
       <path d="M9 4h5M9 9h5M9 14h5" />
+    </svg>
+  );
+}
+
+function AgentIcon() {
+  // A small "assistant" glyph: a rounded head + two antenna dots, distinct
+  // from the Sessions rail's timeline icon (this is about DEFINING an agent,
+  // not watching one run).
+  return (
+    <svg {...svgProps()}>
+      <rect x="4" y="6" width="10" height="8" rx="2.5" />
+      <circle cx="7.3" cy="10" r="1" />
+      <circle cx="10.7" cy="10" r="1" />
+      <path d="M9 6V3.6" />
+      <circle cx="9" cy="2.6" r="1" />
     </svg>
   );
 }

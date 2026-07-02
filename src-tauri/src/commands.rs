@@ -11,6 +11,7 @@ use std::sync::Arc;
 use tauri::ipc::Channel;
 use tauri::State;
 
+use crate::agent_defs::{AgentDef, AgentDefSummary};
 use crate::agents::{AgentSession, DaemonStatus};
 use crate::auth::AuthStatus;
 use crate::checkpoints::{CheckpointDiff, CheckpointTimeline};
@@ -354,6 +355,41 @@ pub fn read_permissions(cwd: Option<String>) -> IpcResult<ProjectPermissionsFile
 #[tauri::command]
 pub fn write_permissions(cwd: Option<String>, permissions: ProjectPermissions) -> IpcResult<()> {
     crate::permissions::write(cwd, permissions)
+}
+
+// ----- Agent definitions (Addendum II §S8, project-scoped only) --------------
+// Author/edit/delete `.claude/agents/*.md` custom sub-agent files — the CLI's
+// own format. Distinct from `list_agents`/`daemon_status` above, which report
+// LIVE/background `claude` sessions via `claude agents --json`, not definitions.
+
+/// List every agent definition in the project's `.claude/agents/`.
+#[tauri::command]
+pub fn list_agent_defs(cwd: Option<String>) -> IpcResult<Vec<AgentDefSummary>> {
+    crate::agent_defs::list(cwd)
+}
+
+/// Read one agent definition's full contents (frontmatter + prompt body).
+#[tauri::command]
+pub fn read_agent_def(cwd: Option<String>, slug: String) -> IpcResult<AgentDef> {
+    crate::agent_defs::read(cwd, slug)
+}
+
+/// Create a new agent definition; fails if the name is already taken.
+#[tauri::command]
+pub fn create_agent_def(cwd: Option<String>, def: AgentDef) -> IpcResult<AgentDefSummary> {
+    crate::agent_defs::create(cwd, def)
+}
+
+/// Overwrite (or rename, by changing the slug) an existing agent definition.
+#[tauri::command]
+pub fn update_agent_def(cwd: Option<String>, slug: String, def: AgentDef) -> IpcResult<AgentDefSummary> {
+    crate::agent_defs::update(cwd, slug, def)
+}
+
+/// Delete an agent definition.
+#[tauri::command]
+pub fn delete_agent_def(cwd: Option<String>, slug: String) -> IpcResult<()> {
+    crate::agent_defs::delete(cwd, slug)
 }
 
 // ----- App settings (Addendum II §1, S1) -------------------------------------

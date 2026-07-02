@@ -4,6 +4,7 @@
 //! Phase 0 command surface, and a clean app-exit teardown hook (no children to
 //! reap yet, but the seam is in place for Phase 1+).
 
+mod agent_defs;
 mod agents;
 mod auth;
 mod checkpoints;
@@ -99,6 +100,11 @@ pub fn run(startup: Instant) {
             commands::git_discard,
             commands::search,
             commands::list_files,
+            commands::list_agent_defs,
+            commands::read_agent_def,
+            commands::create_agent_def,
+            commands::update_agent_def,
+            commands::delete_agent_def,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

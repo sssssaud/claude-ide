@@ -10,6 +10,8 @@ import { open as openDialog } from "@tauri-apps/plugin-dialog";
 // shape. Erased at build time, so no runtime import cycle with the store.
 import type { ConvItem } from "@/store/conversation";
 import type {
+  AgentDef,
+  AgentDefSummary,
   AgentSession,
   AuthStatus,
   CheckpointDiff,
@@ -420,6 +422,60 @@ export async function writePermissions(
 ): Promise<void> {
   try {
     await invoke<void>("write_permissions", { cwd, permissions });
+  } catch (e) {
+    normalizeError(e);
+  }
+}
+
+// ----- Agent definitions (Addendum II §S8, project-scoped only) ------------
+// Author/edit/delete `.claude/agents/*.md` custom sub-agent files. Distinct
+// from `listAgents`/`daemonStatus` below, which report LIVE/background
+// `claude` sessions, not definitions.
+
+/** List every agent definition in the project's `.claude/agents/`. */
+export async function listAgentDefs(cwd?: string): Promise<AgentDefSummary[]> {
+  try {
+    return await invoke<AgentDefSummary[]>("list_agent_defs", { cwd });
+  } catch (e) {
+    normalizeError(e);
+  }
+}
+
+/** Read one agent definition's full contents (frontmatter + prompt body). */
+export async function readAgentDef(slug: string, cwd?: string): Promise<AgentDef> {
+  try {
+    return await invoke<AgentDef>("read_agent_def", { cwd, slug });
+  } catch (e) {
+    normalizeError(e);
+  }
+}
+
+/** Create a new agent definition; fails if the name is already taken. */
+export async function createAgentDef(def: AgentDef, cwd?: string): Promise<AgentDefSummary> {
+  try {
+    return await invoke<AgentDefSummary>("create_agent_def", { cwd, def });
+  } catch (e) {
+    normalizeError(e);
+  }
+}
+
+/** Overwrite (or rename, by changing the slug) an existing agent definition. */
+export async function updateAgentDef(
+  slug: string,
+  def: AgentDef,
+  cwd?: string,
+): Promise<AgentDefSummary> {
+  try {
+    return await invoke<AgentDefSummary>("update_agent_def", { cwd, slug, def });
+  } catch (e) {
+    normalizeError(e);
+  }
+}
+
+/** Delete an agent definition. */
+export async function deleteAgentDef(slug: string, cwd?: string): Promise<void> {
+  try {
+    await invoke<void>("delete_agent_def", { cwd, slug });
   } catch (e) {
     normalizeError(e);
   }
