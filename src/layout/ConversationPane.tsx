@@ -258,13 +258,17 @@ function ModelPicker({ sessionLive }: { sessionLive: boolean }) {
         aria-label="Session model"
         className="cursor-pointer"
         style={{
-          background: "transparent",
+          // Explicit dark background + color: a `transparent` select falls back
+          // to WebKitGTK's native (white) widget, which looked wrong on the dark
+          // header. Matches the app's other dropdowns (e.g. Permissions mode) —
+          // keep the native arrow, just set a dark background.
+          background: "var(--color-bg-raised)",
           border: "1px solid var(--color-border-subtle)",
           borderRadius: "var(--radius-sm)",
-          padding: "0 var(--space-1)",
+          padding: "1px var(--space-2)",
           fontFamily: "var(--font-mono)",
           fontSize: "var(--text-xs)",
-          color: "var(--color-fg-secondary)",
+          color: "var(--color-fg-primary)",
         }}
       >
         {MODELS.map((m) => (

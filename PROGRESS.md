@@ -1592,5 +1592,14 @@ committed and screenshot-verified.
   button (`claude plugin install name@marketplace` via InlineTerminal) or an
   "installed" tag (cross-referenced against `plugin list`). Verified: search
   "security" narrows 4→2 correctly, Install buttons present.
-- **4/4 — Steer running agents**: pending (needs its own look at the daemon /
-  live-agent interrupt surface before building).
+- **4/4 — Steer running agents**: deferred to the END of the phase list at the
+  user's request ("put it on the last of these phase; there are many other
+  things that are important") — other priorities go ahead of it (TBD from the
+  user).
+- **Model picker polish** (user-tested the real app): (1) the select rendered
+  as a white native widget on the dark header — a `transparent` background
+  makes WebKitGTK fall back to its native chrome; set an explicit dark
+  `--color-bg-raised` background like the app's other selects (arrow kept).
+  (2) Labels now carry the current version — Opus 4.8 / Sonnet 5 / Haiku 4.5 /
+  Fable 5 — instead of bare tier names; the alias value is unchanged (still
+  resolves to the latest). Verified via screenshot.

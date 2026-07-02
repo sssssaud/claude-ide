@@ -13,13 +13,17 @@
 
 import { create } from "zustand";
 
-/** `value` is the `--model` alias ("" = CLI default, no flag passed). */
+/** `value` is the `--model` alias ("" = CLI default, no flag passed); the alias
+ *  always resolves to the latest of that tier, so labels carry the current
+ *  version for clarity (accurate as of 2026-07). The live session's *actual*
+ *  model id is shown separately from its `init` event, so this can't silently
+ *  mislead if a tier bumps. */
 export const MODELS: { value: string; label: string }[] = [
   { value: "", label: "Default" },
-  { value: "opus", label: "Opus" },
-  { value: "sonnet", label: "Sonnet" },
-  { value: "haiku", label: "Haiku" },
-  { value: "fable", label: "Fable" },
+  { value: "opus", label: "Opus 4.8" },
+  { value: "sonnet", label: "Sonnet 5" },
+  { value: "haiku", label: "Haiku 4.5" },
+  { value: "fable", label: "Fable 5" },
 ];
 
 const KEY = "ide:session-model";
