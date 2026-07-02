@@ -1597,9 +1597,18 @@ committed and screenshot-verified.
   things that are important") — other priorities go ahead of it (TBD from the
   user).
 - **Model picker polish** (user-tested the real app): (1) the select rendered
-  as a white native widget on the dark header — a `transparent` background
-  makes WebKitGTK fall back to its native chrome; set an explicit dark
-  `--color-bg-raised` background like the app's other selects (arrow kept).
-  (2) Labels now carry the current version — Opus 4.8 / Sonnet 5 / Haiku 4.5 /
-  Fable 5 — instead of bare tier names; the alias value is unchanged (still
-  resolves to the latest). Verified via screenshot.
+  as a white native widget on the dark header; (2) labels now carry the current
+  version — Opus 4.8 / Sonnet 5 / Haiku 4.5 / Fable 5 — instead of bare tier
+  names; the alias value is unchanged (still resolves to the latest).
+- **White native form controls across the app** (root cause + real fix): the
+  model picker AND the Settings dropdowns/inputs all rendered WHITE in the real
+  app. Root cause: **WebKitGTK renders native `<select>`/`<input>` with the
+  light GTK *system* theme, ignoring CSS `background`** — and my earlier
+  "verification" screenshots used **headless Chrome**, which obeys the CSS and
+  showed them dark, so the bug never appeared in testing. Real fix:
+  `color-scheme: dark` on `:root` (and `light` on the light theme) in
+  `tokens.css` — a single engine-level directive that themes every native
+  control, the `<select>` popup, and scrollbars to match. **Verified in the
+  actual WebKitGTK window this time** (not Chrome): the model picker is now
+  dark. **Methodology lesson: verify native-control/rendering changes in the
+  real WebKitGTK app, never headless Chrome — the two renderers differ.**

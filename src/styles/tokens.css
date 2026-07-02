@@ -91,6 +91,13 @@
  * map less cleanly onto Tailwind's single-axis utilities.
  */
 :root {
+  /* Tell the engine to render native form controls, the <select> popup, and
+   * scrollbars dark by default. WebKitGTK (this app's engine) otherwise falls
+   * back to the light GTK system theme for <input>/<select>, so they show up
+   * white on the dark UI regardless of CSS background. The light theme flips
+   * this to `light` below. */
+  color-scheme: dark;
+
   /* Spacing (4px base) */
   --space-1: 2px;
   --space-2: 4px;
@@ -128,6 +135,7 @@
 
 /* Light — cool-neutral "paper", AA-tuned. */
 :root[data-theme="light"] {
+  color-scheme: light;
   --color-bg-base: #eef0f3;
   --color-bg-raised: #ffffff;
   --color-bg-recessed: #e3e6ea;
