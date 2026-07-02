@@ -16,6 +16,7 @@ mod files;
 mod git;
 mod perf;
 mod permissions;
+mod plugins;
 mod preflight;
 mod pty;
 mod search;
@@ -105,6 +106,8 @@ pub fn run(startup: Instant) {
             commands::create_agent_def,
             commands::update_agent_def,
             commands::delete_agent_def,
+            commands::list_plugins,
+            commands::list_marketplaces,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

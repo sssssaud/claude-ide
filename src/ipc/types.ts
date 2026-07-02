@@ -202,6 +202,28 @@ export interface AgentDefSummary {
   model: string;
 }
 
+/** Mirror of Rust `PluginEntry` (Addendum III §S11) — one row from `claude
+ *  plugin list --json`. A skill shows up here too, with `id` ending in
+ *  `@skills-dir`. Every field optional: a faithful, uninterpreted mirror. */
+export interface PluginEntry {
+  id: string | null;
+  version: string | null;
+  scope: string | null;
+  enabled: boolean | null;
+  installPath: string | null;
+}
+
+/** Mirror of Rust `MarketplaceEntry` — one row from `claude plugin
+ *  marketplace list --json`. */
+export interface MarketplaceEntry {
+  name: string | null;
+  source: string | null;
+  repo: string | null;
+  url: string | null;
+  path: string | null;
+  installLocation: string | null;
+}
+
 /** The `editor.wordWrap` values Monaco understands (Addendum II §1). */
 export type WordWrap = "off" | "on" | "wordWrapColumn" | "bounded";
 

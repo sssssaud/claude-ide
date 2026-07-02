@@ -13,12 +13,15 @@
  * `KeybindingsSection`. Tokens only, keyboard-operable, three states present.
  */
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { EmptyState, ErrorState, LoadingState } from "@/components/states";
 import { InlineTerminal } from "@/components/InlineTerminal";
 import { KeybindingsSection } from "@/layout/KeybindingsSection";
 import { ThemePicker } from "@/layout/ThemePicker";
-import type { ScopeSettings, SettingsScope } from "@/ipc/types";
+import { listMarketplaces, listPlugins } from "@/ipc/commands";
+import type { MarketplaceEntry, PluginEntry, ScopeSettings, SettingsScope } from "@/ipc/types";
+import { isIpcError } from "@/ipc/types";
+import { shellQuote } from "@/lib/shell";
 import { useAuth } from "@/store/auth";
 import {
   APPEARANCE_DEFAULTS,
@@ -30,7 +33,7 @@ import {
 } from "@/store/settings";
 import { useActiveCwd } from "@/store/workspaces";
 
-type Category = "editor" | "files" | "terminal" | "appearance" | "keybindings" | "account";
+type Category = "editor" | "files" | "terminal" | "appearance" | "keybindings" | "account" | "plugins";
 type SettingsCategory = keyof ScopeSettings;
 
 const CATEGORIES: { id: Category; label: string }[] = [
@@ -40,7 +43,14 @@ const CATEGORIES: { id: Category; label: string }[] = [
   { id: "appearance", label: "Appearance" },
   { id: "keybindings", label: "Keybindings" },
   { id: "account", label: "Account" },
+  { id: "plugins", label: "Plugins & Skills" },
 ];
+
+/** Categories that are action-oriented (no draft controls) rather than the
+ *  generic control-list rendering — Account and Plugins & Skills. Both are
+ *  user-global, not workspace-scoped, so the "open a folder" note doesn't
+ *  apply to them either. */
+const ACTION_CATEGORIES: Category[] = ["account", "plugins"];
 
 /** Which backend sub-object each control's default lives in, for the "unset"
  *  fallback and the text control's clear-to-placeholder behaviour. Untyped as
@@ -247,14 +257,14 @@ export function SettingsView() {
           {!q && <CategoryRail active={category} onPick={setCategory} />}
           <div className="min-h-0 flex-1 overflow-auto" style={{ padding: "var(--space-6) var(--space-7)" }}>
             <div style={{ maxWidth: "760px", margin: "0 auto" }}>
-              {workspaceUnavailable && category !== "keybindings" && category !== "account" && (
+              {workspaceUnavailable && category !== "keybindings" && !ACTION_CATEGORIES.includes(category) && (
                 <Note text="Open a folder to set Workspace-scoped settings. Showing defaults; edits are disabled." />
               )}
               {nothingFound && category !== "keybindings" ? (
                 <EmptyState title="No matching settings" hint={`Nothing matches “${query.trim()}”.`} />
               ) : (
                 <>
-                  {!q && category !== "keybindings" && category !== "account" && (
+                  {!q && category !== "keybindings" && !ACTION_CATEGORIES.includes(category) && (
                     <h2 style={{ color: "var(--color-fg-secondary)", fontSize: "var(--text-xs)", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "var(--space-3)" }}>
                       {CATEGORIES.find((c) => c.id === category)?.label}
                     </h2>
@@ -309,6 +319,7 @@ export function SettingsView() {
                   </div>
                   {!q && category === "keybindings" && <KeybindingsSection />}
                   {!q && category === "account" && <AccountSection />}
+                  {!q && category === "plugins" && <PluginsSection />}
                 </>
               )}
             </div>
@@ -316,7 +327,7 @@ export function SettingsView() {
         </div>
       )}
 
-      <Footer dirty={dirty} disabled={workspaceUnavailable} hidden={category === "keybindings" && !q} />
+      <Footer dirty={dirty} disabled={workspaceUnavailable} hidden={(category === "keybindings" || category === "plugins") && !q} />
       {confirmingClose && <CloseConfirm />}
     </section>
   );
@@ -691,6 +702,337 @@ function AccountSection() {
     </div>
   );
 }
+
+// ---- Plugins & Skills (Addendum III §S11) -----------------------------------
+// Never hand-rolled: read-only status comes from `claude plugin list --json` /
+// `marketplace list --json`; every mutating action runs the CLI's own command
+// through `InlineTerminal` — the same pattern Account uses for `claude auth
+// login` — a real shell, never a second hand-rolled mutation path. Three
+// clearly separated blocks (Marketplaces / Plugins / Skills) rather than one
+// flat list, so managing either is legible at a glance.
+
+/** `"name@marketplace"` -> the two parts; a skill's id ends in `@skills-dir`. */
+function splitPluginId(id: string | null): { name: string; source: string } {
+  const s = id ?? "";
+  const at = s.lastIndexOf("@");
+  return at === -1 ? { name: s, source: "" } : { name: s.slice(0, at), source: s.slice(at + 1) };
+}
+
+function PluginsSection() {
+  const [plugins, setPlugins] = useState<PluginEntry[] | null>(null);
+  const [marketplaces, setMarketplaces] = useState<MarketplaceEntry[] | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [activeCommand, setActiveCommand] = useState<string | null>(null);
+  const [activeLabel, setActiveLabel] = useState("");
+
+  const load = () => {
+    setLoadError(null);
+    Promise.all([listPlugins(), listMarketplaces()])
+      .then(([p, m]) => {
+        setPlugins(p);
+        setMarketplaces(m);
+      })
+      .catch((e) => setLoadError(isIpcError(e) ? e.message : "Could not load plugins"));
+  };
+
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const run = (command: string, label: string) => {
+    setActiveCommand(command);
+    setActiveLabel(label);
+  };
+  const finishRun = () => {
+    setActiveCommand(null);
+    load();
+  };
+
+  const skills = (plugins ?? []).filter((p) => (p.id ?? "").endsWith("@skills-dir"));
+  const regularPlugins = (plugins ?? []).filter((p) => !(p.id ?? "").endsWith("@skills-dir"));
+
+  return (
+    <div style={{ marginTop: "var(--space-2)" }}>
+      <p style={{ color: "var(--color-fg-primary)", fontSize: "var(--text-sm)", fontWeight: 600, padding: "0 var(--space-3)" }}>
+        Plugins &amp; Skills
+      </p>
+      <p style={{ color: "var(--color-fg-secondary)", fontSize: "var(--text-xs)", padding: "0 var(--space-3)", marginTop: "var(--space-1)", maxWidth: "640px" }}>
+        Every action below runs the real <code>claude plugin</code> command in a small terminal — nothing here is
+        hand-rolled or simulated.
+      </p>
+
+      {loadError && <Banner tone="error" text={loadError} />}
+
+      {activeCommand && (
+        <div style={{ margin: "var(--space-3)", padding: "var(--space-3)", border: "1px solid var(--color-border-subtle)", borderRadius: "var(--radius-md)", background: "var(--color-bg-recessed)" }}>
+          <p style={{ color: "var(--color-fg-secondary)", fontSize: "var(--text-xs)", marginBottom: "var(--space-2)" }}>
+            Running: <code>{activeLabel}</code>
+          </p>
+          <InlineTerminal key={activeCommand} command={activeCommand} onExit={finishRun} />
+        </div>
+      )}
+
+      {plugins === null || marketplaces === null ? (
+        <p style={{ color: "var(--color-fg-secondary)", fontSize: "var(--text-xs)", padding: "var(--space-3)" }}>Loading…</p>
+      ) : (
+        <>
+          <PluginsMarketplacesBlock marketplaces={marketplaces} onRun={run} />
+          <PluginsInstalledBlock plugins={regularPlugins} marketplaces={marketplaces} onRun={run} />
+          <PluginsSkillsBlock skills={skills} onRun={run} />
+        </>
+      )}
+    </div>
+  );
+}
+
+function PluginsSectionBlock({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <div style={{ margin: "var(--space-3)", padding: "var(--space-3) var(--space-4)", border: "1px solid var(--color-border-subtle)", borderRadius: "var(--radius-md)" }}>
+      <p style={{ color: "var(--color-fg-primary)", fontSize: "var(--text-xs)", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "var(--space-2)" }}>
+        {title}
+      </p>
+      {children}
+    </div>
+  );
+}
+
+function PluginsMarketplacesBlock({
+  marketplaces,
+  onRun,
+}: {
+  marketplaces: MarketplaceEntry[];
+  onRun: (command: string, label: string) => void;
+}) {
+  const [source, setSource] = useState("");
+  const add = () => {
+    const v = source.trim();
+    if (!v) return;
+    onRun(`claude plugin marketplace add ${shellQuote(v)}`, `plugin marketplace add ${v}`);
+    setSource("");
+  };
+  return (
+    <PluginsSectionBlock title={`Marketplaces (${marketplaces.length})`}>
+      {marketplaces.length === 0 ? (
+        <p style={pluginsMutedStyle}>None configured.</p>
+      ) : (
+        <ul className="flex flex-col gap-[2px]" style={{ marginBottom: "var(--space-2)" }}>
+          {marketplaces.map((m) => {
+            const name = m.name;
+            return (
+              <li key={name ?? m.installLocation ?? Math.random()} className="flex items-center justify-between" style={pluginsRowStyle}>
+                <span style={pluginsMonoStyle}>
+                  {name ?? "?"}{" "}
+                  <span style={{ color: "var(--color-fg-muted)" }}>
+                    · {m.source ?? "?"}
+                    {m.repo ? ` · ${m.repo}` : m.url ? ` · ${m.url}` : m.path ? ` · ${m.path}` : ""}
+                  </span>
+                </span>
+                {name && (
+                  <button
+                    type="button"
+                    onClick={() => onRun(`claude plugin marketplace remove ${shellQuote(name)}`, `plugin marketplace remove ${name}`)}
+                    className="cursor-pointer"
+                    style={pluginsSmallBtnStyle}
+                  >
+                    Remove
+                  </button>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      <div className="flex items-center gap-[var(--space-2)]">
+        <input
+          value={source}
+          onChange={(e) => setSource(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && add()}
+          placeholder="owner/repo or a URL"
+          spellCheck={false}
+          className="min-w-0 flex-1"
+          style={pluginsInputStyle}
+        />
+        <button type="button" onClick={add} disabled={!source.trim()} className={source.trim() ? "cursor-pointer" : ""} style={pluginsPrimaryBtnStyle}>
+          Add
+        </button>
+      </div>
+    </PluginsSectionBlock>
+  );
+}
+
+function PluginsInstalledBlock({
+  plugins,
+  marketplaces,
+  onRun,
+}: {
+  plugins: PluginEntry[];
+  marketplaces: MarketplaceEntry[];
+  onRun: (command: string, label: string) => void;
+}) {
+  const [name, setName] = useState("");
+  const [marketplace, setMarketplace] = useState("");
+  const install = () => {
+    const n = name.trim();
+    if (!n) return;
+    const spec = marketplace.trim() ? `${n}@${marketplace.trim()}` : n;
+    onRun(`claude plugin install ${shellQuote(spec)}`, `plugin install ${spec}`);
+    setName("");
+  };
+  return (
+    <PluginsSectionBlock title={`Plugins (${plugins.length})`}>
+      {plugins.length === 0 ? (
+        <p style={pluginsMutedStyle}>None installed.</p>
+      ) : (
+        <ul className="flex flex-col gap-[2px]" style={{ marginBottom: "var(--space-2)" }}>
+          {plugins.map((p) => {
+            const id = p.id;
+            const { name: pname, source } = splitPluginId(id);
+            return (
+              <li key={id ?? Math.random()} className="flex items-center justify-between" style={pluginsRowStyle}>
+                <span style={pluginsMonoStyle}>
+                  {pname} <span style={{ color: "var(--color-fg-muted)" }}>@{source}{p.version ? ` · v${p.version}` : ""}</span>{" "}
+                  <span style={{ color: p.enabled ? "var(--color-status-success)" : "var(--color-fg-muted)" }}>
+                    {p.enabled ? "enabled" : "disabled"}
+                  </span>
+                </span>
+                {id && (
+                  <span className="flex items-center gap-[var(--space-1)]">
+                    <button
+                      type="button"
+                      onClick={() => onRun(`claude plugin ${p.enabled ? "disable" : "enable"} ${shellQuote(id)}`, `plugin ${p.enabled ? "disable" : "enable"} ${id}`)}
+                      className="cursor-pointer"
+                      style={pluginsSmallBtnStyle}
+                    >
+                      {p.enabled ? "Disable" : "Enable"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onRun(`claude plugin uninstall ${shellQuote(id)}`, `plugin uninstall ${id}`)}
+                      className="cursor-pointer"
+                      style={pluginsSmallBtnStyle}
+                    >
+                      Uninstall
+                    </button>
+                  </span>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      <div className="flex items-center gap-[var(--space-2)]" style={{ flexWrap: "wrap" }}>
+        <input value={name} onChange={(e) => setName(e.target.value)} placeholder="plugin name" spellCheck={false} className="min-w-0 flex-1" style={pluginsInputStyle} />
+        <select value={marketplace} onChange={(e) => setMarketplace(e.target.value)} className="cursor-pointer" style={pluginsInputStyle}>
+          <option value="">any marketplace</option>
+          {marketplaces
+            .filter((m) => m.name)
+            .map((m) => (
+              <option key={m.name} value={m.name as string}>
+                {m.name}
+              </option>
+            ))}
+        </select>
+        <button type="button" onClick={install} disabled={!name.trim()} className={name.trim() ? "cursor-pointer" : ""} style={pluginsPrimaryBtnStyle}>
+          Install
+        </button>
+      </div>
+    </PluginsSectionBlock>
+  );
+}
+
+function PluginsSkillsBlock({ skills, onRun }: { skills: PluginEntry[]; onRun: (command: string, label: string) => void }) {
+  const [name, setName] = useState("");
+  const create = () => {
+    const n = name.trim();
+    if (!n) return;
+    onRun(`claude plugin init ${shellQuote(n)} --with skills`, `plugin init ${n} --with skills`);
+    setName("");
+  };
+  return (
+    <PluginsSectionBlock title={`Skills (${skills.length})`}>
+      {skills.length === 0 ? (
+        <p style={pluginsMutedStyle}>None yet.</p>
+      ) : (
+        <ul className="flex flex-col gap-[2px]" style={{ marginBottom: "var(--space-2)" }}>
+          {skills.map((s) => {
+            const id = s.id;
+            const { name: sname } = splitPluginId(id);
+            return (
+              <li key={id ?? Math.random()} className="flex items-center justify-between" style={pluginsRowStyle}>
+                <span style={pluginsMonoStyle}>
+                  /{sname} {s.version && <span style={{ color: "var(--color-fg-muted)" }}>· v{s.version}</span>}
+                </span>
+                {id && (
+                  <button type="button" onClick={() => onRun(`claude plugin uninstall ${shellQuote(id)}`, `plugin uninstall ${id}`)} className="cursor-pointer" style={pluginsSmallBtnStyle}>
+                    Remove
+                  </button>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      <div className="flex items-center gap-[var(--space-2)]">
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && create()}
+          placeholder="skill-name"
+          spellCheck={false}
+          className="min-w-0 flex-1"
+          style={pluginsInputStyle}
+        />
+        <button type="button" onClick={create} disabled={!name.trim()} className={name.trim() ? "cursor-pointer" : ""} style={pluginsPrimaryBtnStyle}>
+          New skill
+        </button>
+      </div>
+    </PluginsSectionBlock>
+  );
+}
+
+const pluginsRowStyle: CSSProperties = {
+  padding: "var(--space-1) var(--space-2)",
+  borderRadius: "var(--radius-sm)",
+  background: "var(--color-bg-base)",
+};
+const pluginsMonoStyle: CSSProperties = {
+  fontFamily: "var(--font-mono)",
+  fontSize: "var(--text-xs)",
+  color: "var(--color-fg-primary)",
+};
+const pluginsMutedStyle: CSSProperties = {
+  color: "var(--color-fg-muted)",
+  fontSize: "var(--text-xs)",
+  marginBottom: "var(--space-2)",
+};
+const pluginsInputStyle: CSSProperties = {
+  background: "var(--color-bg-base)",
+  border: "1px solid var(--color-border-subtle)",
+  borderRadius: "var(--radius-sm)",
+  padding: "var(--space-1) var(--space-2)",
+  fontFamily: "var(--font-mono)",
+  fontSize: "var(--text-xs)",
+  color: "var(--color-fg-primary)",
+};
+const pluginsSmallBtnStyle: CSSProperties = {
+  border: "none",
+  borderRadius: "var(--radius-sm)",
+  padding: "2px var(--space-2)",
+  fontFamily: "var(--font-mono)",
+  fontSize: "var(--text-xs)",
+  background: "transparent",
+  color: "var(--color-fg-secondary)",
+};
+const pluginsPrimaryBtnStyle: CSSProperties = {
+  border: "1px solid var(--color-border-strong)",
+  borderRadius: "var(--radius-sm)",
+  padding: "var(--space-1) var(--space-3)",
+  fontFamily: "var(--font-mono)",
+  fontSize: "var(--text-xs)",
+  background: "transparent",
+  color: "var(--color-fg-primary)",
+};
 
 // ---- Apply / Discard footer -------------------------------------------------
 

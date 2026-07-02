@@ -1320,3 +1320,52 @@ a context/compact-full warning banner, and capture-first usage/rate-limit loggin
   process-inspection method as S9). No real `rate_limit_event` observed yet
   in this session (expected — capture-first means the payoff is at the NEXT
   natural occurrence, not this slice).
+
+### S11 — Settings: Plugins & Skills · COMPLETE ✅ (2026-07-02)
+- User asked how to install/run a plugin or skill from inside the IDE, then
+  asked for it to live in Settings, organized cleanly like Appearance/
+  Preferences — "everything should be managed... don't put them all in one
+  place." Verified against the real installed CLI first (2.1.198):
+  `claude plugin list --json` and `claude plugin marketplace list --json` are
+  real, structured, READ-ONLY commands (confirmed live — e.g. `aeo@skills-dir`
+  showing a skill through the same list as marketplace-sourced plugins), so
+  this could be a real managed view, not just a link out to a bare terminal.
+- **New `src-tauri/src/plugins.rs`** (read-only, mirrors `agents.rs`'s
+  pattern exactly): `list_plugins()`/`list_marketplaces()` spawn the CLI's own
+  `--json` commands and parse tolerantly (a non-array/junk payload -> empty
+  list; an element that doesn't match the shape is dropped, not fatal to the
+  whole list). Every field `Option<...>` so CLI schema drift can't break the
+  view. +4 Rust tests, including one against the exact real shape captured
+  live this session.
+- **Never hand-rolled**: every mutating action (add/remove marketplace,
+  install, enable/disable, uninstall, scaffold a new skill via `claude plugin
+  init --with skills`) runs the CLI's real command through `InlineTerminal` —
+  the same mechanism Account already uses for `claude auth login` — a real
+  shell, not a second hand-rolled mutation path. Zero new mutating backend
+  commands were added; only the two read-only list commands.
+- **Shell-injection guard**: command strings now interpolate user-typed
+  values (a marketplace URL, a plugin/skill name) for the first time outside
+  `FileExplorer.tsx`'s existing "Open Terminal Here" — extracted its local
+  `shellQuote` into a new shared `src/lib/shell.ts` (single-quote POSIX
+  escape) rather than duplicating a security-relevant function, and
+  `FileExplorer.tsx` now imports it too.
+- **New Settings category "Plugins & Skills"** (`SettingsView.tsx`), action-
+  oriented like Account (no staged draft/Apply — new `ACTION_CATEGORIES`
+  replaces the old two-condition `!== "keybindings" && !== "account"` checks
+  sprinkled through the render logic). THREE clearly separated blocks per the
+  user's explicit ask, not one flat list: **Marketplaces** (list + add/remove),
+  **Plugins** (list with enabled/disabled + version + source badges, install
+  form with a marketplace picker, per-row enable/disable/uninstall), **Skills**
+  (filtered from the same list by the `@skills-dir` id suffix, list + a
+  "New skill" form). A single shared `activeCommand` slot shows one running
+  `InlineTerminal` at a time regardless of which block triggered it, then
+  refreshes both lists on exit.
+- Gate: 90 Rust tests green, clippy clean, typecheck/build clean. Live
+  `tauri dev` boot confirmed clean (no runtime errors). Did not additionally
+  screenshot the live Settings UI (no GUI automation available for the native
+  Tauri window in this environment) — the underlying `claude plugin list
+  --json` / `marketplace list --json` calls were independently verified live
+  via direct shell execution earlier this session, and `plugins.rs` reuses
+  the exact same `claude_bin::path()` + `Command::new(...).args([...])`
+  pattern `agents.rs` already uses successfully (proven by the boot log's
+  own `preflight complete` line, which resolves the same binary path).

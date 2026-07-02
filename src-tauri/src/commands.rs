@@ -21,6 +21,7 @@ use crate::files::{DirEntry, FileContents};
 use crate::git::{GitBranches, GitDiff, GitStatus};
 use crate::perf::{self, PerfStats};
 use crate::permissions::{ProjectPermissions, ProjectPermissionsFile};
+use crate::plugins::{MarketplaceEntry, PluginEntry};
 use crate::preflight::{self, PreflightReport};
 use crate::pty::PtyRegistry;
 use crate::search::SearchResults;
@@ -390,6 +391,24 @@ pub fn update_agent_def(cwd: Option<String>, slug: String, def: AgentDef) -> Ipc
 #[tauri::command]
 pub fn delete_agent_def(cwd: Option<String>, slug: String) -> IpcResult<()> {
     crate::agent_defs::delete(cwd, slug)
+}
+
+// ----- Plugins & Skills (Addendum III §S11) -----------------------------------
+// Read-only status for Settings, mirroring `claude plugin list --json` /
+// `claude plugin marketplace list --json`. Every mutating action (install,
+// enable/disable, uninstall, add a marketplace, scaffold a skill) runs the
+// CLI's own command through `InlineTerminal` on the frontend, not here.
+
+/// List installed plugins (and skills — the CLI reports both together).
+#[tauri::command]
+pub async fn list_plugins() -> IpcResult<Vec<PluginEntry>> {
+    crate::plugins::list_plugins().await
+}
+
+/// List configured plugin marketplaces.
+#[tauri::command]
+pub async fn list_marketplaces() -> IpcResult<Vec<MarketplaceEntry>> {
+    crate::plugins::list_marketplaces().await
 }
 
 // ----- App settings (Addendum II §1, S1) -------------------------------------

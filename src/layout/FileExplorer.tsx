@@ -21,6 +21,7 @@ import {
 } from "@/ipc/commands";
 import type { DirEntry } from "@/ipc/types";
 import { isIpcError } from "@/ipc/types";
+import { shellQuote } from "@/lib/shell";
 import { getActivePtyId } from "@/store/activeTerminals";
 import { useActiveEditor } from "@/store/editor";
 import { useLayout } from "@/store/layout";
@@ -42,13 +43,6 @@ function targetDir(entry: DirEntry | null): string {
   if (entry.isDir) return entry.path;
   const i = entry.path.lastIndexOf("/");
   return i === -1 ? "" : entry.path.slice(0, i);
-}
-
-/** Single-quote a path for a literal `cd` typed into a real shell (Open
- *  Terminal Here) — the standard POSIX escape, since a file/folder name may
- *  legally contain shell metacharacters and this is a REAL pty, not a sandbox. */
-function shellQuote(path: string): string {
-  return `'${path.replace(/'/g, `'\\''`)}'`;
 }
 
 export function FileExplorer() {

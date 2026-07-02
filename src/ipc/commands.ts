@@ -23,7 +23,9 @@ import type {
   GitBranches,
   GitDiff,
   GitStatus,
+  MarketplaceEntry,
   PerfStats,
+  PluginEntry,
   PreflightReport,
   Keybindings,
   ProjectPermissions,
@@ -476,6 +478,29 @@ export async function updateAgentDef(
 export async function deleteAgentDef(slug: string, cwd?: string): Promise<void> {
   try {
     await invoke<void>("delete_agent_def", { cwd, slug });
+  } catch (e) {
+    normalizeError(e);
+  }
+}
+
+// ----- Plugins & Skills (Addendum III §S11) ---------------------------------
+// Read-only status for Settings. Every mutating action (install, enable/
+// disable, uninstall, add a marketplace, scaffold a skill) runs the CLI's own
+// command through `InlineTerminal`, not a wrapper here.
+
+/** List installed plugins (and skills — the CLI reports both together). */
+export async function listPlugins(): Promise<PluginEntry[]> {
+  try {
+    return await invoke<PluginEntry[]>("list_plugins");
+  } catch (e) {
+    normalizeError(e);
+  }
+}
+
+/** List configured plugin marketplaces. */
+export async function listMarketplaces(): Promise<MarketplaceEntry[]> {
+  try {
+    return await invoke<MarketplaceEntry[]>("list_marketplaces");
   } catch (e) {
     normalizeError(e);
   }
