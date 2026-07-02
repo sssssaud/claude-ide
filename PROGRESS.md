@@ -467,6 +467,82 @@ diff instead. Found and fixed 5 real issues:
   store → component → backend command → validated persistence), not by
   eyeballing it. Committed as `ce1b627`.
 
+### S7 — 🔸 extras · COMPLETE ✅ (2026-07-02)
+- **File utils, canonicalize-parent-and-contain** (`files.rs`, hardening B5's
+  documented pattern, now actually built): `create_entry` (new file/folder —
+  canonicalizes the EXISTING parent, containment-checks it, then appends one
+  validated component; never canonicalizes the not-yet-existing target) and
+  `duplicate_file` (auto-numbers "foo.txt" -> "foo copy.txt" -> "foo copy
+  2.txt" -> ..., atomic via `create_new`, not `fs::copy`-then-check — avoids a
+  TOCTOU that would've let a duplicate silently clobber an existing "copy").
+  +5 Rust tests (72 total).
+- **File Explorer context menu**: New File/Folder (a name-prompt modal, not a
+  native `window.prompt`), Duplicate, Copy Path / Copy Relative Path
+  (`navigator.clipboard`, same API already used by the Status Bar and
+  `ErrorState` — no new capability), Reveal in File Manager, Open Terminal
+  Here. A small `refreshTick` map forces just the affected directory's
+  already-loaded `TreeNode` to refetch after a create/duplicate, without a
+  wider tree-state rewrite.
+- **Reveal in file manager**: `tauri-plugin-opener`, used as a **plain Rust
+  library function** (`reveal_item_in_dir`) called from inside our own
+  `reveal_in_file_manager` command — never registered as a plugin, never
+  exposed to the webview as its own IPC command. Confirmed this adds **zero**
+  new capability surface: `capabilities/default.json` and `tauri.conf.json`
+  are byte-for-byte unchanged (`git diff` empty) — the command is gated the
+  same as every other app command already in `commands.rs`, not through the
+  plugin ACL the original plan assumed it would need.
+- **Open Terminal Here**: reuses the already-open per-workspace shell (not a
+  second ad-hoc PTY) — writes a `cd` into it via the existing `ptyWrite`. New
+  `store/activeTerminals.ts` (mirrors `activeEditorHandle.ts`'s non-reactive
+  module-level registry pattern) tracks each workspace's live pty id so this
+  can reach it without plumbing PTY state through React context. The path is
+  single-quote shell-escaped (`'...'` with `'\''` for embedded quotes) — this
+  writes into a REAL shell, and a file/folder name can legally contain shell
+  metacharacters.
+- **Compare-with-snapshot from the gutter**: a new Monaco action
+  ("Compare with Checkpoint…", right-click + editor toolbar) reuses the
+  existing read-only checkpoint timeline (Phase 7 P2) already shown
+  per-session in the Sessions panel — fetches the active session's entries,
+  filters to the open file, lets you pick a version, opens the same
+  `openCheckpointDiff` tab that panel does.
+- **Keyboard-shortcut cheat sheet** (`?` / Ctrl+K Ctrl+S): a reference overlay
+  (every command grouped by category with its effective shortcut), distinct
+  from the Command Palette's search-and-run. Required teaching the global
+  dispatcher (`useLayoutShortcuts.ts`) real two-step CHORD support
+  (comma-joined combos, e.g. "mod+k,mod+s") — `settings.rs` had already
+  validated commas in keybinding overrides since S6 but nothing consumed them
+  yet. The bare "?" hotkey is intentionally NOT a dispatcher combo (every
+  other combo requires "mod" specifically so it can never collide with
+  typing) — it's a small dedicated listener gated by a new `isTypingContext()`
+  check (focused input/textarea/contenteditable), so "?" in a search box or
+  the prompt bar just types a question mark.
+- **Copy-turn-as-markdown**: a hover-revealed "copy ⧉" button on each user/
+  assistant message bubble in the conversation pane.
+- **Ask About This Line**: the one agent-bridge action that works on the
+  cursor's line instead of a selection — a small modal takes a free-form
+  question, re-reads the live cursor at send time (not whenever the modal was
+  opened), sends through the same `send()` turn path as everything else.
+- **Re-run past prompt** from cross-session search: clicking a past USER hit
+  inserts it into the active workspace's prompt bar for review — **never
+  auto-sent**. New `draftInsert`/`insertDraft`/`clearDraftInsert` on the
+  per-workspace conversation store, consumed once by the prompt bar, mirroring
+  the editor store's existing `reveal`/`clearReveal` pending-request pattern.
+  Deliberately scoped to snippets (may be ellipsis-clipped around the search
+  match, per `session_search.rs`) rather than adding a new backend path to
+  fetch a full original message — the user reviews/edits before sending
+  either way, so a truncated starting point is still honest and useful.
+- **Bug found + fixed while live-verifying, not scope creep**: none this time
+  (S6's StrictMode terminal fix re-verified still holds against the fresh S7
+  code — `pty-0` opens/reaps cleanly, `pty-1`'s `/bin/bash` stays alive, same
+  as before).
+- Gate: typecheck/build/clippy/72 Rust tests green. Live `tauri dev` restart
+  confirmed clean boot + terminal lifecycle via process inspection (same
+  visual-screenshot limitation as S6 — noted, not worked around). Security
+  re-check: no new arbitrary-exec command (every new command is
+  canonicalize-and-contain or reuses `resolve_within`); the one new dependency
+  (`tauri-plugin-opener`) adds no capability surface, confirmed by an empty
+  `git diff` on `capabilities/`/`tauri.conf.json`. Committed as `98ae264`.
+
 ### Phase 0 — Skeleton & preflight  ·  COMPLETE ✅
 - [x] Rust toolchain (cargo 1.96.0); Tauri deps via dnf.
 - [x] Project scaffolded: Vite+React+TS frontend, Tauri 2 backend, path alias.
