@@ -94,3 +94,17 @@ body {
     scroll-behavior: auto !important;
   }
 }
+
+/*
+ * `appearance.reducedMotion` (Addendum II §S6) — an explicit in-app override
+ * (set via `[data-reduced-motion="true"]` on <html>, `WorkspaceShell.tsx`) that
+ * forces the same rules regardless of the OS preference above.
+ */
+[data-reduced-motion="true"] *,
+[data-reduced-motion="true"] *::before,
+[data-reduced-motion="true"] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}

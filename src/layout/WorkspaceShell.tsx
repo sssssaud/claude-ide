@@ -16,6 +16,7 @@ import type { CSSProperties } from "react";
 import { useCallback, useEffect } from "react";
 import { Group, Panel, useDefaultLayout, usePanelRef } from "react-resizable-panels";
 import { ActivityBar } from "@/layout/ActivityBar";
+import { BottomPanel } from "@/layout/BottomPanel";
 import { CommandPalette } from "@/layout/CommandPalette";
 import { ConversationPane } from "@/layout/ConversationPane";
 import { EditorRegion } from "@/layout/EditorRegion";
@@ -23,14 +24,13 @@ import { QuickOpen } from "@/layout/QuickOpen";
 import { ResizeSeparator } from "@/layout/ResizeSeparator";
 import { SidePanel } from "@/layout/SidePanel";
 import { StatusBar } from "@/layout/StatusBar";
-import { TerminalDrawer } from "@/layout/TerminalDrawer";
 import { useLayoutShortcuts } from "@/layout/useLayoutShortcuts";
 import { useSessionBootstrap } from "@/layout/useSessionBootstrap";
 import { pickFolder } from "@/ipc/commands";
 import { useActiveConversation } from "@/store/conversation";
 import { useLayout, type Region } from "@/store/layout";
-import { useSettings } from "@/store/settings";
-import { useWorkspaces, type Workspace } from "@/store/workspaces";
+import { mergeEffectiveAppearance, useSettings } from "@/store/settings";
+import { useActiveCwd, useWorkspaces, type Workspace } from "@/store/workspaces";
 import { uiZoomFactor, useZoom } from "@/store/zoom";
 
 // Each panel's content fills it and clips internally (the regions own their own
@@ -79,6 +79,18 @@ export function WorkspaceShell() {
   useEffect(() => {
     document.documentElement.style.setProperty("zoom", String(uiZoomFactor(uiLevel)));
   }, [uiLevel]);
+
+  // `appearance.reducedMotion` (Addendum II §S6): an explicit override that
+  // forces the same `global.css` reduced-motion rules the OS preference already
+  // triggers, regardless of what the OS is set to.
+  const cwd = useActiveCwd();
+  const userAppearance = useSettings((s) => s.user.appearance);
+  const wsAppearance = useSettings((s) => s.workspaces[cwd ?? ""]?.appearance);
+  const reducedMotion = mergeEffectiveAppearance(userAppearance, wsAppearance).reducedMotion;
+  useEffect(() => {
+    if (reducedMotion) document.documentElement.dataset.reducedMotion = "true";
+    else delete document.documentElement.dataset.reducedMotion;
+  }, [reducedMotion]);
 
   // Sync a manual drag-to-collapse (or drag-open) back into the store so the
   // toggles reflect reality. The mount callback (prev === undefined) is skipped
@@ -145,7 +157,7 @@ export function WorkspaceShell() {
           </Group>
         </div>
       </main>
-      <TerminalDrawer />
+      <BottomPanel />
       {!zen && <StatusBar />}
       <CommandPalette />
       <QuickOpen />

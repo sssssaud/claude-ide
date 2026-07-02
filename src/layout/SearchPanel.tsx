@@ -14,6 +14,7 @@ import { search, searchSessions } from "@/ipc/commands";
 import { isIpcError, type SearchResults, type SessionSearchResults } from "@/ipc/types";
 import { useActiveConversation } from "@/store/conversation";
 import { useActiveEditor } from "@/store/editor";
+import { effectiveFilesFor } from "@/store/settings";
 import { useActiveCwd } from "@/store/workspaces";
 
 type Mode = "files" | "sessions";
@@ -47,7 +48,7 @@ export function SearchPanel() {
     const timer = setTimeout(async () => {
       try {
         if (mode === "files") {
-          const r = await search(q, cwd);
+          const r = await search(q, cwd, effectiveFilesFor(cwd).exclude);
           if (token !== tokenRef.current) return;
           setFileResults(r);
         } else {

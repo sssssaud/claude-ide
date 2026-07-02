@@ -5,17 +5,35 @@
  * paths are workspace-root-relative and resolved/confined in the backend.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { listDir } from "@/ipc/commands";
 import type { DirEntry } from "@/ipc/types";
 import { isIpcError } from "@/ipc/types";
 import { useActiveEditor } from "@/store/editor";
+import { mergeEffectiveAppearance, mergeEffectiveFiles, useSettings } from "@/store/settings";
 import { useActiveCwd } from "@/store/workspaces";
+
+/** Drop names hidden by `files.exclude` (Addendum II §S6) — a client-side
+ *  filter (the explorer already fetches lazily, per-directory; nothing to save
+ *  server-side by excluding earlier). */
+function filterExcluded(entries: DirEntry[], exclude: string[]): DirEntry[] {
+  return exclude.length === 0 ? entries : entries.filter((e) => !exclude.includes(e.name));
+}
 
 export function FileExplorer() {
   const cwd = useActiveCwd();
   const [roots, setRoots] = useState<DirEntry[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  const userFiles = useSettings((s) => s.user.files);
+  const wsFiles = useSettings((s) => s.workspaces[cwd ?? ""]?.files);
+  const exclude = useMemo(() => mergeEffectiveFiles(userFiles, wsFiles).exclude, [userFiles, wsFiles]);
+  const userAppearance = useSettings((s) => s.user.appearance);
+  const wsAppearance = useSettings((s) => s.workspaces[cwd ?? ""]?.appearance);
+  const colorFileIcons = useMemo(
+    () => mergeEffectiveAppearance(userAppearance, wsAppearance).colorFileIcons,
+    [userAppearance, wsAppearance],
+  );
 
   // Re-root whenever the active workspace changes: reload the top level and
   // (via the keyed wrapper below) reset every expanded node's state.
@@ -31,20 +49,22 @@ export function FileExplorer() {
     };
   }, [cwd]);
 
+  const visibleRoots = roots ? filterExcluded(roots, exclude) : roots;
+
   return (
     <div className="flex h-full flex-col">
       <div className="min-h-0 flex-1 overflow-auto" style={{ padding: "var(--space-2) 0" }}>
         {error ? (
           <Note text={error} tone="error" />
-        ) : !roots ? (
+        ) : !visibleRoots ? (
           <Note text="Loading…" />
-        ) : roots.length === 0 ? (
+        ) : visibleRoots.length === 0 ? (
           <Note text="Empty folder." />
         ) : (
           // Keyed on cwd so switching workspaces remounts the tree (fresh expansion).
           <div key={cwd ?? "default"}>
-            {roots.map((entry) => (
-              <TreeNode key={entry.path} entry={entry} depth={0} cwd={cwd} />
+            {visibleRoots.map((entry) => (
+              <TreeNode key={entry.path} entry={entry} depth={0} cwd={cwd} exclude={exclude} colorFileIcons={colorFileIcons} />
             ))}
           </div>
         )}
@@ -53,7 +73,19 @@ export function FileExplorer() {
   );
 }
 
-function TreeNode({ entry, depth, cwd }: { entry: DirEntry; depth: number; cwd: string | undefined }) {
+function TreeNode({
+  entry,
+  depth,
+  cwd,
+  exclude,
+  colorFileIcons,
+}: {
+  entry: DirEntry;
+  depth: number;
+  cwd: string | undefined;
+  exclude: string[];
+  colorFileIcons: boolean;
+}) {
   const [expanded, setExpanded] = useState(false);
   const [children, setChildren] = useState<DirEntry[] | null>(null);
   const [loading, setLoading] = useState(false);
@@ -71,7 +103,7 @@ function TreeNode({ entry, depth, cwd }: { entry: DirEntry; depth: number; cwd: 
     if (next && children === null) {
       setLoading(true);
       try {
-        setChildren(await listDir(entry.path, cwd));
+        setChildren(filterExcluded(await listDir(entry.path, cwd), exclude));
       } catch {
         setChildren([]);
       } finally {
@@ -79,6 +111,8 @@ function TreeNode({ entry, depth, cwd }: { entry: DirEntry; depth: number; cwd: 
       }
     }
   };
+
+  const iconColor = entry.isDir ? undefined : colorFileIcons ? fileIconColor(entry.name) : undefined;
 
   return (
     <>
@@ -104,19 +138,62 @@ function TreeNode({ entry, depth, cwd }: { entry: DirEntry; depth: number; cwd: 
         <span aria-hidden="true" style={{ width: "0.8em", color: "var(--color-fg-muted)" }}>
           {entry.isDir ? (expanded ? "▾" : "▸") : ""}
         </span>
-        <span aria-hidden="true">{entry.isDir ? "📁" : "📄"}</span>
+        <span aria-hidden="true" className="inline-flex items-center justify-center" style={{ width: "1em" }}>
+          {/* Emoji glyphs render in full color regardless of CSS `color` — so a
+              known extension gets a small color-coded swatch instead, the one
+              way this setting is actually visible. */}
+          {iconColor ? (
+            <span style={{ width: "8px", height: "8px", borderRadius: "2px", background: iconColor, display: "inline-block" }} />
+          ) : entry.isDir ? (
+            "📁"
+          ) : (
+            "📄"
+          )}
+        </span>
         <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{entry.name}</span>
       </button>
       {entry.isDir && expanded && (
         <>
           {loading && <Note text="…" depth={depth + 1} />}
           {children?.map((child) => (
-            <TreeNode key={child.path} entry={child} depth={depth + 1} cwd={cwd} />
+            <TreeNode key={child.path} entry={child} depth={depth + 1} cwd={cwd} exclude={exclude} colorFileIcons={colorFileIcons} />
           ))}
         </>
       )}
     </>
   );
+}
+
+// Common-extension accent colors for the file tree (Addendum II §S6, "Color
+// File Icons") — content/file-type coloring, the same category as Monaco's own
+// literal syntax-theme colors (`editor/monacoSetup.ts`), not app chrome, so
+// it's exempt from the tokens-only rule.
+const EXT_COLORS: Record<string, string> = {
+  ts: "#3178c6",
+  tsx: "#3178c6",
+  js: "#f0db4f",
+  jsx: "#f0db4f",
+  mjs: "#f0db4f",
+  json: "#cbcb41",
+  rs: "#dea584",
+  toml: "#9c4221",
+  css: "#42a5f5",
+  html: "#e34c26",
+  md: "#8a8f98",
+  py: "#3776ab",
+  yml: "#cb171e",
+  yaml: "#cb171e",
+  sh: "#89e051",
+  svg: "#ffb13b",
+  png: "#a074c4",
+  jpg: "#a074c4",
+  jpeg: "#a074c4",
+};
+
+function fileIconColor(name: string): string | undefined {
+  const dot = name.lastIndexOf(".");
+  if (dot <= 0) return undefined;
+  return EXT_COLORS[name.slice(dot + 1).toLowerCase()];
 }
 
 function Note({ text, tone, depth = 0 }: { text: string; tone?: "error"; depth?: number }) {

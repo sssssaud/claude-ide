@@ -23,7 +23,7 @@ import { isIpcError } from "@/ipc/types";
 import { getActiveEditorHandle, setActiveEditorHandle } from "@/store/activeEditorHandle";
 import type { EditorState } from "@/store/editor";
 import { useEditorStatus } from "@/store/editorStatus";
-import { mergeEffective, useSettings, type EffectiveEditor } from "@/store/settings";
+import { mergeEffective, mergeEffectiveFiles, useSettings, type EffectiveEditor } from "@/store/settings";
 import { useTheme } from "@/store/theme";
 import { useZoom } from "@/store/zoom";
 
@@ -122,8 +122,8 @@ export function EditorPane({
   // Effective editor settings for this workspace (DEFAULTS < user < workspace).
   // `userEditor`/`wsEditor` are stable object refs from the store, so the memo
   // only recomputes when a setting actually changes.
-  const userEditor = useSettings((s) => s.user);
-  const wsEditor = useSettings((s) => s.workspaces[cwd]);
+  const userEditor = useSettings((s) => s.user.editor);
+  const wsEditor = useSettings((s) => s.workspaces[cwd]?.editor);
   const effective = useMemo(() => mergeEffective(userEditor, wsEditor), [userEditor, wsEditor]);
   // Editor-font zoom (§S3): an ephemeral delta layered over the effective
   // (settings-backed) font size — never written back to settings.
@@ -181,7 +181,8 @@ export function EditorPane({
     async (path: string) => {
       const entry = modelsRef.current.get(path);
       if (!entry || entry.readOnly) return;
-      const eff = mergeEffective(useSettings.getState().user, useSettings.getState().workspaces[cwd]);
+      const eff = mergeEffective(useSettings.getState().user.editor, useSettings.getState().workspaces[cwd]?.editor);
+      const effFiles = mergeEffectiveFiles(useSettings.getState().user.files, useSettings.getState().workspaces[cwd]?.files);
       const editor = editorRef.current;
       // Format-on-save and the trim/final-newline transforms below edit the
       // model themselves, which would otherwise fire onDidChangeContent like a
@@ -193,6 +194,19 @@ export function EditorPane({
       try {
         if (eff.formatOnSave && editor && editor.getModel() === entry.model) {
           await editor.getAction("editor.action.formatDocument")?.run();
+        }
+        // `files.eol` (Addendum II §S6): "auto" keeps whatever the file (or a
+        // manual Status Bar pick) already uses. Monaco owns EOL at the model
+        // level, so converting via `setEOL` (not a text-edit regex) is what
+        // keeps it consistent with the Status Bar's own EOL segment.
+        if (effFiles.eol !== "auto" && monacoRef.current) {
+          const wantCrlf = effFiles.eol === "crlf";
+          const current = entry.model.getEOL() === "\r\n";
+          if (current !== wantCrlf) {
+            entry.model.setEOL(
+              wantCrlf ? monacoRef.current.editor.EndOfLineSequence.CRLF : monacoRef.current.editor.EndOfLineSequence.LF,
+            );
+          }
         }
         const before = entry.model.getValue();
         let after = eff.trimTrailingWhitespace
@@ -245,7 +259,7 @@ export function EditorPane({
         monaco.editor.createModel(file.text, languageForPath(path), uri);
       // Apply indent settings to the fresh model (a later settings change is
       // applied to every model by the effect below).
-      const eff = mergeEffective(useSettings.getState().user, useSettings.getState().workspaces[cwd]);
+      const eff = mergeEffective(useSettings.getState().user.editor, useSettings.getState().workspaces[cwd]?.editor);
       model.updateOptions({ tabSize: eff.tabSize, insertSpaces: eff.insertSpaces });
       const changeSub = model.onDidChangeContent(() => {
         const entry = modelsRef.current.get(path);
@@ -263,7 +277,7 @@ export function EditorPane({
           clearTimeout(existingTimer);
           autoSaveTimersRef.current.delete(path);
         }
-        const liveEff = mergeEffective(useSettings.getState().user, useSettings.getState().workspaces[cwd]);
+        const liveEff = mergeEffective(useSettings.getState().user.editor, useSettings.getState().workspaces[cwd]?.editor);
         if (dirty && !entry.readOnly && liveEff.autoSave === "afterDelay") {
           const timer = setTimeout(() => {
             autoSaveTimersRef.current.delete(path);
@@ -384,7 +398,7 @@ export function EditorPane({
   // window itself loses focus (e.g. alt-tabbing away), save its active file.
   useEffect(() => {
     const onWindowBlur = () => {
-      const eff = mergeEffective(useSettings.getState().user, useSettings.getState().workspaces[cwd]);
+      const eff = mergeEffective(useSettings.getState().user.editor, useSettings.getState().workspaces[cwd]?.editor);
       if (eff.autoSave !== "onWindowChange") return;
       if (!editorRef.current?.hasTextFocus()) return;
       const path = store.getState().activePath;
@@ -472,7 +486,7 @@ export function EditorPane({
             // Auto-save "on focus change": this editor losing text focus (e.g.
             // clicking the terminal, sidebar, or another tab) saves its file.
             editor.onDidBlurEditorText(() => {
-              const eff = mergeEffective(useSettings.getState().user, useSettings.getState().workspaces[cwd]);
+              const eff = mergeEffective(useSettings.getState().user.editor, useSettings.getState().workspaces[cwd]?.editor);
               if (eff.autoSave !== "onFocusChange") return;
               const path = store.getState().activePath;
               if (path && store.getState().dirty[path]) void saveFile(path);

@@ -82,6 +82,7 @@ pub fn run(startup: Instant) {
             commands::write_permissions,
             commands::read_settings,
             commands::write_settings,
+            commands::write_keybindings,
             commands::git_status,
             commands::git_diff,
             commands::git_stage,

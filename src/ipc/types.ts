@@ -204,16 +204,54 @@ export interface EditorSettings {
   autoSaveDelay?: number;
 }
 
-/** Mirror of Rust `ScopeSettings` — one scope's settings (only `editor` in S1). */
-export interface ScopeSettings {
-  editor: EditorSettings;
+/** Mirror of Rust `TerminalSettings` (Addendum II §S6). Independent of the
+ *  editor's own font settings. */
+export interface TerminalSettings {
+  fontFamily?: string;
+  fontSize?: number;
+  cursorBlink?: boolean;
+  /** Scrollback buffer size, in lines. */
+  scrollback?: number;
 }
 
+/** The `files.eol` values the frontend understands (Addendum II §S6). */
+export type Eol = "auto" | "lf" | "crlf";
+
+/** Mirror of Rust `FilesSettings` (Addendum II §S6). */
+export interface FilesSettings {
+  /** Folder/file NAMES excluded from the explorer, search, and Quick Open —
+   *  matched by exact path-component name, not a full glob. */
+  exclude?: string[];
+  eol?: Eol;
+  confirmCloseUnsaved?: boolean;
+}
+
+/** Mirror of Rust `AppearanceSettings` (Addendum II §S6). Theme itself stays
+ *  in `store/theme.ts`, outside the staged-Apply settings model. */
+export interface AppearanceSettings {
+  colorFileIcons?: boolean;
+  reducedMotion?: boolean;
+}
+
+/** Mirror of Rust `ScopeSettings` — one scope's settings, every category. */
+export interface ScopeSettings {
+  editor: EditorSettings;
+  terminal: TerminalSettings;
+  files: FilesSettings;
+  appearance: AppearanceSettings;
+}
+
+/** Command id -> combo string (e.g. "mod+shift+x"). Always user-global —
+ *  never per-workspace (Addendum II §S6). */
+export type Keybindings = Record<string, string>;
+
 /** Mirror of Rust `SettingsDoc` — the whole settings document: the global `user`
- *  scope plus per-workspace overrides keyed by canonical path. */
+ *  scope, per-workspace overrides keyed by canonical path, and keybinding
+ *  overrides. */
 export interface SettingsDoc {
   user: ScopeSettings;
   workspaces: Record<string, ScopeSettings>;
+  keybindings: Keybindings;
 }
 
 /** Which scope a settings write targets (Addendum II §1). */

@@ -9,9 +9,9 @@ import { useState } from "react";
 import { useStore, type StoreApi } from "zustand";
 import { EditorToolbar } from "@/layout/EditorToolbar";
 import type { EditorState } from "@/store/editor";
-import { useSettings } from "@/store/settings";
+import { mergeEffectiveFiles, useSettings } from "@/store/settings";
 
-export function EditorTabs({ store }: { store: StoreApi<EditorState> }) {
+export function EditorTabs({ store, cwd }: { store: StoreApi<EditorState>; cwd: string }) {
   const tabs = useStore(store, (s) => s.tabs);
   const activePath = useStore(store, (s) => s.activePath);
   const dirty = useStore(store, (s) => s.dirty);
@@ -20,13 +20,25 @@ export function EditorTabs({ store }: { store: StoreApi<EditorState> }) {
   // The Settings tab's dirty/close go through the settings store (staged Apply),
   // so closing with unapplied changes can prompt first.
   const settingsDirty = useSettings((s) => s.dirty);
+  const userFiles = useSettings((s) => s.user.files);
+  const wsFiles = useSettings((s) => s.workspaces[cwd]?.files);
+  const confirmCloseUnsaved = mergeEffectiveFiles(userFiles, wsFiles).confirmCloseUnsaved;
   const [hovered, setHovered] = useState<string | null>(null);
+  // A dirty file tab pending close confirmation (Addendum II §S6,
+  // `files.confirmCloseUnsaved`) — null when no prompt is showing.
+  const [confirmPath, setConfirmPath] = useState<string | null>(null);
 
   // Close a tab: the Settings tab routes through requestClose (which prompts on
-  // unapplied changes); everything else closes immediately.
+  // unapplied changes); a dirty file tab prompts first if the setting is on;
+  // everything else closes immediately.
   const closeTab = (path: string, kind: EditorState["tabs"][number]["kind"]) => {
-    if (kind === "settings") useSettings.getState().requestClose();
-    else close(path);
+    if (kind === "settings") {
+      useSettings.getState().requestClose();
+    } else if (confirmCloseUnsaved && dirty[path]) {
+      setConfirmPath(path);
+    } else {
+      close(path);
+    }
   };
 
   return (
@@ -125,6 +137,56 @@ export function EditorTabs({ store }: { store: StoreApi<EditorState> }) {
       })}
       </div>
       <EditorToolbar />
+      {confirmPath && (
+        <CloseUnsavedConfirm
+          name={tabs.find((t) => t.path === confirmPath)?.name ?? confirmPath}
+          onCancel={() => setConfirmPath(null)}
+          onConfirm={() => {
+            close(confirmPath);
+            setConfirmPath(null);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+/** Confirms closing a dirty file tab (Addendum II §S6, `files.confirmCloseUnsaved`).
+ *  Fixed/viewport-centered — the tab strip itself has no full-pane area to
+ *  anchor an `inset-0` overlay to, unlike the Settings tab's own close prompt. */
+function CloseUnsavedConfirm({ name, onCancel, onConfirm }: { name: string; onCancel: () => void; onConfirm: () => void }) {
+  return (
+    <div
+      role="alertdialog"
+      aria-modal="true"
+      aria-label="Unsaved changes"
+      className="fixed inset-0 flex items-center justify-center"
+      style={{ background: "rgba(0,0,0,0.45)", zIndex: 30 }}
+    >
+      <div style={{ width: "min(440px, 90%)", padding: "var(--space-6)", borderRadius: "var(--radius-lg)", background: "var(--color-bg-overlay)", boxShadow: "var(--elev-3)" }}>
+        <p style={{ color: "var(--color-fg-primary)", fontSize: "var(--text-md)", fontWeight: 600 }}>Close “{name}” without saving?</p>
+        <p style={{ color: "var(--color-fg-secondary)", fontSize: "var(--text-sm)", marginTop: "var(--space-3)" }}>
+          This file has unsaved changes. Closing now discards them.
+        </p>
+        <div className="flex justify-end gap-[var(--space-3)]" style={{ marginTop: "var(--space-5)" }}>
+          <button
+            type="button"
+            onClick={onCancel}
+            className="cursor-pointer"
+            style={{ padding: "var(--space-2) var(--space-5)", borderRadius: "var(--radius-md)", border: "1px solid var(--color-border-strong)", background: "transparent", color: "var(--color-fg-primary)", fontFamily: "var(--font-sans)", fontSize: "var(--text-sm)" }}
+          >
+            Keep editing
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            className="cursor-pointer"
+            style={{ padding: "var(--space-2) var(--space-5)", borderRadius: "var(--radius-md)", border: "1px solid var(--color-accent)", background: "var(--color-accent)", color: "var(--color-bg-base)", fontFamily: "var(--font-sans)", fontSize: "var(--text-sm)", fontWeight: 500 }}
+          >
+            Close without saving
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

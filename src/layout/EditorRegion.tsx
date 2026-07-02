@@ -61,7 +61,7 @@ function WorkspaceEditor({ cwd, active }: { cwd: string; active: boolean }) {
 
   return (
     <div className="absolute inset-0 flex min-h-0 flex-col overflow-hidden" style={{ display: active ? "flex" : "none" }} aria-hidden={!active}>
-      <EditorTabs store={store} />
+      <EditorTabs store={store} cwd={cwd} />
       <div className="relative min-h-0 flex-1">
         {hasEditorContent && (
           // Hidden (not unmounted) while Settings shows: file models are

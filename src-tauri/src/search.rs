@@ -54,9 +54,31 @@ pub struct Segment {
     pub is_match: bool,
 }
 
+/// Keep only entries usable as a bare (no-separator) rg `--glob` name — a
+/// defensive re-check independent of `settings.rs`'s own validation on write,
+/// since these values arrive over IPC and can't be assumed already-clean.
+/// Silently drops anything invalid rather than failing the whole search/list
+/// (this is a read-only, best-effort filter, not a security boundary).
+fn clean_exclude(exclude: Vec<String>) -> Vec<String> {
+    exclude
+        .into_iter()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty() && s.len() <= 100 && !s.contains(['/', '\\']))
+        .take(100)
+        .collect()
+}
+
+/// `--glob '!name'` per excluded name (Addendum II §S6, `files.exclude`). A
+/// no-separator glob matches the basename at any depth, and excluding a
+/// directory this way makes rg skip descending into it entirely — the same
+/// semantics as a `.gitignore` entry.
+fn exclude_glob_args(exclude: &[String]) -> Vec<String> {
+    exclude.iter().flat_map(|name| ["--glob".to_string(), format!("!{name}")]).collect()
+}
+
 /// Search the workspace for a literal `query` (case-smart). Matches come back
 /// grouped by file, each line split into highlighted / plain segments.
-pub fn search(cwd: Option<String>, query: String) -> IpcResult<SearchResults> {
+pub fn search(cwd: Option<String>, query: String, exclude: Vec<String>) -> IpcResult<SearchResults> {
     let root = crate::workspace::resolve_cwd(cwd)?;
     let q = query.trim();
     if q.is_empty() {
@@ -66,14 +88,15 @@ pub fn search(cwd: Option<String>, query: String) -> IpcResult<SearchResults> {
         return Err(IpcError::new(IpcErrorKind::InvalidInput, "Search query is too long"));
     }
 
-    let out = Command::new("rg")
-        .current_dir(&root)
-        .args(["--json", "--fixed-strings", "--smart-case", "--max-count", MAX_PER_FILE, "--"])
-        .arg(q)
-        .output()
-        .map_err(|e| {
-            IpcError::new(IpcErrorKind::Internal, format!("Could not run ripgrep (rg): {e}"))
-        })?;
+    let mut cmd = Command::new("rg");
+    cmd.current_dir(&root)
+        .args(["--json", "--fixed-strings", "--smart-case", "--max-count", MAX_PER_FILE])
+        .args(exclude_glob_args(&clean_exclude(exclude)))
+        .arg("--")
+        .arg(q);
+    let out = cmd.output().map_err(|e| {
+        IpcError::new(IpcErrorKind::Internal, format!("Could not run ripgrep (rg): {e}"))
+    })?;
     // rg exits 1 when there are simply no matches — that is success for us.
     match out.status.code() {
         Some(0) | Some(1) => Ok(parse_rg_json(&out.stdout)),
@@ -88,12 +111,13 @@ pub fn search(cwd: Option<String>, query: String) -> IpcResult<SearchResults> {
 /// `rg --files`, which walks the tree respecting `.gitignore` for free — the
 /// same "generic dev tool" exemption `search()` above already relies on.
 /// Paths come back workspace-relative, forward-slashed, capped at `MAX_FILES`.
-pub fn list_files(cwd: Option<String>) -> IpcResult<Vec<String>> {
+pub fn list_files(cwd: Option<String>, exclude: Vec<String>) -> IpcResult<Vec<String>> {
     let root = crate::workspace::resolve_cwd(cwd)?;
 
     let out = Command::new("rg")
         .current_dir(&root)
         .args(["--files", "--hidden", "--glob", "!.git/"])
+        .args(exclude_glob_args(&clean_exclude(exclude)))
         .output()
         .map_err(|e| {
             IpcError::new(IpcErrorKind::Internal, format!("Could not run ripgrep (rg): {e}"))

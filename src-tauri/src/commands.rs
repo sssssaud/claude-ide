@@ -24,7 +24,7 @@ use crate::preflight::{self, PreflightReport};
 use crate::pty::PtyRegistry;
 use crate::search::SearchResults;
 use crate::session_search::SessionSearchResults;
-use crate::settings::{EditorSettings, Scope, SettingsDoc};
+use crate::settings::{Scope, ScopeSettings, SettingsDoc};
 use crate::sessions::{SessionMeta, SessionTranscript, SessionsRegistry};
 use crate::state::AppState;
 use crate::usage::UsageReport;
@@ -342,15 +342,16 @@ pub fn read_settings(app: tauri::AppHandle) -> IpcResult<SettingsDoc> {
     crate::settings::read(&app_config_dir(&app)?)
 }
 
-/// Write one scope's editor settings (read-modify-write; preserves every other
-/// key). `scope` is "user" or "workspace"; for "workspace", `workspace_key` is
-/// the workspace's canonical path (used only as a map key). Validated/clamped.
+/// Write one scope's settings — every category at once (read-modify-write;
+/// preserves every other key). `scope` is "user" or "workspace"; for
+/// "workspace", `workspace_key` is the workspace's canonical path (used only
+/// as a map key). Validated/clamped.
 #[tauri::command]
 pub fn write_settings(
     app: tauri::AppHandle,
     scope: String,
     workspace_key: Option<String>,
-    editor: EditorSettings,
+    settings: ScopeSettings,
 ) -> IpcResult<()> {
     let scope = match scope.as_str() {
         "user" => Scope::User,
@@ -370,7 +371,17 @@ pub fn write_settings(
             ))
         }
     };
-    crate::settings::write(&app_config_dir(&app)?, scope, editor)
+    crate::settings::write(&app_config_dir(&app)?, scope, settings)
+}
+
+/// Replace the whole keybinding-override map (command id -> combo string),
+/// user-global only (Addendum II §S6). Validated/bounded.
+#[tauri::command]
+pub fn write_keybindings(
+    app: tauri::AppHandle,
+    overrides: std::collections::BTreeMap<String, String>,
+) -> IpcResult<()> {
+    crate::settings::write_keybindings(&app_config_dir(&app)?, overrides)
 }
 
 // ----- Git source control (spec 5.A.3, Phase 4) ------------------------------
@@ -450,16 +461,18 @@ pub fn git_discard(cwd: Option<String>, path: String) -> IpcResult<()> {
 // ----- Global search (spec 5.A.3, Phase 4) -----------------------------------
 
 /// Workspace-wide literal search via ripgrep, grouped by file. Read-only.
+/// `exclude` is the effective `files.exclude` setting (plain names, Addendum
+/// II §S6) — an empty vec searches everything `.gitignore` doesn't already skip.
 #[tauri::command]
-pub fn search(cwd: Option<String>, query: String) -> IpcResult<SearchResults> {
-    crate::search::search(cwd, query)
+pub fn search(cwd: Option<String>, query: String, exclude: Vec<String>) -> IpcResult<SearchResults> {
+    crate::search::search(cwd, query, exclude)
 }
 
 /// Every file in the workspace, respecting `.gitignore` (Quick Open, Addendum
-/// II §S3). Read-only.
+/// II §S3) and `files.exclude` (§S6). Read-only.
 #[tauri::command]
-pub fn list_files(cwd: Option<String>) -> IpcResult<Vec<String>> {
-    crate::search::list_files(cwd)
+pub fn list_files(cwd: Option<String>, exclude: Vec<String>) -> IpcResult<Vec<String>> {
+    crate::search::list_files(cwd, exclude)
 }
 
 // ----- Cross-session search (P5, Phase 8) ------------------------------------

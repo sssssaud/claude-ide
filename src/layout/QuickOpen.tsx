@@ -18,6 +18,7 @@ import { FuzzyOverlay } from "@/layout/FuzzyOverlay";
 import { activeEditorStore } from "@/store/editor";
 import { useLayout } from "@/store/layout";
 import { useOverlays } from "@/store/overlays";
+import { effectiveFilesFor } from "@/store/settings";
 import { useActiveCwd } from "@/store/workspaces";
 
 const CACHE_TTL_MS = 30_000;
@@ -34,7 +35,10 @@ export function QuickOpen() {
 
   useEffect(() => {
     if (!open) return;
-    const key = cwd ?? "";
+    const exclude = effectiveFilesFor(cwd).exclude;
+    // Exclude list is part of the cache key so a settings change (§S6) shows up
+    // immediately instead of waiting out the TTL.
+    const key = `${cwd ?? ""}|${exclude.join(",")}`;
     const cached = fileListCache.get(key);
     let cancelled = false;
 
@@ -51,7 +55,7 @@ export function QuickOpen() {
 
     const stale = !cached || Date.now() - cached.fetchedAt > CACHE_TTL_MS;
     if (stale) {
-      void listFiles(cwd ?? undefined)
+      void listFiles(cwd ?? undefined, exclude)
         .then((f) => {
           fileListCache.set(key, { files: f, fetchedAt: Date.now() });
           if (!cancelled) {

@@ -23,9 +23,10 @@ import type {
   GitStatus,
   PerfStats,
   PreflightReport,
-  EditorSettings,
+  Keybindings,
   ProjectPermissions,
   ProjectPermissionsFile,
+  ScopeSettings,
   SearchResults,
   SessionMeta,
   SessionSearchResults,
@@ -397,16 +398,27 @@ export async function readSettings(): Promise<SettingsDoc> {
   }
 }
 
-/** Write one scope's editor settings, preserving every other key. `scope` is
- *  "user" or "workspace"; for "workspace", `workspaceKey` is the canonical path.
- *  Persists to the app config dir (never `~/.claude`); validated at the boundary. */
+/** Write one scope's settings — every category at once — preserving every
+ *  other key. `scope` is "user" or "workspace"; for "workspace", `workspaceKey`
+ *  is the canonical path. Persists to the app config dir (never `~/.claude`);
+ *  validated at the boundary. */
 export async function writeSettings(
   scope: SettingsScope,
-  editor: EditorSettings,
+  settings: ScopeSettings,
   workspaceKey?: string,
 ): Promise<void> {
   try {
-    await invoke<void>("write_settings", { scope, workspaceKey, editor });
+    await invoke<void>("write_settings", { scope, workspaceKey, settings });
+  } catch (e) {
+    normalizeError(e);
+  }
+}
+
+/** Replace the whole keybinding-override map (command id -> combo string),
+ *  user-global only (Addendum II §S6). Validated/bounded at the boundary. */
+export async function writeKeybindings(overrides: Keybindings): Promise<void> {
+  try {
+    await invoke<void>("write_keybindings", { overrides });
   } catch (e) {
     normalizeError(e);
   }
@@ -521,19 +533,25 @@ export async function gitDiscard(path: string, cwd?: string): Promise<void> {
   }
 }
 
-/** Workspace-wide literal search via ripgrep, grouped by file. */
-export async function search(query: string, cwd?: string): Promise<SearchResults> {
+/** Workspace-wide literal search via ripgrep, grouped by file. `exclude` is
+ *  `files.exclude` (Addendum II §S6) — plain names, not globs. */
+export async function search(
+  query: string,
+  cwd?: string,
+  exclude: string[] = [],
+): Promise<SearchResults> {
   try {
-    return await invoke<SearchResults>("search", { cwd, query });
+    return await invoke<SearchResults>("search", { cwd, query, exclude });
   } catch (e) {
     normalizeError(e);
   }
 }
 
-/** Every file in the workspace, respecting `.gitignore` (Quick Open). */
-export async function listFiles(cwd?: string): Promise<string[]> {
+/** Every file in the workspace, respecting `.gitignore` and `files.exclude`
+ *  (Quick Open, Addendum II §S6). */
+export async function listFiles(cwd?: string, exclude: string[] = []): Promise<string[]> {
   try {
-    return await invoke<string[]>("list_files", { cwd });
+    return await invoke<string[]>("list_files", { cwd, exclude });
   } catch (e) {
     normalizeError(e);
   }

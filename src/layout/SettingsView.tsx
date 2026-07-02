@@ -1,35 +1,64 @@
 /*
- * Settings view (Addendum II §1 + staged-apply revision). Opens as a closable
- * EDITOR TAB (see `editor.openSettings`), VS Code-style. A left rail of
- * categories, a searchable list of controls, and a User/Workspace scope toggle.
+ * Settings view (Addendum II §1 + staged-apply revision; widened to every
+ * category in S6). Opens as a closable EDITOR TAB (see `editor.openSettings`),
+ * VS Code-style. A left rail of categories, a searchable list of controls, and
+ * a User/Workspace scope toggle.
  *
  * Editing is STAGED: controls edit a draft (in the settings store); nothing
- * changes in the editor until you hit Apply. Closing the tab with unapplied
- * changes prompts first. Everything is data — numbers are bounded by the inputs
- * (and clamped server-side), the wrap mode is a fixed allow-list, and a bad JSON
- * edit is refused, not run. Tokens only, keyboard-operable, three states present.
+ * changes in the editor/terminal/explorer until you hit Apply. Closing the tab
+ * with unapplied changes prompts first. Everything is data — numbers are
+ * bounded by the inputs (and clamped server-side), selects are a fixed
+ * allow-list, and a bad JSON edit is refused, not run. Keybindings (its own
+ * category) are the one exception: they save immediately, VS Code-style — see
+ * `KeybindingsSection`. Tokens only, keyboard-operable, three states present.
  */
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { EmptyState, ErrorState, LoadingState } from "@/components/states";
 import { InlineTerminal } from "@/components/InlineTerminal";
+import { KeybindingsSection } from "@/layout/KeybindingsSection";
 import { ThemePicker } from "@/layout/ThemePicker";
-import type { AutoSave, EditorSettings, SettingsScope, WordWrap } from "@/ipc/types";
+import type { ScopeSettings, SettingsScope } from "@/ipc/types";
 import { useAuth } from "@/store/auth";
-import { EDITOR_DEFAULTS, EDITOR_KEYS, useSettings } from "@/store/settings";
+import {
+  APPEARANCE_DEFAULTS,
+  EDITOR_DEFAULTS,
+  FILES_DEFAULTS,
+  TERMINAL_DEFAULTS,
+  sanitizeScopeSettings,
+  useSettings,
+} from "@/store/settings";
 import { useActiveCwd } from "@/store/workspaces";
 
-type Category = "editor" | "files" | "appearance" | "account";
+type Category = "editor" | "files" | "terminal" | "appearance" | "keybindings" | "account";
+type SettingsCategory = keyof ScopeSettings;
 
 const CATEGORIES: { id: Category; label: string }[] = [
   { id: "editor", label: "Text Editor" },
   { id: "files", label: "Files" },
+  { id: "terminal", label: "Terminal" },
   { id: "appearance", label: "Appearance" },
+  { id: "keybindings", label: "Keybindings" },
   { id: "account", label: "Account" },
 ];
 
+/** Which backend sub-object each control's default lives in, for the "unset"
+ *  fallback and the text control's clear-to-placeholder behaviour. Untyped as
+ *  `Record<string, unknown>` since one map spans four differently-shaped
+ *  structs (`exclude` is a `string[]`, handled by its own `ExcludeControl`,
+ *  never through this generic path). */
+const DEFAULTS_BY_CATEGORY: Record<SettingsCategory, Record<string, unknown>> = {
+  editor: EDITOR_DEFAULTS as unknown as Record<string, unknown>,
+  terminal: TERMINAL_DEFAULTS as unknown as Record<string, unknown>,
+  files: FILES_DEFAULTS as unknown as Record<string, unknown>,
+  appearance: APPEARANCE_DEFAULTS as unknown as Record<string, unknown>,
+};
+
+type FieldValue = string | number | boolean;
+
 interface ControlDef {
-  key: keyof EditorSettings;
+  dataCategory: SettingsCategory;
+  key: string;
   label: string;
   description: string;
   keywords: string;
@@ -39,11 +68,23 @@ interface ControlDef {
   options?: { value: string; label: string }[];
 }
 
+/** Stage one control's value. `ControlDef.key` is intentionally a loose
+ *  `string` (one array mixes fields from differently-shaped category structs);
+ *  `setDraft` itself stays strongly typed everywhere else it's called. */
+function setControlDraft(category: SettingsCategory, key: string, value: FieldValue | undefined) {
+  (useSettings.getState().setDraft as (c: SettingsCategory, k: string, v: unknown) => void)(
+    category,
+    key,
+    value,
+  );
+}
+
 const EDITOR_CONTROLS: ControlDef[] = [
-  { key: "fontFamily", label: "Font Family", description: "Controls the editor font. Leave empty to use the app's mono font.", keywords: "typeface mono", kind: "text" },
-  { key: "fontSize", label: "Font Size", description: "Editor font size in pixels.", keywords: "zoom text size", kind: "number", min: 6, max: 72 },
-  { key: "fontLigatures", label: "Font Ligatures", description: "Enable programming ligatures (requires a font that has them).", keywords: "ligature", kind: "boolean" },
+  { dataCategory: "editor", key: "fontFamily", label: "Font Family", description: "Controls the editor font. Leave empty to use the app's mono font.", keywords: "typeface mono", kind: "text" },
+  { dataCategory: "editor", key: "fontSize", label: "Font Size", description: "Editor font size in pixels.", keywords: "zoom text size", kind: "number", min: 6, max: 72 },
+  { dataCategory: "editor", key: "fontLigatures", label: "Font Ligatures", description: "Enable programming ligatures (requires a font that has them).", keywords: "ligature", kind: "boolean" },
   {
+    dataCategory: "editor",
     key: "wordWrap",
     label: "Word Wrap",
     description: "How long lines wrap in the editor.",
@@ -56,16 +97,17 @@ const EDITOR_CONTROLS: ControlDef[] = [
       { value: "bounded", label: "Bounded" },
     ],
   },
-  { key: "wordWrapColumn", label: "Word Wrap Column", description: "The column to wrap at, for the “At column” and “Bounded” modes.", keywords: "wrap column ruler", kind: "number", min: 20, max: 400 },
-  { key: "tabSize", label: "Tab Size", description: "The number of spaces a tab is equal to.", keywords: "indent indentation tab", kind: "number", min: 1, max: 16 },
-  { key: "insertSpaces", label: "Insert Spaces", description: "Insert spaces when pressing Tab.", keywords: "indent spaces tab", kind: "boolean" },
-  { key: "minimap", label: "Minimap", description: "Show the code overview minimap on the right edge.", keywords: "overview map", kind: "boolean" },
-  { key: "formatOnSave", label: "Format On Save", description: "Run the language's formatter (if one is registered — JSON, CSS, HTML, TypeScript, and the like) when you save.", keywords: "format prettier save", kind: "boolean" },
-  { key: "formatOnPaste", label: "Format On Paste", description: "Run the language's formatter (if one is registered) on text you paste in.", keywords: "format paste", kind: "boolean" },
+  { dataCategory: "editor", key: "wordWrapColumn", label: "Word Wrap Column", description: "The column to wrap at, for the “At column” and “Bounded” modes.", keywords: "wrap column ruler", kind: "number", min: 20, max: 400 },
+  { dataCategory: "editor", key: "tabSize", label: "Tab Size", description: "The number of spaces a tab is equal to.", keywords: "indent indentation tab", kind: "number", min: 1, max: 16 },
+  { dataCategory: "editor", key: "insertSpaces", label: "Insert Spaces", description: "Insert spaces when pressing Tab.", keywords: "indent spaces tab", kind: "boolean" },
+  { dataCategory: "editor", key: "minimap", label: "Minimap", description: "Show the code overview minimap on the right edge.", keywords: "overview map", kind: "boolean" },
+  { dataCategory: "editor", key: "formatOnSave", label: "Format On Save", description: "Run the language's formatter (if one is registered — JSON, CSS, HTML, TypeScript, and the like) when you save.", keywords: "format prettier save", kind: "boolean" },
+  { dataCategory: "editor", key: "formatOnPaste", label: "Format On Paste", description: "Run the language's formatter (if one is registered) on text you paste in.", keywords: "format paste", kind: "boolean" },
 ];
 
 const FILES_CONTROLS: ControlDef[] = [
   {
+    dataCategory: "editor",
     key: "autoSave",
     label: "Auto Save",
     description: "When to save edited files automatically.",
@@ -78,10 +120,36 @@ const FILES_CONTROLS: ControlDef[] = [
       { value: "onWindowChange", label: "On window change" },
     ],
   },
-  { key: "autoSaveDelay", label: "Auto Save Delay", description: "Delay in milliseconds before saving, when Auto Save is “After a delay”.", keywords: "autosave delay files", kind: "number", min: 200, max: 60000 },
-  { key: "trimTrailingWhitespace", label: "Trim Trailing Whitespace", description: "Strip trailing whitespace on save. Skipped for Markdown, where trailing spaces are a significant line break.", keywords: "whitespace trim files save", kind: "boolean" },
-  { key: "insertFinalNewline", label: "Insert Final Newline", description: "Ensure a file ends with a newline character on save.", keywords: "newline eof files save", kind: "boolean" },
-  { key: "trimFinalNewlines", label: "Trim Final Newlines", description: "Trim extra blank lines at the end of a file on save.", keywords: "newline eof files save", kind: "boolean" },
+  { dataCategory: "editor", key: "autoSaveDelay", label: "Auto Save Delay", description: "Delay in milliseconds before saving, when Auto Save is “After a delay”.", keywords: "autosave delay files", kind: "number", min: 200, max: 60000 },
+  { dataCategory: "editor", key: "trimTrailingWhitespace", label: "Trim Trailing Whitespace", description: "Strip trailing whitespace on save. Skipped for Markdown, where trailing spaces are a significant line break.", keywords: "whitespace trim files save", kind: "boolean" },
+  { dataCategory: "editor", key: "insertFinalNewline", label: "Insert Final Newline", description: "Ensure a file ends with a newline character on save.", keywords: "newline eof files save", kind: "boolean" },
+  { dataCategory: "editor", key: "trimFinalNewlines", label: "Trim Final Newlines", description: "Trim extra blank lines at the end of a file on save.", keywords: "newline eof files save", kind: "boolean" },
+  {
+    dataCategory: "files",
+    key: "eol",
+    label: "End Of Line",
+    description: "Line ending written on save. “Auto” keeps whatever the file already uses.",
+    keywords: "eol line ending crlf lf newline",
+    kind: "select",
+    options: [
+      { value: "auto", label: "Auto" },
+      { value: "lf", label: "LF" },
+      { value: "crlf", label: "CRLF" },
+    ],
+  },
+  { dataCategory: "files", key: "confirmCloseUnsaved", label: "Confirm Before Closing Unsaved Files", description: "Prompt before closing a tab with unsaved changes.", keywords: "confirm close unsaved dirty prompt", kind: "boolean" },
+];
+
+const TERMINAL_CONTROLS: ControlDef[] = [
+  { dataCategory: "terminal", key: "fontFamily", label: "Font Family", description: "Controls the terminal font. Leave empty to use the app's mono font.", keywords: "typeface mono terminal", kind: "text" },
+  { dataCategory: "terminal", key: "fontSize", label: "Font Size", description: "Terminal font size in pixels.", keywords: "zoom text size terminal", kind: "number", min: 6, max: 72 },
+  { dataCategory: "terminal", key: "cursorBlink", label: "Cursor Blink", description: "Blink the terminal cursor.", keywords: "cursor blink terminal", kind: "boolean" },
+  { dataCategory: "terminal", key: "scrollback", label: "Scrollback", description: "Lines kept in the terminal's scrollback buffer.", keywords: "scrollback history buffer terminal", kind: "number", min: 100, max: 100000 },
+];
+
+const APPEARANCE_CONTROLS: ControlDef[] = [
+  { dataCategory: "appearance", key: "colorFileIcons", label: "Color File Icons", description: "Tint file-explorer icons by file type.", keywords: "icons color files explorer", kind: "boolean" },
+  { dataCategory: "appearance", key: "reducedMotion", label: "Reduce Motion", description: "Force animations and transitions off app-wide, regardless of the OS setting.", keywords: "motion animation accessibility a11y", kind: "boolean" },
 ];
 
 export function SettingsView() {
@@ -112,17 +180,21 @@ export function SettingsView() {
 
   // What a control shows when this scope hasn't set it: the User value (for the
   // workspace scope) or the built-in default.
-  const fallback = <K extends keyof EditorSettings>(key: K): NonNullable<EditorSettings[K]> => {
-    if (scope === "workspace" && user[key] !== undefined && user[key] !== null) {
-      return user[key] as NonNullable<EditorSettings[K]>;
+  const fallback = (dataCategory: SettingsCategory, key: string): FieldValue => {
+    if (scope === "workspace") {
+      const uv = (user[dataCategory] as Record<string, unknown>)[key];
+      if (uv !== undefined && uv !== null) return uv as FieldValue;
     }
-    return EDITOR_DEFAULTS[key] as unknown as NonNullable<EditorSettings[K]>;
+    return DEFAULTS_BY_CATEGORY[dataCategory][key] as FieldValue;
   };
+  const draftValue = (dataCategory: SettingsCategory, key: string): FieldValue | undefined =>
+    (draft[dataCategory] as Record<string, unknown>)[key] as FieldValue | undefined;
 
   const q = query.trim().toLowerCase();
   const matches = (c: ControlDef) =>
     !q || c.label.toLowerCase().includes(q) || c.description.toLowerCase().includes(q) || c.keywords.toLowerCase().includes(q);
   const themeMatches = !q || "theme appearance color palette dark light".includes(q);
+  const excludeMatches = !q || "exclude ignore hide files search explorer".includes(q);
   const visibleEditor = useMemo(
     () => (q ? EDITOR_CONTROLS.filter(matches) : category === "editor" ? EDITOR_CONTROLS : []),
     [q, category],
@@ -131,8 +203,24 @@ export function SettingsView() {
     () => (q ? FILES_CONTROLS.filter(matches) : category === "files" ? FILES_CONTROLS : []),
     [q, category],
   );
+  const visibleTerminal = useMemo(
+    () => (q ? TERMINAL_CONTROLS.filter(matches) : category === "terminal" ? TERMINAL_CONTROLS : []),
+    [q, category],
+  );
+  const visibleAppearance = useMemo(
+    () => (q ? APPEARANCE_CONTROLS.filter(matches) : category === "appearance" ? APPEARANCE_CONTROLS : []),
+    [q, category],
+  );
+  const showExclude = q ? excludeMatches : category === "files";
   const showAppearance = q ? themeMatches : category === "appearance";
-  const nothingFound = !!q && visibleEditor.length === 0 && visibleFiles.length === 0 && !themeMatches;
+  const nothingFound =
+    !!q &&
+    visibleEditor.length === 0 &&
+    visibleFiles.length === 0 &&
+    visibleTerminal.length === 0 &&
+    visibleAppearance.length === 0 &&
+    !themeMatches &&
+    !excludeMatches;
 
   return (
     <section aria-label="Settings" className="relative flex h-full w-full flex-col" style={{ background: "var(--color-bg-base)" }}>
@@ -153,18 +241,20 @@ export function SettingsView() {
       ) : loadError ? (
         <ErrorState title="Couldn't load settings" error={{ kind: "internal", message: loadError }} onRetry={() => void useSettings.getState().load()} />
       ) : jsonMode ? (
-        <JsonEditor editor={draft} onDone={() => setJsonMode(false)} />
+        <JsonEditor settings={draft} onDone={() => setJsonMode(false)} />
       ) : (
         <div className="flex min-h-0 flex-1">
           {!q && <CategoryRail active={category} onPick={setCategory} />}
           <div className="min-h-0 flex-1 overflow-auto" style={{ padding: "var(--space-6) var(--space-7)" }}>
             <div style={{ maxWidth: "760px", margin: "0 auto" }}>
-              {workspaceUnavailable && <Note text="Open a folder to set Workspace-scoped settings. Showing defaults; edits are disabled." />}
-              {nothingFound ? (
+              {workspaceUnavailable && category !== "keybindings" && category !== "account" && (
+                <Note text="Open a folder to set Workspace-scoped settings. Showing defaults; edits are disabled." />
+              )}
+              {nothingFound && category !== "keybindings" ? (
                 <EmptyState title="No matching settings" hint={`Nothing matches “${query.trim()}”.`} />
               ) : (
                 <>
-                  {!q && (
+                  {!q && category !== "keybindings" && category !== "account" && (
                     <h2 style={{ color: "var(--color-fg-secondary)", fontSize: "var(--text-xs)", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "var(--space-3)" }}>
                       {CATEGORIES.find((c) => c.id === category)?.label}
                     </h2>
@@ -172,28 +262,52 @@ export function SettingsView() {
                   <div className="flex flex-col">
                     {visibleEditor.map((c) => (
                       <ControlRow
-                        key={c.key}
+                        key={`${c.dataCategory}.${c.key}`}
                         def={c}
-                        value={draft[c.key] ?? fallback(c.key)}
-                        isSet={draft[c.key] !== undefined}
+                        value={draftValue(c.dataCategory, c.key) ?? fallback(c.dataCategory, c.key)}
+                        isSet={draftValue(c.dataCategory, c.key) !== undefined}
                         disabled={workspaceUnavailable}
-                        onChange={(v) => useSettings.getState().setDraft(c.key, v)}
-                        onReset={() => useSettings.getState().setDraft(c.key, undefined)}
+                        onChange={(v) => setControlDraft(c.dataCategory, c.key, v)}
+                        onReset={() => setControlDraft(c.dataCategory, c.key, undefined)}
                       />
                     ))}
                     {visibleFiles.map((c) => (
                       <ControlRow
-                        key={c.key}
+                        key={`${c.dataCategory}.${c.key}`}
                         def={c}
-                        value={draft[c.key] ?? fallback(c.key)}
-                        isSet={draft[c.key] !== undefined}
+                        value={draftValue(c.dataCategory, c.key) ?? fallback(c.dataCategory, c.key)}
+                        isSet={draftValue(c.dataCategory, c.key) !== undefined}
                         disabled={workspaceUnavailable}
-                        onChange={(v) => useSettings.getState().setDraft(c.key, v)}
-                        onReset={() => useSettings.getState().setDraft(c.key, undefined)}
+                        onChange={(v) => setControlDraft(c.dataCategory, c.key, v)}
+                        onReset={() => setControlDraft(c.dataCategory, c.key, undefined)}
+                      />
+                    ))}
+                    {showExclude && <ExcludeControl disabled={workspaceUnavailable} />}
+                    {visibleTerminal.map((c) => (
+                      <ControlRow
+                        key={`${c.dataCategory}.${c.key}`}
+                        def={c}
+                        value={draftValue(c.dataCategory, c.key) ?? fallback(c.dataCategory, c.key)}
+                        isSet={draftValue(c.dataCategory, c.key) !== undefined}
+                        disabled={workspaceUnavailable}
+                        onChange={(v) => setControlDraft(c.dataCategory, c.key, v)}
+                        onReset={() => setControlDraft(c.dataCategory, c.key, undefined)}
+                      />
+                    ))}
+                    {visibleAppearance.map((c) => (
+                      <ControlRow
+                        key={`${c.dataCategory}.${c.key}`}
+                        def={c}
+                        value={draftValue(c.dataCategory, c.key) ?? fallback(c.dataCategory, c.key)}
+                        isSet={draftValue(c.dataCategory, c.key) !== undefined}
+                        disabled={workspaceUnavailable}
+                        onChange={(v) => setControlDraft(c.dataCategory, c.key, v)}
+                        onReset={() => setControlDraft(c.dataCategory, c.key, undefined)}
                       />
                     ))}
                     {showAppearance && <ThemeRow />}
                   </div>
+                  {!q && category === "keybindings" && <KeybindingsSection />}
                   {!q && category === "account" && <AccountSection />}
                 </>
               )}
@@ -202,7 +316,7 @@ export function SettingsView() {
         </div>
       )}
 
-      <Footer dirty={dirty} disabled={workspaceUnavailable} />
+      <Footer dirty={dirty} disabled={workspaceUnavailable} hidden={category === "keybindings" && !q} />
       {confirmingClose && <CloseConfirm />}
     </section>
   );
@@ -330,13 +444,13 @@ function ControlRow({
   onReset,
 }: {
   def: ControlDef;
-  value: NonNullable<EditorSettings[keyof EditorSettings]>;
+  value: FieldValue;
   isSet: boolean;
   disabled: boolean;
-  onChange: (v: EditorSettings[keyof EditorSettings] | undefined) => void;
+  onChange: (v: FieldValue | undefined) => void;
   onReset: () => void;
 }) {
-  const id = `setting-${def.key}`;
+  const id = `setting-${def.dataCategory}-${def.key}`;
   return (
     <div
       className="flex items-start justify-between gap-[var(--space-5)] transition-colors hover:bg-[var(--color-bg-raised)]"
@@ -370,9 +484,9 @@ function ControlInput({
 }: {
   id: string;
   def: ControlDef;
-  value: NonNullable<EditorSettings[keyof EditorSettings]>;
+  value: FieldValue;
   disabled: boolean;
-  onChange: (v: EditorSettings[keyof EditorSettings] | undefined) => void;
+  onChange: (v: FieldValue | undefined) => void;
 }) {
   const fieldStyle = {
     height: "var(--space-7)",
@@ -390,7 +504,7 @@ function ControlInput({
   }
   if (def.kind === "select") {
     return (
-      <select id={id} value={String(value)} disabled={disabled} onChange={(e) => onChange(e.target.value as WordWrap | AutoSave)} className={disabled ? undefined : "cursor-pointer"} style={{ ...fieldStyle, width: "160px" }}>
+      <select id={id} value={String(value)} disabled={disabled} onChange={(e) => onChange(e.target.value)} className={disabled ? undefined : "cursor-pointer"} style={{ ...fieldStyle, width: "160px" }}>
         {def.options?.map((o) => (
           <option key={o.value} value={o.value}>
             {o.label}
@@ -419,16 +533,77 @@ function ControlInput({
     );
   }
   // text (fontFamily): empty input clears the override.
+  const defaultValue = DEFAULTS_BY_CATEGORY[def.dataCategory][def.key];
   return (
     <input
       id={id}
       type="text"
-      value={String(value === EDITOR_DEFAULTS.fontFamily ? "" : value)}
+      value={String(value === defaultValue ? "" : value)}
       placeholder="var(--font-mono)"
       disabled={disabled}
       onChange={(e) => onChange(e.target.value.trim() === "" ? undefined : e.target.value)}
       style={{ ...fieldStyle, width: "240px" }}
     />
+  );
+}
+
+// ---- Files: excluded names (a list, not a scalar — its own control) ---------
+
+function ExcludeControl({ disabled }: { disabled: boolean }) {
+  const draftExclude = useSettings((s) => s.draft.files.exclude);
+  const scope = useSettings((s) => s.scope);
+  const user = useSettings((s) => s.user);
+  const isSet = draftExclude !== undefined;
+  const applied = scope === "workspace" ? (user.files.exclude ?? FILES_DEFAULTS.exclude) : FILES_DEFAULTS.exclude;
+  const value = draftExclude ?? applied;
+  const textRef = useRef<HTMLTextAreaElement>(null);
+
+  const commit = () => {
+    const raw = textRef.current?.value ?? "";
+    const names = raw
+      .split("\n")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    useSettings.getState().setDraft("files", "exclude", names.length ? names : undefined);
+  };
+
+  return (
+    <div
+      className="flex items-start justify-between gap-[var(--space-5)] transition-colors hover:bg-[var(--color-bg-raised)]"
+      style={{ padding: "var(--space-4) var(--space-3)", borderBottom: "1px solid var(--color-border-subtle)", borderRadius: "var(--radius-sm)", opacity: disabled ? 0.6 : 1, transitionDuration: "var(--motion-fast)" }}
+    >
+      <div className="min-w-0">
+        <label htmlFor="setting-files-exclude" className="flex items-center gap-[var(--space-2)]" style={{ color: "var(--color-fg-primary)", fontSize: "var(--text-sm)", fontWeight: 600 }}>
+          Exclude
+          {isSet && <span title="Overridden in this scope" aria-label="Overridden in this scope" style={{ width: "6px", height: "6px", borderRadius: "50%", background: "var(--color-accent)" }} />}
+        </label>
+        <p style={{ color: "var(--color-fg-secondary)", fontSize: "var(--text-xs)", marginTop: "var(--space-1)" }}>
+          Folder/file names hidden from the explorer, search, and Quick Open — one per line, an exact name match (not a glob).
+        </p>
+        {isSet && !disabled && (
+          <button
+            type="button"
+            onClick={() => useSettings.getState().setDraft("files", "exclude", undefined)}
+            className="cursor-pointer"
+            style={{ marginTop: "var(--space-2)", border: "none", background: "transparent", padding: 0, color: "var(--color-accent)", fontFamily: "var(--font-mono)", fontSize: "var(--text-xs)" }}
+          >
+            Reset to default
+          </button>
+        )}
+      </div>
+      <textarea
+        key={value.join("\n")}
+        id="setting-files-exclude"
+        ref={textRef}
+        defaultValue={value.join("\n")}
+        disabled={disabled}
+        onBlur={commit}
+        rows={4}
+        spellCheck={false}
+        placeholder={"dist\ncoverage"}
+        style={{ width: "220px", resize: "vertical", padding: "var(--space-2) var(--space-3)", border: "1px solid var(--color-border-strong)", borderRadius: "var(--radius-sm)", background: "var(--color-bg-base)", color: "var(--color-fg-primary)", fontFamily: "var(--font-mono)", fontSize: "var(--text-xs)" }}
+      />
+    </div>
   );
 }
 
@@ -519,7 +694,8 @@ function AccountSection() {
 
 // ---- Apply / Discard footer -------------------------------------------------
 
-function Footer({ dirty, disabled }: { dirty: boolean; disabled: boolean }) {
+function Footer({ dirty, disabled, hidden }: { dirty: boolean; disabled: boolean; hidden: boolean }) {
+  if (hidden) return null;
   return (
     <div className="flex shrink-0 items-center justify-end gap-[var(--space-4)]" style={{ padding: "var(--space-3) var(--space-6)", background: "var(--color-bg-recessed)", borderTop: "1px solid var(--color-border-subtle)" }}>
       <span style={{ marginRight: "auto", color: dirty ? "var(--color-status-awaiting)" : "var(--color-fg-muted)", fontFamily: "var(--font-mono)", fontSize: "var(--text-xs)" }}>
@@ -584,8 +760,8 @@ function CloseConfirm() {
 
 // ---- Edit as JSON (stages into the draft) -----------------------------------
 
-function JsonEditor({ editor, onDone }: { editor: EditorSettings; onDone: () => void }) {
-  const [text, setText] = useState(() => JSON.stringify(editor, null, 2));
+function JsonEditor({ settings, onDone }: { settings: ScopeSettings; onDone: () => void }) {
+  const [text, setText] = useState(() => JSON.stringify(settings, null, 2));
   const [error, setError] = useState<string | null>(null);
 
   const update = () => {
@@ -600,20 +776,16 @@ function JsonEditor({ editor, onDone }: { editor: EditorSettings; onDone: () => 
       setError("Settings must be a JSON object.");
       return;
     }
-    const src = parsed as Record<string, unknown>;
-    const next: EditorSettings = {};
-    for (const k of EDITOR_KEYS) {
-      if (src[k] !== undefined && src[k] !== null) (next as Record<string, unknown>)[k] = src[k];
-    }
     setError(null);
-    useSettings.getState().replaceDraft(next);
+    useSettings.getState().replaceDraft(sanitizeScopeSettings(parsed as Record<string, unknown>));
     onDone();
   };
 
   return (
     <div className="flex min-h-0 flex-1 flex-col" style={{ padding: "var(--space-6)", gap: "var(--space-3)" }}>
       <p style={{ color: "var(--color-fg-secondary)", fontSize: "var(--text-xs)" }}>
-        Editing the staged editor block as JSON. Unknown keys are ignored; “Update draft” stages it — then Apply to save.
+        Editing the staged scope as JSON — every category at once. Unknown keys are ignored; “Update draft” stages it — then
+        Apply to save.
       </p>
       {error && <Banner tone="error" text={error} />}
       <textarea

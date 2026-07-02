@@ -36,6 +36,16 @@ export type ConvItem =
       perm?: { requestId: string; decided?: "allow" | "deny" };
     };
 
+/** Bound on `rawLog` (Addendum II §S6, BottomPanel's Output/Logs tab) — a
+ *  rolling window, not a full transcript (that's what session history/resume is
+ *  for). */
+const RAW_LOG_LIMIT = 500;
+
+function appendRawLog(log: EngineEvent[], ev: EngineEvent): EngineEvent[] {
+  const next = [...log, ev];
+  return next.length > RAW_LOG_LIMIT ? next.slice(next.length - RAW_LOG_LIMIT) : next;
+}
+
 interface ConversationState {
   items: ConvItem[];
   streaming: boolean;
@@ -47,6 +57,12 @@ interface ConversationState {
   usage: Usage | null;
   error: string | null;
   truncated: boolean;
+  /** Every raw engine event received, most recent last, capped at
+   *  `RAW_LOG_LIMIT` (Addendum II §S6) — including events from a
+   *  since-superseded session, which `items` deliberately drops. Powers the
+   *  Bottom Panel's Output/Logs tab; not derived from `items` since the
+   *  point is to see what the CLI actually sent, unfiltered. */
+  rawLog: EngineEvent[];
   /** A queued resume/fork the next `send` should open with, instead of a fresh session. */
   pendingOpen: { resume: string; fork: boolean } | null;
   send: (prompt: string) => Promise<void>;
@@ -239,7 +255,10 @@ const makeConversationStore = (cwd: string): StoreApi<ConversationState> =>
   };
 
   // Wrap `dispatch` so only events from the still-current session are applied.
+  // The raw log records every event that arrives here regardless of epoch —
+  // it's a debug trace of what the CLI sent, not of what got applied.
   const channelFor = (boundEpoch: number) => (ev: EngineEvent) => {
+    set((s) => ({ rawLog: appendRawLog(s.rawLog, ev) }));
     if (boundEpoch === epoch) dispatch(ev);
   };
 
@@ -254,6 +273,7 @@ const makeConversationStore = (cwd: string): StoreApi<ConversationState> =>
     usage: null,
     error: null,
     truncated: false,
+    rawLog: [],
     pendingOpen: null,
 
     send: async (prompt: string) => {
