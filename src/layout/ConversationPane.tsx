@@ -9,6 +9,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent } from "react";
 import { activeConversationStore, useActiveConversation, type ConvItem } from "@/store/conversation";
+import { MODELS, useModel } from "@/store/model";
 import type { Usage } from "@/ipc/types";
 
 // Built-in session commands confirmed present in the CLI (2.1.190) — used as the
@@ -213,19 +214,14 @@ const bannerGhostBtnStyle: CSSProperties = {
 function PaneHeader() {
   const usage = useActiveConversation((s) => s.usage);
   const cost = useActiveConversation((s) => s.cost);
-  const model = useActiveConversation((s) => s.model);
+  const sessionLive = useActiveConversation((s) => s.workspaceId != null);
 
-  const ctx =
-    usage != null
-      ? `${contextTokens(usage).toLocaleString()} tok`
-      : model
-        ? model
-        : "—";
+  const ctx = usage != null ? `${contextTokens(usage).toLocaleString()} tok` : "—";
   const dollars = cost != null ? `$${cost.toFixed(4)}` : "$—";
 
   return (
     <div
-      className="flex shrink-0 items-center justify-between"
+      className="flex shrink-0 items-center justify-between gap-[var(--space-3)]"
       style={{
         height: "var(--space-7)",
         padding: "0 var(--space-5)",
@@ -233,10 +229,52 @@ function PaneHeader() {
       }}
     >
       <span style={monoLabel}>CONVERSATION</span>
-      <span style={{ ...monoLabel, color: "var(--color-fg-muted)" }}>
-        {ctx} · {dollars}
-      </span>
+      <div className="flex min-w-0 items-center gap-[var(--space-3)]">
+        <ModelPicker sessionLive={sessionLive} />
+        <span style={{ ...monoLabel, color: "var(--color-fg-muted)" }}>
+          {ctx} · {dollars}
+        </span>
+      </div>
     </div>
+  );
+}
+
+/** Picks the model the NEXT session spawns with (`--model`). While a session is
+ *  live the choice can't change that running session (the CLI sets the model at
+ *  spawn) — the tooltip and an "(next)" suffix say so. */
+function ModelPicker({ sessionLive }: { sessionLive: boolean }) {
+  const model = useModel((s) => s.model);
+  const setModel = useModel((s) => s.setModel);
+  const appliesNext = sessionLive;
+
+  return (
+    <label className="flex items-center gap-[var(--space-1)]" title={appliesNext ? "Model for the next session (the running one keeps its model)" : "Model for this session"}>
+      <span aria-hidden="true" style={{ ...monoLabel, color: "var(--color-fg-muted)" }}>
+        model
+      </span>
+      <select
+        value={model}
+        onChange={(e) => setModel(e.target.value)}
+        aria-label="Session model"
+        className="cursor-pointer"
+        style={{
+          background: "transparent",
+          border: "1px solid var(--color-border-subtle)",
+          borderRadius: "var(--radius-sm)",
+          padding: "0 var(--space-1)",
+          fontFamily: "var(--font-mono)",
+          fontSize: "var(--text-xs)",
+          color: "var(--color-fg-secondary)",
+        }}
+      >
+        {MODELS.map((m) => (
+          <option key={m.value} value={m.value}>
+            {m.label}
+            {appliesNext ? " (next)" : ""}
+          </option>
+        ))}
+      </select>
+    </label>
   );
 }
 

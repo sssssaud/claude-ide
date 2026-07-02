@@ -1555,3 +1555,29 @@ a context/compact-full warning banner, and capture-first usage/rate-limit loggin
   output can be above the fold. Worth a follow-up (scroll-into-view or render
   the terminal inline near the triggering block) but not what "button doesn't
   work" was about.
+
+### S14 — four user-requested capabilities (2026-07-03)
+User feedback burst while testing the real app: fixed two visual bugs (the
+conversation horizontal scrollbar `9feb6ef`, and a phantom resize cursor over
+the collapsed side panel `7ba02c5`), then asked for four bigger features and
+said "all" when asked which to prioritize. Doing them one at a time, each
+committed and screenshot-verified.
+
+- **1/4 — Permissions in Settings** (`aea31a7`): the permission manager existed
+  only behind the activity-bar shield icon; the user looked in Settings and
+  didn't find it. Added it as a Settings category reusing `PermissionsPanel`
+  verbatim (own save to `.claude/settings.json`), as an action category (no
+  staged-apply footer). Shield icon kept.
+- **2/4 — Model picker**: a per-session model selector in the conversation
+  header, via the CLI's own `--model` (aliases opus/sonnet/haiku/fable,
+  verified against `claude --help`). New `store/model.ts` (persisted to
+  localStorage — the choice should survive a relaunch, esp. picking Sonnet for
+  cheaper testing). Threaded `model: Option<String>` through
+  `engine::open`/`open_with` → `open_workspace`/`resume_workspace` commands →
+  IPC wrappers → the conversation store's lazy open. Backend `validate_model`
+  rejects anything outside the alias set / `claude-*` shape (defense-in-depth;
+  it's a distinct argv value, no shell) — +1 Rust test (100 total). Applies to
+  the NEXT session (sessions open lazily on first turn); the picker shows
+  "(next)" + a tooltip while one is live, since `--model` is fixed at spawn.
+- **3/4 — Browse & install plugins**: pending.
+- **4/4 — Steer running agents**: pending.

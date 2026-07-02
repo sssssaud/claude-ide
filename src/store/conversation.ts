@@ -17,6 +17,7 @@ import {
 } from "@/ipc/commands";
 import type { EngineEvent, Usage } from "@/ipc/types";
 import { isIpcError } from "@/ipc/types";
+import { useModel } from "@/store/model";
 import { useWorkspaces } from "@/store/workspaces";
 
 export type ConvItem =
@@ -317,9 +318,13 @@ const makeConversationStore = (cwd: string): StoreApi<ConversationState> =>
         if (!wsId) {
           const pending = get().pendingOpen;
           const onEvent = channelFor(epoch);
+          // The chosen session model (Addendum III §S14) — "" means the CLI
+          // default (no --model). Applies at this lazy open, so a model picked
+          // before the first turn takes effect for the whole session.
+          const model = useModel.getState().model || undefined;
           wsId = pending
-            ? await resumeWorkspace(onEvent, pending.resume, pending.fork, cwd)
-            : await openWorkspace(onEvent, cwd);
+            ? await resumeWorkspace(onEvent, pending.resume, pending.fork, cwd, model)
+            : await openWorkspace(onEvent, cwd, model);
           set({ workspaceId: wsId, pendingOpen: null });
         }
         await engineSend(wsId, text);

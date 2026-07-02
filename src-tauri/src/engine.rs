@@ -134,9 +134,10 @@ impl WorkspaceRegistry {
     pub async fn open(
         &self,
         cwd: Option<String>,
+        model: Option<String>,
         channel: Channel<EngineEvent>,
     ) -> IpcResult<String> {
-        self.open_with(cwd, None, false, channel).await
+        self.open_with(cwd, None, false, model, channel).await
     }
 
     /// Spawn a session, optionally resuming an existing conversation by id
@@ -149,10 +150,16 @@ impl WorkspaceRegistry {
         cwd: Option<String>,
         resume: Option<String>,
         fork: bool,
+        model: Option<String>,
         channel: Channel<EngineEvent>,
     ) -> IpcResult<String> {
         let cwd = resolve_cwd(cwd)?;
         let claude = crate::claude_bin::path()?;
+        // `--model` takes an alias ("opus"/"sonnet"/"haiku"/"fable") or a full
+        // `claude-*` id (verified via `claude --help`). Validate defensively —
+        // it's passed as a distinct argv value (no shell), but we still reject
+        // anything outside that shape so a bad value can't reach the CLI.
+        let model = validate_model(model)?;
 
         let mut args: Vec<String> = [
             "-p",
@@ -183,6 +190,10 @@ impl WorkspaceRegistry {
             if fork {
                 args.push("--fork-session".to_string());
             }
+        }
+        if let Some(m) = model {
+            args.push("--model".to_string());
+            args.push(m);
         }
 
         let mut child = Command::new(claude)
@@ -403,6 +414,30 @@ fn resolve_cwd(cwd: Option<String>) -> IpcResult<PathBuf> {
     // Shared with the Sessions rail (spec 3.2) so the session this engine
     // creates lands in the project dir the rail watches.
     crate::workspace::resolve_cwd(cwd)
+}
+
+/// Validate an optional `--model` value. Accepts the short aliases the CLI
+/// documents ("opus"/"sonnet"/"haiku"/"fable"/"default") or a full `claude-*`
+/// id (lowercase letters, digits, `.`/`-`). None/blank means "no `--model`"
+/// (the CLI's own default). Anything else is rejected rather than passed
+/// through — the picker only offers valid values, so this is defense-in-depth.
+fn validate_model(model: Option<String>) -> IpcResult<Option<String>> {
+    let Some(raw) = model else { return Ok(None) };
+    let m = raw.trim();
+    if m.is_empty() || m == "default" {
+        return Ok(None);
+    }
+    let alias = matches!(m, "opus" | "sonnet" | "haiku" | "fable");
+    let full = m.starts_with("claude-")
+        && m.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '.');
+    if alias || full {
+        Ok(Some(m.to_string()))
+    } else {
+        Err(IpcError::new(
+            IpcErrorKind::InvalidInput,
+            "Unrecognized model — use an alias (opus/sonnet/haiku/fable) or a claude-* id",
+        ))
+    }
 }
 
 /// Per-line byte cap for the engine's NDJSON stream (DoS guard, hardening B2).
@@ -661,6 +696,21 @@ mod tests {
     #[test]
     fn parses_text_delta() {
         assert!(matches!(&parse_events(DELTA)[..], [EngineEvent::AssistantDelta { text }] if text == "h"));
+    }
+
+    #[test]
+    fn validate_model_accepts_and_rejects() {
+        // Aliases and full ids pass through.
+        assert_eq!(validate_model(Some("sonnet".into())).unwrap(), Some("sonnet".into()));
+        assert_eq!(validate_model(Some("claude-opus-4-8".into())).unwrap(), Some("claude-opus-4-8".into()));
+        // None / blank / "default" mean "no --model" (CLI default).
+        assert_eq!(validate_model(None).unwrap(), None);
+        assert_eq!(validate_model(Some("".into())).unwrap(), None);
+        assert_eq!(validate_model(Some("default".into())).unwrap(), None);
+        // Garbage and flag-like values are rejected, not passed to the CLI.
+        assert!(validate_model(Some("--dangerous".into())).is_err());
+        assert!(validate_model(Some("gpt-4".into())).is_err());
+        assert!(validate_model(Some("claude-; rm -rf".into())).is_err());
     }
 
     #[test]
