@@ -15,6 +15,7 @@ mod error;
 mod files;
 mod git;
 mod mcp;
+mod memory;
 mod perf;
 mod permissions;
 mod plugins;
@@ -110,6 +111,7 @@ pub fn run(startup: Instant) {
             commands::list_plugins,
             commands::list_marketplaces,
             commands::list_mcp_servers,
+            commands::memory_health,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

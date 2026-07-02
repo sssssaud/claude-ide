@@ -1456,3 +1456,78 @@ a context/compact-full warning banner, and capture-first usage/rate-limit loggin
 - `npm run typecheck` / `npm run build` clean after the fix. No Rust changes
   (frontend-only). `mock-test.html` deleted; background Vite dev server
   stopped.
+
+### S13 — Dashboard: Memory health · COMPLETE ✅ (2026-07-03)
+- User asked for a "memory health dashboard." Rather than guess between "app
+  process memory" and "Claude's own memory system," invoked the locally
+  installed `/si:status` skill to see its exact spec — it already defines
+  this concept precisely: line count vs. a 200-line cap for this workspace's
+  `~/.claude/projects/<project>/memory/MEMORY.md`, topic-file count,
+  staleness (dangling links), duplicates, and capacity banding
+  (healthy/warning/critical). Built to that spec exactly — no ambiguity left
+  to resolve by guessing.
+- **New `src-tauri/src/memory.rs`**: read-only, same wrapper shape as
+  `usage.rs`. Resolves the workspace's project dir via
+  `sessions::resolve_project_dir` (match by recorded cwd, never reverse the
+  lossy slug — the project's own established rule), reads `memory/MEMORY.md`
+  + topic `*.md` files, project/user `CLAUDE.md` line counts, `.claude/
+  rules/*.md` count. Staleness/duplicates are parsed directly from
+  `MEMORY.md`'s own `[Title](file.md)` link syntax (precise — matches how
+  this app's own auto-memory actually links, rather than the skill's more
+  generic extension-regex example) — no `regex` crate added, just a small
+  hand-rolled `](...)` scanner. Capacity bands per the skill's own
+  thresholds. Never writes anything (promotion/cleanup stays a manual
+  `/si:review` in a real session, same wrapper principle as everywhere
+  else). +4 Rust tests (banding thresholds, worst-of-two-bands, stale +
+  duplicate detection against a real temp fixture).
+- **Frontend**: rather than add an 8th activity-bar icon, folded it into the
+  existing Usage view as a second tab (`TOKENS` / `MEMORY`) — both are
+  read-only "reports about this workspace," and the activity bar was
+  already at 7 icons. Renamed that view's visible label from "Usage" to
+  "Dashboard" (display text only, the `View` type id stays `"usage"` so no
+  store/IPC churn). `UsagePanel.tsx`'s old body became `TokensTab()`; added
+  `MemoryTab()` alongside it, reusing the existing `Card`/`CardTitle`/`Note`
+  helpers and the tab-strip visual style already established in
+  `BottomPanel.tsx` (mono, `borderBottom` accent) for consistency.
+- **Verified with real visual testing, not just typecheck** (per the
+  standing instruction from earlier this session): screenshotted via the
+  same mocked-IPC + headless-Chrome technique as S11/S12, first with the
+  *actual* current numbers read live from this project's own memory dir (5
+  MEMORY.md lines, 3 real topic files, 69/49-line CLAUDE.mds), then with a
+  synthetic critical scenario (195/200 lines, 7 topic files, stale +
+  duplicate refs, a full recommendations list) to exercise the unhealthy
+  code path, then a Tokens-tab regression check.
+- **Found and fixed a second real overflow bug this same way**: the
+  topic-files list used the exact same unwrapped `flex justify-between` row
+  shape the MCP fix had just addressed elsewhere — except here there's no
+  `flex-wrap` fix available (the sidebar is much narrower than the Settings
+  tab, ~280px, so wrapping a filename mid-word is worse, not better).
+  Instead gave the filename `flex-1 min-w-0` + `overflow:hidden;
+  text-overflow:ellipsis; white-space:nowrap` + a `title` tooltip for the
+  full name, matching the pattern already used for session labels earlier
+  in this same file. Re-screenshotted to confirm: long names now truncate
+  cleanly instead of colliding with the line-count badge.
+- **Real-window infrastructure note**: mid-build, the user connected a
+  second monitor (`HDMI-A-1`, confirmed via `kscreen-doctor` as a genuine
+  second connected+enabled output, not a config artifact) specifically so
+  visual testing could target the actual native window instead of only the
+  mocked-IPC Vite harness. `spectacle -f` now correctly captures both
+  outputs (3840×1080 combined) and the real Tauri window is visible and
+  screenshottable on it for the first time this project — confirmed with a
+  direct screenshot of the live app correctly rendering this very
+  conversation. Real mouse/keyboard control of that window is still
+  unavailable (no `xdotool`/`ydotool`/`wtype`, no passwordless sudo); the
+  user chose to try installing `ydotool` (commands handed to them to run
+  via sudo — device-permission changes stay outside what this session
+  performs on their behalf) with a fallback to the proven mocked-IPC method
+  if that proves too fiddly. Also discovered mid-investigation why the live
+  `tauri dev` process never picked up this session's earlier Rust changes:
+  a leftover standalone Vite instance from earlier mock-testing was
+  squatting on port 1420, so Tauri's own `beforeDevCommand` silently failed
+  and it kept serving a stale cached binary. Fixed by stopping every stray
+  process and relaunching once, cleanly — confirmed via the log's own
+  `Finished`/`Running` lines and a fresh live screenshot.
+- Gate: 99 Rust tests green, clippy clean, `npm run typecheck` / `npm run
+  build` clean. Two real screenshot-verified UI states (healthy + critical)
+  plus a Tokens-tab regression check, all with genuinely rendered pixels,
+  not inference.

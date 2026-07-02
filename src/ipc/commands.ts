@@ -25,6 +25,7 @@ import type {
   GitStatus,
   MarketplaceEntry,
   McpServerEntry,
+  MemoryHealth,
   PerfStats,
   PluginEntry,
   PreflightReport,
@@ -516,6 +517,19 @@ export async function listMarketplaces(): Promise<MarketplaceEntry[]> {
 export async function listMcpServers(): Promise<McpServerEntry[]> {
   try {
     return await invoke<McpServerEntry[]>("list_mcp_servers");
+  } catch (e) {
+    normalizeError(e);
+  }
+}
+
+// ----- Memory health dashboard (Addendum III §S13) ---------------------------
+// Read-only report on Claude's own auto-memory system for this workspace.
+
+/** Line counts, topic files, staleness, and capacity banding for `~/.claude/
+ *  projects/<project>/memory/` — mirrors the `/si:status` skill's numbers. */
+export async function memoryHealth(cwd?: string): Promise<MemoryHealth> {
+  try {
+    return await invoke<MemoryHealth>("memory_health", { cwd });
   } catch (e) {
     normalizeError(e);
   }

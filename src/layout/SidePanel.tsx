@@ -1,8 +1,8 @@
 /*
  * Side panel (Addendum II layout pass). The collapsible content area beside the
  * activity bar: it renders whichever view the activity bar has selected — Files,
- * Search, Source Control, Sessions, Permissions, or Usage. Only the active view
- * mounts. The panel collapses (via the activity bar's chevron, the active icon,
+ * Search, Source Control, Sessions, Permissions, or Dashboard. Only the active
+ * view mounts. The panel collapses (via the activity bar's chevron, the active icon,
  * or Ctrl+B) while the activity bar stays put — so a view is always one click
  * away (VS Code-style).
  */
@@ -23,7 +23,7 @@ const LABELS: Record<View, string> = {
   sessions: "Sessions",
   agentDefs: "Agents",
   permissions: "Permissions",
-  usage: "Usage",
+  usage: "Dashboard",
 };
 
 export function SidePanel() {

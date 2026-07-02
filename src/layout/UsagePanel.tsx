@@ -1,19 +1,30 @@
 /*
- * Usage view (P4, Phase 8). A read-only token dashboard over the workspace's
- * `claude` sessions. Tokens are EXACT — summed from the CLI's own transcripts
- * (input / output / cache-read / cache-write), per session and in total.
+ * Dashboard view (P4 Usage, Phase 8 + Addendum III §S13 Memory). Two read-only
+ * tabs over the workspace: Tokens, and Memory health.
  *
- * Cost is deliberately an ESTIMATE, not a fact: the CLI persists no cost on disk,
- * and on a flat subscription there is no per-token dollar charge at all. So the
- * dollar figure is computed here from EDITABLE per-million-token rates (your own
- * assumption, defaulted to Opus API list rates), and labelled as such — never a
- * claim about what you were actually billed.
+ * Tokens: EXACT — summed from the CLI's own transcripts (input / output /
+ * cache-read / cache-write), per session and in total. Cost is deliberately an
+ * ESTIMATE, not a fact: the CLI persists no cost on disk, and on a flat
+ * subscription there is no per-token dollar charge at all. So the dollar figure
+ * is computed here from EDITABLE per-million-token rates (your own assumption,
+ * defaulted to Opus API list rates), and labelled as such — never a claim about
+ * what you were actually billed.
+ *
+ * Memory: reports on Claude's own auto-memory system for this workspace
+ * (`~/.claude/projects/<project>/memory/`) — line count vs. the 200-line cap,
+ * topic files, staleness, duplicates — mirroring the `/si:status` skill.
  */
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { workspaceUsage } from "@/ipc/commands";
-import { isIpcError, type TokenSums, type UsageReport } from "@/ipc/types";
+import { memoryHealth, workspaceUsage } from "@/ipc/commands";
+import { isIpcError, type HealthBand, type MemoryHealth, type TokenSums, type UsageReport } from "@/ipc/types";
 import { useActiveCwd } from "@/store/workspaces";
+
+type UsageTab = "tokens" | "memory";
+const TABS: { id: UsageTab; label: string }[] = [
+  { id: "tokens", label: "TOKENS" },
+  { id: "memory", label: "MEMORY" },
+];
 
 /** $/million-tokens. Defaults are Opus API list rates — edit to match your plan. */
 interface Rates {
@@ -55,6 +66,43 @@ function estimate(t: TokenSums, r: Rates): number {
 }
 
 export function UsagePanel() {
+  const [tab, setTab] = useState<UsageTab>("tokens");
+  return (
+    <div className="flex h-full flex-col">
+      <div
+        role="tablist"
+        aria-label="Usage panel tabs"
+        className="flex shrink-0 items-center gap-[var(--space-1)]"
+        style={{ padding: "var(--space-2) var(--space-4) 0", borderBottom: "1px solid var(--color-border-subtle)" }}
+      >
+        {TABS.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            role="tab"
+            aria-selected={tab === t.id}
+            onClick={() => setTab(t.id)}
+            className="cursor-pointer"
+            style={{
+              padding: "var(--space-1) var(--space-2) var(--space-2)",
+              border: "none",
+              borderBottom: tab === t.id ? "2px solid var(--color-accent)" : "2px solid transparent",
+              background: "transparent",
+              color: tab === t.id ? "var(--color-fg-primary)" : "var(--color-fg-muted)",
+              fontFamily: "var(--font-mono)",
+              fontSize: "var(--text-xs)",
+            }}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+      <div className="min-h-0 flex-1">{tab === "tokens" ? <TokensTab /> : <MemoryTab />}</div>
+    </div>
+  );
+}
+
+function TokensTab() {
   const cwd = useActiveCwd();
   const [report, setReport] = useState<UsageReport | null>(null);
   const [loading, setLoading] = useState(true);
@@ -101,7 +149,7 @@ export function UsagePanel() {
   return (
     <div className="flex h-full flex-col overflow-y-auto" style={{ padding: "var(--space-4)" }}>
       <div className="flex items-baseline justify-between" style={{ marginBottom: "var(--space-2)" }}>
-        <div style={{ fontSize: "var(--text-sm)", color: "var(--color-fg-primary)" }}>Usage</div>
+        <div style={{ fontSize: "var(--text-sm)", color: "var(--color-fg-primary)" }}>Token usage</div>
         <button
           type="button"
           onClick={() => load()}
@@ -218,6 +266,191 @@ export function UsagePanel() {
           </li>
         ))}
       </ul>
+    </div>
+  );
+}
+
+const BAND_COLOR: Record<HealthBand, string> = {
+  healthy: "var(--color-status-success)",
+  warning: "var(--color-status-awaiting)",
+  critical: "var(--color-status-danger)",
+};
+const BAND_LABEL: Record<HealthBand, string> = {
+  healthy: "Healthy",
+  warning: "Warning",
+  critical: "Critical",
+};
+
+function MemoryTab() {
+  const cwd = useActiveCwd();
+  const [health, setHealth] = useState<MemoryHealth | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(() => {
+    setLoading(true);
+    setError(null);
+    let alive = true;
+    memoryHealth(cwd ?? undefined)
+      .then((h) => alive && setHealth(h))
+      .catch((e) => alive && setError(isIpcError(e) ? e.message : "Could not read memory health"))
+      .finally(() => alive && setLoading(false));
+    return () => {
+      alive = false;
+    };
+  }, [cwd]);
+
+  useEffect(() => load(), [load]);
+
+  if (loading) return <Note text="Reading memory files…" />;
+  if (error) return <Note text={error} tone="error" />;
+  if (!health || !health.projectFound)
+    return <Note text="No Claude session recorded for this workspace yet — memory appears once you've had a conversation here." />;
+  if (!health.memoryDirExists)
+    return <Note text="No auto-memory written for this project yet." />;
+
+  const pct = Math.min(100, Math.round((health.memoryMdLines / health.memoryMdCap) * 100));
+
+  return (
+    <div className="flex h-full flex-col overflow-y-auto" style={{ padding: "var(--space-4)" }}>
+      <div className="flex items-baseline justify-between" style={{ marginBottom: "var(--space-3)" }}>
+        <div className="flex items-center gap-[var(--space-2)]">
+          <div style={{ fontSize: "var(--text-sm)", color: "var(--color-fg-primary)" }}>Memory health</div>
+          <span
+            style={{
+              fontFamily: "var(--font-mono)",
+              fontSize: "var(--text-xs)",
+              color: BAND_COLOR[health.capacity],
+              border: `1px solid ${BAND_COLOR[health.capacity]}`,
+              borderRadius: "var(--radius-sm)",
+              padding: "0 var(--space-1)",
+            }}
+          >
+            {BAND_LABEL[health.capacity]}
+          </span>
+        </div>
+        <button
+          type="button"
+          onClick={() => load()}
+          className="cursor-pointer"
+          style={{
+            border: "none",
+            background: "transparent",
+            color: "var(--color-fg-secondary)",
+            fontFamily: "var(--font-mono)",
+            fontSize: "var(--text-xs)",
+          }}
+        >
+          ↻ reload
+        </button>
+      </div>
+
+      <Card>
+        <CardTitle>MEMORY.md</CardTitle>
+        <div className="flex items-baseline justify-between" style={{ marginBottom: "var(--space-1)" }}>
+          <span style={{ fontFamily: "var(--font-mono)", fontSize: "var(--text-sm)", color: "var(--color-fg-primary)" }}>
+            {health.memoryMdLines} / {health.memoryMdCap} lines
+          </span>
+          <span style={{ fontFamily: "var(--font-mono)", fontSize: "var(--text-xs)", color: "var(--color-fg-muted)" }}>
+            {health.memoryMdUpdatedMs ? relativeTime(health.memoryMdUpdatedMs) : "never updated"}
+          </span>
+        </div>
+        <div
+          aria-hidden="true"
+          style={{ height: "6px", borderRadius: "999px", background: "var(--color-bg-base)", overflow: "hidden" }}
+        >
+          <div style={{ height: "100%", width: `${pct}%`, background: BAND_COLOR[health.capacity] }} />
+        </div>
+      </Card>
+
+      <Card>
+        <CardTitle>TOPIC FILES ({health.topicFiles.length})</CardTitle>
+        {health.topicFiles.length === 0 ? (
+          <p style={{ fontSize: "var(--text-xs)", color: "var(--color-fg-muted)" }}>None yet.</p>
+        ) : (
+          <ul className="flex flex-col gap-[2px]">
+            {health.topicFiles.map((f) => (
+              <li
+                key={f.name}
+                className="flex items-center gap-[var(--space-2)]"
+                style={{ fontFamily: "var(--font-mono)", fontSize: "var(--text-xs)" }}
+              >
+                <span
+                  title={f.name}
+                  className="min-w-0 flex-1"
+                  style={{ color: "var(--color-fg-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                >
+                  {f.name}
+                </span>
+                <span className="shrink-0" style={{ color: "var(--color-fg-muted)" }}>
+                  {f.lines} lines
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
+
+      <Card>
+        <CardTitle>PROJECT RULES</CardTitle>
+        <TokenGridLike
+          rows={[
+            ["Project CLAUDE.md", health.projectClaudeMdLines != null ? `${health.projectClaudeMdLines} lines` : "none"],
+            ["User CLAUDE.md", health.userClaudeMdLines != null ? `${health.userClaudeMdLines} lines` : "none"],
+            [".claude/rules/", `${health.rulesFileCount} file${health.rulesFileCount === 1 ? "" : "s"}`],
+          ]}
+        />
+      </Card>
+
+      {(health.staleRefs.length > 0 || health.duplicateRefs.length > 0) && (
+        <Card>
+          <CardTitle>ISSUES</CardTitle>
+          {health.staleRefs.length > 0 && (
+            <p style={{ fontSize: "var(--text-xs)", color: "var(--color-status-danger)", marginBottom: "var(--space-1)" }}>
+              Stale: {health.staleRefs.join(", ")}
+            </p>
+          )}
+          {health.duplicateRefs.length > 0 && (
+            <p style={{ fontSize: "var(--text-xs)", color: "var(--color-status-awaiting)" }}>
+              Duplicated: {health.duplicateRefs.join(", ")}
+            </p>
+          )}
+        </Card>
+      )}
+
+      {health.recommendations.length > 0 && (
+        <Card>
+          <CardTitle>RECOMMENDATIONS</CardTitle>
+          <ul className="flex flex-col gap-[var(--space-1)]">
+            {health.recommendations.map((r) => (
+              <li key={r} style={{ fontSize: "var(--text-xs)", color: "var(--color-fg-secondary)", lineHeight: 1.5 }}>
+                · {r}
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+function TokenGridLike({ rows }: { rows: [string, string][] }) {
+  return (
+    <div
+      className="grid"
+      style={{
+        gridTemplateColumns: "1fr auto",
+        gap: "2px var(--space-3)",
+        fontFamily: "var(--font-mono)",
+        fontSize: "var(--text-xs)",
+      }}
+    >
+      {rows.map(([label, value]) => (
+        <Frag key={label}>
+          <span style={{ color: "var(--color-fg-muted)" }}>{label}</span>
+          <span style={{ color: "var(--color-fg-secondary)", textAlign: "right" }}>{value}</span>
+        </Frag>
+      ))}
     </div>
   );
 }

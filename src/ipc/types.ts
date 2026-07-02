@@ -234,6 +234,34 @@ export interface McpServerEntry {
   status: string;
 }
 
+/** Mirror of Rust `HealthBand` (Addendum III §S13). */
+export type HealthBand = "healthy" | "warning" | "critical";
+
+/** Mirror of Rust `MemoryFile` — one topic file under the memory dir. */
+export interface MemoryFile {
+  name: string;
+  lines: number;
+}
+
+/** Mirror of Rust `MemoryHealth` (Addendum III §S13) — a read-only report on
+ *  Claude's own auto-memory system for this workspace (`~/.claude/projects/
+ *  <project>/memory/`), mirroring the `/si:status` skill's own numbers. */
+export interface MemoryHealth {
+  projectFound: boolean;
+  memoryDirExists: boolean;
+  memoryMdLines: number;
+  memoryMdCap: number;
+  memoryMdUpdatedMs: number | null;
+  topicFiles: MemoryFile[];
+  projectClaudeMdLines: number | null;
+  userClaudeMdLines: number | null;
+  rulesFileCount: number;
+  staleRefs: string[];
+  duplicateRefs: string[];
+  capacity: HealthBand;
+  recommendations: string[];
+}
+
 /** The `editor.wordWrap` values Monaco understands (Addendum II §1). */
 export type WordWrap = "off" | "on" | "wordWrapColumn" | "bounded";
 

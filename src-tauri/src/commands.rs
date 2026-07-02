@@ -22,6 +22,7 @@ use crate::git::{GitBranches, GitDiff, GitStatus};
 use crate::perf::{self, PerfStats};
 use crate::permissions::{ProjectPermissions, ProjectPermissionsFile};
 use crate::mcp::McpServerEntry;
+use crate::memory::MemoryHealth;
 use crate::plugins::{MarketplaceEntry, PluginEntry};
 use crate::preflight::{self, PreflightReport};
 use crate::pty::PtyRegistry;
@@ -423,6 +424,15 @@ pub async fn list_marketplaces() -> IpcResult<Vec<MarketplaceEntry>> {
 #[tauri::command]
 pub async fn list_mcp_servers() -> IpcResult<Vec<McpServerEntry>> {
     crate::mcp::list_mcp_servers().await
+}
+
+// ----- Memory health dashboard (Addendum III §S13) ---------------------------
+// Read-only: reports on `~/.claude/projects/<project>/memory/` for this
+// workspace, mirroring the `/si:status` skill's own numbers. Never writes.
+
+#[tauri::command]
+pub fn memory_health(cwd: Option<String>) -> IpcResult<MemoryHealth> {
+    crate::memory::memory_health(cwd)
 }
 
 // ----- App settings (Addendum II §1, S1) -------------------------------------

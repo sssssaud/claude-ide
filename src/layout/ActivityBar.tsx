@@ -7,7 +7,8 @@
  *
  * The strip itself never hides; only its content panel (`SidePanel`) collapses,
  * so the views are always one click away. View selection lives in the layout
- * store so the strip and the panel stay in sync.
+ * store so the strip and the panel stay in sync. "Dashboard" houses both the
+ * token-usage report and the memory-health report as tabs (Addendum III §S13).
  */
 
 import { useRef, type KeyboardEvent, type ReactNode } from "react";
@@ -23,7 +24,7 @@ const VIEWS: { id: View; label: string; icon: ReactNode }[] = [
   { id: "sessions", label: "Sessions", icon: <SessionsIcon /> },
   { id: "agentDefs", label: "Agents", icon: <AgentIcon /> },
   { id: "permissions", label: "Permissions", icon: <ShieldIcon /> },
-  { id: "usage", label: "Usage", icon: <ChartIcon /> },
+  { id: "usage", label: "Dashboard", icon: <ChartIcon /> },
 ];
 
 export function ActivityBar() {
