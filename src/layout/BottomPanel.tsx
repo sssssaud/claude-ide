@@ -26,8 +26,9 @@ import "@xterm/xterm/css/xterm.css";
 import { EmptyState } from "@/components/states";
 import { ptyClose, ptyOpen, ptyResize, ptyWrite } from "@/ipc/commands";
 import type { EngineEvent } from "@/ipc/types";
+import { setActivePtyId } from "@/store/activeTerminals";
 import { useActiveConversation } from "@/store/conversation";
-import { useLayout } from "@/store/layout";
+import { useLayout, type BottomTab } from "@/store/layout";
 import { mergeEffectiveTerminal, useSettings } from "@/store/settings";
 import { useWorkspaces } from "@/store/workspaces";
 
@@ -47,7 +48,6 @@ function resolveFontFamily(value: string): string {
 const TERM_HEIGHT_KEY = "ide:term-h";
 const MIN_TERM_HEIGHT = 100;
 
-type BottomTab = "terminal" | "output" | "problems";
 const TABS: { id: BottomTab; label: string }[] = [
   { id: "terminal", label: "TERMINAL" },
   { id: "output", label: "OUTPUT" },
@@ -65,7 +65,8 @@ export function BottomPanel() {
   const workspaces = useWorkspaces((s) => s.workspaces);
   const activeId = useWorkspaces((s) => s.activeId);
 
-  const [tab, setTab] = useState<BottomTab>("terminal");
+  const tab = useLayout((s) => s.bottomTab);
+  const setTab = useLayout((s) => s.setBottomTab);
 
   // The active terminal's exited state + restart fn, registered by the children
   // so the shared header can drive whichever terminal is in front.
@@ -355,6 +356,7 @@ function WorkspaceTerminal({
           if (bytes.length === 0) {
             // EOF sentinel: the shell exited.
             ptyIdRef.current = null;
+            setActivePtyId(cwd, null);
             reportExited(cwd, true);
             try {
               t.write("\r\n\x1b[2m[process exited — press Restart]\x1b[0m\r\n");
@@ -379,6 +381,7 @@ function WorkspaceTerminal({
         return;
       }
       ptyIdRef.current = id;
+      setActivePtyId(cwd, id);
     } catch {
       if (epochRef.current !== myEpoch) return;
       reportExited(cwd, true);
@@ -498,6 +501,7 @@ function WorkspaceTerminal({
       const id = ptyIdRef.current;
       if (id) void ptyClose(id);
       ptyIdRef.current = null;
+      setActivePtyId(cwd, null);
       cleanupRef.current?.();
       cleanupRef.current = null;
       termRef.current = null;
@@ -513,6 +517,7 @@ function WorkspaceTerminal({
     if (id) {
       await ptyClose(id);
       ptyIdRef.current = null;
+      setActivePtyId(cwd, null);
     }
     termRef.current?.reset();
     openedRef.current = true;

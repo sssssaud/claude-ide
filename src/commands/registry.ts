@@ -13,7 +13,13 @@
  * (rebinding, conflict warnings) is later work (S6); today's bindings are fixed.
  */
 
-import { AGENT_ACTION_LABELS, hasAgentActionTarget, sendAgentAction, type AgentActionKind } from "@/commands/agentActions";
+import {
+  AGENT_ACTION_LABELS,
+  hasAgentActionTarget,
+  hasLineActionTarget,
+  sendAgentAction,
+  type AgentActionKind,
+} from "@/commands/agentActions";
 import { getActiveEditorHandle } from "@/store/activeEditorHandle";
 import { activeEditorStore } from "@/store/editor";
 import { useLayout } from "@/store/layout";
@@ -96,6 +102,18 @@ export const COMMANDS: Command[] = [
     combo: "mod+shift+p",
     run: () => useOverlays.getState().openPalette(),
   },
+  {
+    id: "help.cheatSheet",
+    title: "Help: Keyboard Shortcuts",
+    category: "Help",
+    keybinding: "Ctrl+K Ctrl+S",
+    // A two-step chord (Addendum II §S7) — "mod+k" then "mod+s" within a
+    // short window. Also reachable via a dedicated "?" hotkey the cheat sheet
+    // registers itself (guarded to skip while typing) since a bare "?" isn't
+    // safe as a global dispatcher combo (see `useLayoutShortcuts.ts`).
+    combo: "mod+k,mod+s",
+    run: () => useOverlays.getState().openCheatSheet(),
+  },
 
   // ---- Editor (need the active Monaco instance) ------------------------
   {
@@ -169,6 +187,16 @@ export const COMMANDS: Command[] = [
       run: () => sendAgentAction(kind),
     }),
   ),
+  {
+    // Opens the Monaco-hosted "Ask About This Line…" modal (needs free-form
+    // input, unlike the other five, so it goes through the editor action it
+    // registered rather than sending a turn directly).
+    id: "claude.askLine",
+    title: "Claude: Ask About This Line…",
+    category: "Claude",
+    enabled: hasLineActionTarget,
+    run: () => getActiveEditorHandle()?.editor.getAction("claude.askLine")?.run(),
+  },
 ];
 
 /** Commands actually runnable right now (palette hides disabled ones). */

@@ -8,7 +8,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent } from "react";
-import { useActiveConversation, type ConvItem } from "@/store/conversation";
+import { activeConversationStore, useActiveConversation, type ConvItem } from "@/store/conversation";
 
 // Built-in session commands confirmed present in the CLI (2.1.190) — used as the
 // slash menu's source until the live `slash_commands` list arrives with `init`.
@@ -111,15 +111,21 @@ function ConversationItem({ item, streaming }: { item: ConvItem; streaming: bool
   switch (item.kind) {
     case "user":
       return (
-        <div className="flex flex-col gap-[var(--space-2)]">
-          <Role label="you" color="var(--color-fg-secondary)" />
+        <div className="group/turn flex flex-col gap-[var(--space-2)]">
+          <div className="flex items-center justify-between">
+            <Role label="you" color="var(--color-fg-secondary)" />
+            <CopyMarkdownButton text={`**You:**\n\n${item.text}`} />
+          </div>
           <p style={{ color: "var(--color-fg-primary)", whiteSpace: "pre-wrap" }}>{item.text}</p>
         </div>
       );
     case "assistant":
       return (
-        <div className="flex flex-col gap-[var(--space-2)]">
-          <Role label="claude" color="var(--color-accent)" />
+        <div className="group/turn flex flex-col gap-[var(--space-2)]">
+          <div className="flex items-center justify-between">
+            <Role label="claude" color="var(--color-accent)" />
+            <CopyMarkdownButton text={`**Claude:**\n\n${item.text}`} />
+          </div>
           <p style={{ color: "var(--color-fg-primary)", whiteSpace: "pre-wrap" }}>
             {item.text}
             {item.stopped && (
@@ -362,7 +368,20 @@ function PromptBar() {
   const send = useActiveConversation((s) => s.send);
   const cancel = useActiveConversation((s) => s.cancel);
   const liveCommands = useActiveConversation((s) => s.slashCommands);
+  const draftInsert = useActiveConversation((s) => s.draftInsert);
   const inputRef = useRef<HTMLInputElement | null>(null);
+
+  // "Re-run" a past prompt found via cross-session search (§S7) — populates
+  // the composer for review, never auto-sends. Consumed once, like the
+  // editor's own `reveal`/`clearReveal` pending-request pattern.
+  useEffect(() => {
+    if (draftInsert === null) return;
+    setValue(draftInsert);
+    setDismissed(false);
+    setSel(0);
+    inputRef.current?.focus();
+    activeConversationStore().getState().clearDraftInsert();
+  }, [draftInsert]);
 
   const commands = liveCommands.length ? liveCommands : FALLBACK_SLASH;
   // The slash menu is active while typing a command name: a leading "/" with no
@@ -574,6 +593,29 @@ function ErrorLine({ message }: { message: string }) {
 
 function Role({ label, color }: { label: string; color: string }) {
   return <span style={{ ...mono, color }}>{label}</span>;
+}
+
+/** Copies one turn as Markdown (Addendum II §S7) — revealed on hover/focus,
+ *  like the tab strip's close button; briefly confirms so a silent clipboard
+ *  write doesn't look like nothing happened. */
+function CopyMarkdownButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        void navigator.clipboard?.writeText(text);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1200);
+      }}
+      title="Copy as Markdown"
+      aria-label="Copy as Markdown"
+      className="cursor-pointer opacity-0 transition-opacity focus:opacity-100 group-hover/turn:opacity-100"
+      style={{ border: "none", background: "transparent", padding: 0, color: "var(--color-fg-muted)", fontFamily: "var(--font-mono)", fontSize: "var(--text-xs)", transitionDuration: "var(--motion-fast)" }}
+    >
+      {copied ? "✓ copied" : "copy ⧉"}
+    </button>
+  );
 }
 
 function stringify(value: unknown, indent?: number): string {

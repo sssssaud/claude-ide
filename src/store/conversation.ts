@@ -65,6 +65,12 @@ interface ConversationState {
   rawLog: EngineEvent[];
   /** A queued resume/fork the next `send` should open with, instead of a fresh session. */
   pendingOpen: { resume: string; fork: boolean } | null;
+  /** A pending prompt-bar insert request — e.g. "re-run" a past prompt found
+   *  via cross-session search (Addendum II §S7). The prompt bar consumes this
+   *  once (populating the composer for review) and clears it; never auto-sent. */
+  draftInsert: string | null;
+  insertDraft: (text: string) => void;
+  clearDraftInsert: () => void;
   send: (prompt: string) => Promise<void>;
   cancel: () => Promise<void>;
   /**
@@ -275,6 +281,10 @@ const makeConversationStore = (cwd: string): StoreApi<ConversationState> =>
     truncated: false,
     rawLog: [],
     pendingOpen: null,
+    draftInsert: null,
+
+    insertDraft: (text) => set({ draftInsert: text }),
+    clearDraftInsert: () => set({ draftInsert: null }),
 
     send: async (prompt: string) => {
       const text = prompt.trim();

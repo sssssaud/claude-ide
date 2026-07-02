@@ -302,6 +302,41 @@ pub fn write_file(cwd: Option<String>, path: String, contents: String) -> IpcRes
     crate::files::write_file(cwd, path, contents)
 }
 
+/// Create a new empty file or folder (Addendum II §S7). `parent` is an existing
+/// directory relative to the workspace root (empty = the root); `name` is
+/// validated as a single path component. Canonicalize-parent-and-contain, never
+/// the not-yet-existing target — see `files::resolve_within`'s SECURITY note.
+#[tauri::command]
+pub fn create_entry(
+    cwd: Option<String>,
+    parent: String,
+    name: String,
+    is_dir: bool,
+) -> IpcResult<DirEntry> {
+    crate::files::create_entry(cwd, parent, name, is_dir)
+}
+
+/// Duplicate an existing workspace file next to itself, auto-numbering the name
+/// (Addendum II §S7). Confined to the workspace root.
+#[tauri::command]
+pub fn duplicate_file(cwd: Option<String>, path: String) -> IpcResult<DirEntry> {
+    crate::files::duplicate_file(cwd, path)
+}
+
+/// Reveal a workspace file/folder in the OS file manager (Addendum II §S7).
+/// `tauri_plugin_opener::reveal_item_in_dir` is used as a plain library
+/// function here — never registered as a plugin, never exposed to the webview
+/// as its own IPC command — so the ONLY path this can ever act on is one that
+/// just passed `files::workspace_path`'s canonicalize-and-contain check. No new
+/// capability grant needed: this command is a normal app command like every
+/// other one already in this file, not a plugin-provided one.
+#[tauri::command]
+pub fn reveal_in_file_manager(cwd: Option<String>, path: String) -> IpcResult<()> {
+    let target = crate::files::workspace_path(cwd, &path)?;
+    tauri_plugin_opener::reveal_item_in_dir(&target)
+        .map_err(|e| IpcError::new(IpcErrorKind::Internal, format!("Could not open the file manager: {e}")))
+}
+
 // ----- Project permissions (P3 permission manager, spec 3.6, Phase 7 7B) -----
 // Read/write the SHARED `.claude/settings.json` permissions block — the file the
 // CLI itself reads. The CLI remains the real boundary; this only edits its config.

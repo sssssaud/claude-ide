@@ -9,10 +9,10 @@
  * stays bounded.
  */
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { search, searchSessions } from "@/ipc/commands";
 import { isIpcError, type SearchResults, type SessionSearchResults } from "@/ipc/types";
-import { useActiveConversation } from "@/store/conversation";
+import { activeConversationStore, useActiveConversation } from "@/store/conversation";
 import { useActiveEditor } from "@/store/editor";
 import { effectiveFilesFor } from "@/store/settings";
 import { useActiveCwd } from "@/store/workspaces";
@@ -296,28 +296,53 @@ function SessionGroup({
           {group.hitCount}
         </span>
       </button>
-      {group.hits.map((hit, i) => (
-        <div
-          key={i}
-          style={{
-            display: "flex",
-            gap: "var(--space-2)",
-            padding: "2px var(--space-4) 2px var(--space-6)",
-            fontFamily: "var(--font-mono)",
-            fontSize: "var(--text-xs)",
-            lineHeight: 1.5,
-          }}
-        >
-          <span style={{ flexShrink: 0, color: hit.role === "user" ? "var(--color-accent)" : "var(--color-fg-muted)" }}>
-            {hit.role === "user" ? "you" : "ai"}
-          </span>
-          <span style={{ minWidth: 0, color: "var(--color-fg-secondary)", wordBreak: "break-word" }}>
-            {highlight(hit.snippet, query).map((seg, j) =>
-              seg.match ? <Mark key={j}>{seg.text}</Mark> : <span key={j}>{seg.text}</span>,
-            )}
-          </span>
-        </div>
-      ))}
+      {group.hits.map((hit, i) => {
+        const rowStyle: CSSProperties = {
+          display: "flex",
+          width: "100%",
+          gap: "var(--space-2)",
+          padding: "2px var(--space-4) 2px var(--space-6)",
+          fontFamily: "var(--font-mono)",
+          fontSize: "var(--text-xs)",
+          lineHeight: 1.5,
+          textAlign: "left",
+          border: "none",
+          background: "transparent",
+        };
+        const content = (
+          <>
+            <span style={{ flexShrink: 0, color: hit.role === "user" ? "var(--color-accent)" : "var(--color-fg-muted)" }}>
+              {hit.role === "user" ? "you" : "ai"}
+            </span>
+            <span style={{ minWidth: 0, color: "var(--color-fg-secondary)", wordBreak: "break-word" }}>
+              {highlight(hit.snippet, query).map((seg, j) =>
+                seg.match ? <Mark key={j}>{seg.text}</Mark> : <span key={j}>{seg.text}</span>,
+              )}
+            </span>
+          </>
+        );
+        // Only a past USER prompt can be "re-run" — insert it into the active
+        // workspace's prompt bar for review (never auto-sent). An assistant
+        // hit is reference-only, same as before.
+        return hit.role === "user" ? (
+          <button
+            key={i}
+            type="button"
+            onClick={() => activeConversationStore().getState().insertDraft(hit.snippet)}
+            title="Insert into the prompt bar"
+            className="cursor-pointer"
+            style={rowStyle}
+            onMouseEnter={(e) => (e.currentTarget.style.background = "var(--color-bg-raised)")}
+            onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+          >
+            {content}
+          </button>
+        ) : (
+          <div key={i} style={rowStyle}>
+            {content}
+          </div>
+        );
+      })}
       {more > 0 && (
         <div style={{ padding: "0 var(--space-4) 0 var(--space-6)", fontSize: "var(--text-xs)", color: "var(--color-fg-muted)" }}>
           +{more} more in this session

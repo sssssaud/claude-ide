@@ -39,6 +39,46 @@ export function hasAgentActionTarget(): boolean {
   return !!sel && !sel.isEmpty() && !activeConversationStore().getState().streaming;
 }
 
+/** Whether there's an active editor at all right now — no selection required,
+ *  unlike `hasAgentActionTarget` (Addendum II §S7's "Ask About This Line" acts
+ *  on the cursor's line, not a selection). */
+export function hasLineActionTarget(): boolean {
+  return !!getActiveEditorHandle() && !activeConversationStore().getState().streaming;
+}
+
+/** The line the cursor is currently on, for the "Ask About This Line" modal to
+ *  show what it's about to ask against. `null` if there's no active editor. */
+export function currentLineContext(): { path: string; line: number } | null {
+  const handle = getActiveEditorHandle();
+  const position = handle?.editor.getPosition();
+  if (!handle || !position) return null;
+  return { path: handle.getActivePath() ?? "(unknown file)", line: position.lineNumber };
+}
+
+/** Send a free-form question about the line the cursor is on right now
+ *  (Addendum II §S7) — the one agent-bridge action that doesn't need a
+ *  selection. Reads the cursor fresh at send time (not whenever the "Ask"
+ *  modal was opened), same no-op guards as `sendAgentAction`. */
+export function sendLineQuestion(question: string): void {
+  const q = question.trim();
+  if (!q) return;
+  const handle = getActiveEditorHandle();
+  if (!handle) return;
+  const editor = handle.editor;
+  const model = editor.getModel();
+  const position = editor.getPosition();
+  if (!model || !position) return;
+
+  const convo = activeConversationStore();
+  if (convo.getState().streaming) return;
+
+  const line = model.getLineContent(position.lineNumber);
+  const path = handle.getActivePath() ?? "(unknown file)";
+  const language = model.getLanguageId();
+  const prompt = `${q}\n\n${path} (line ${position.lineNumber}):\n\`\`\`${language}\n${line}\n\`\`\``;
+  void convo.getState().send(prompt);
+}
+
 /** Build the prompt for the current selection and send it as a real turn.
  *  A no-op if there's no active editor/selection, or a turn is already
  *  in flight (mirrors the prompt bar's own guard). */

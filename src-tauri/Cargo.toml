@@ -46,3 +46,8 @@ notify = "8"
 # file-history snapshot `hex(sha256(absolute_path))[:16]@v<N>`, so we hash a
 # file's path to locate its snapshots. Hashing only; we never modify them.
 sha2 = "0.10"
+# "Reveal in file manager" (Addendum II §S7) — used as a plain library function
+# (`reveal_item_in_dir`) from within our own validated command, never
+# registered as a plugin or exposed to the webview as its own IPC command, so
+# it adds no new capability surface (see `commands::reveal_in_file_manager`).
+tauri-plugin-opener = "2"

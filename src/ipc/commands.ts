@@ -365,6 +365,43 @@ export async function writeFile(path: string, contents: string, cwd?: string): P
   }
 }
 
+/** Create a new empty file or folder (Addendum II §S7). `parent` is an
+ *  existing directory relative to the workspace root (empty = the root).
+ *  Canonicalize-parent-and-contain, validated server-side. */
+export async function createEntry(
+  parent: string,
+  name: string,
+  isDir: boolean,
+  cwd?: string,
+): Promise<DirEntry> {
+  try {
+    return await invoke<DirEntry>("create_entry", { cwd, parent, name, isDir });
+  } catch (e) {
+    normalizeError(e);
+  }
+}
+
+/** Duplicate an existing workspace file next to itself, auto-numbering the
+ *  name ("foo.txt" -> "foo copy.txt" -> ...). Confined to the workspace root. */
+export async function duplicateFile(path: string, cwd?: string): Promise<DirEntry> {
+  try {
+    return await invoke<DirEntry>("duplicate_file", { cwd, path });
+  } catch (e) {
+    normalizeError(e);
+  }
+}
+
+/** Reveal a workspace file/folder in the OS file manager (Addendum II §S7).
+ *  The path is re-validated (canonicalize-and-contain) server-side before the
+ *  OS is asked to open anything. */
+export async function revealInFileManager(path: string, cwd?: string): Promise<void> {
+  try {
+    await invoke<void>("reveal_in_file_manager", { cwd, path });
+  } catch (e) {
+    normalizeError(e);
+  }
+}
+
 /** Read the project's `.claude/settings.json` permissions block + whether the
  *  file exists yet. Read-only. (Phase 7 7B — P3 permission manager.) */
 export async function readPermissions(cwd?: string): Promise<ProjectPermissionsFile> {

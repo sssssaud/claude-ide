@@ -7,7 +7,7 @@
 //! root before any fs access. Writes / save land in the next slice.
 
 use std::fs;
-use std::io::Read;
+use std::io::{self, Read};
 use std::path::{Path, PathBuf};
 
 use serde::Serialize;
@@ -17,6 +17,10 @@ use crate::error::{IpcError, IpcErrorKind, IpcResult};
 /// Max bytes loaded into the editor (a viewer, not a log tailer). Larger files
 /// are read up to the cap and flagged `truncated`.
 const MAX_FILE_BYTES: u64 = 2 * 1024 * 1024;
+
+/// Max length for a single path component name (comfortably under the ~255-byte
+/// limit most filesystems enforce).
+const MAX_NAME_LEN: usize = 200;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -122,9 +126,120 @@ pub fn write_file(cwd: Option<String>, rel: String, contents: String) -> IpcResu
     fs::write(&path, contents).map_err(|e| internal(format!("Could not save the file: {e}")))
 }
 
+/// Create a new empty file or directory inside the workspace (Addendum II §S7).
+/// `parent_rel` is an EXISTING directory relative to the workspace root (empty =
+/// the root itself); `name` is validated as a single path component. Confined
+/// per `resolve_within`'s documented pattern for a not-yet-existing target: the
+/// parent is canonicalized+containment-checked (it already exists), then one
+/// validated component is appended — never canonicalizing the target itself.
+pub fn create_entry(
+    cwd: Option<String>,
+    parent_rel: String,
+    name: String,
+    is_dir: bool,
+) -> IpcResult<DirEntry> {
+    let root = root_canon(cwd)?;
+    let parent = resolve_within(&root, &parent_rel)?;
+    if !parent.is_dir() {
+        return Err(invalid("Parent is not a directory"));
+    }
+    let name = validate_component(&name)?;
+    let target = parent.join(name);
+    if is_dir {
+        fs::create_dir(&target).map_err(|e| create_err(e, "folder"))?;
+    } else {
+        fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&target)
+            .map_err(|e| create_err(e, "file"))?;
+    }
+    let rel_path = target.strip_prefix(&root).unwrap_or(&target).to_string_lossy().replace('\\', "/");
+    Ok(DirEntry { name: name.to_string(), path: rel_path, is_dir })
+}
+
+/// Duplicate an existing workspace file next to itself, auto-numbering the name
+/// ("foo.txt" -> "foo copy.txt" -> "foo copy 2.txt" -> ...) until a free one is
+/// found (Addendum II §S7). Source is resolved via `resolve_within` (must
+/// already exist); the generated name is appended to the same already-
+/// containment-checked parent, same pattern as `create_entry`.
+pub fn duplicate_file(cwd: Option<String>, rel: String) -> IpcResult<DirEntry> {
+    let root = root_canon(cwd)?;
+    let source = resolve_within(&root, &rel)?;
+    if !source.is_file() {
+        return Err(invalid("Not a file"));
+    }
+    let parent = source
+        .parent()
+        .ok_or_else(|| internal("The file has no parent directory".to_string()))?;
+    let stem = source.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+    let ext = source.extension().map(|s| s.to_string_lossy().into_owned());
+
+    for n in 0..1000 {
+        let candidate = match (&ext, n) {
+            (Some(e), 0) => format!("{stem} copy.{e}"),
+            (None, 0) => format!("{stem} copy"),
+            (Some(e), n) => format!("{stem} copy {}.{e}", n + 1),
+            (None, n) => format!("{stem} copy {}", n + 1),
+        };
+        let name = validate_component(&candidate)?;
+        let target = parent.join(name);
+        let mut dest = match fs::OpenOptions::new().write(true).create_new(true).open(&target) {
+            Ok(f) => f,
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(internal(format!("Could not duplicate the file: {e}"))),
+        };
+        let mut src =
+            fs::File::open(&source).map_err(|e| internal(format!("Could not read the file: {e}")))?;
+        io::copy(&mut src, &mut dest)
+            .map_err(|e| internal(format!("Could not duplicate the file: {e}")))?;
+        let rel_path = target.strip_prefix(&root).unwrap_or(&target).to_string_lossy().replace('\\', "/");
+        return Ok(DirEntry { name: name.to_string(), path: rel_path, is_dir: false });
+    }
+    Err(invalid("Too many copies of this file already exist"))
+}
+
+/// Validate a single path component intended to be appended to an already
+/// containment-checked, EXISTING parent — the "append one validated component"
+/// half of the create-new-file pattern documented on `resolve_within` below.
+/// Rejects empty, `.`/`..`, any path separator, a NUL byte, and anything over
+/// the filesystem's typical component-length limit.
+fn validate_component(name: &str) -> IpcResult<&str> {
+    let name = name.trim();
+    if name.is_empty() || name.len() > MAX_NAME_LEN {
+        return Err(invalid("Name is empty or too long"));
+    }
+    if name == "." || name == ".." {
+        return Err(invalid("Name cannot be \".\" or \"..\""));
+    }
+    if name.contains(['/', '\\']) {
+        return Err(invalid("Name cannot contain a path separator"));
+    }
+    if name.contains('\0') {
+        return Err(invalid("Name contains a null byte"));
+    }
+    Ok(name)
+}
+
+fn create_err(e: io::Error, kind: &str) -> IpcError {
+    if e.kind() == io::ErrorKind::AlreadyExists {
+        invalid("Something with that name already exists")
+    } else {
+        internal(format!("Could not create the {kind}: {e}"))
+    }
+}
+
 fn root_canon(cwd: Option<String>) -> IpcResult<PathBuf> {
     let root = crate::workspace::resolve_cwd(cwd)?;
     fs::canonicalize(&root).map_err(|e| internal(format!("Cannot resolve the workspace root: {e}")))
+}
+
+/// Resolve + containment-check a workspace-relative path, for callers outside
+/// this module that need a validated absolute path rather than file contents
+/// (Addendum II §S7 — "reveal in file manager", scoped to `resolve_within`).
+pub fn workspace_path(cwd: Option<String>, rel: &str) -> IpcResult<PathBuf> {
+    let root = root_canon(cwd)?;
+    resolve_within(&root, rel)
 }
 
 /// Join `rel` onto the canonical `root` and confirm the canonical result stays
@@ -180,5 +295,64 @@ mod tests {
         assert!(resolve_within(&r, "../../../etc/passwd").is_err()); // climbs out
         assert!(resolve_within(&r, "..").is_err()); // parent of the root
         assert!(resolve_within(&r, "nope-does-not-exist.xyz").is_err());
+    }
+
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    fn temp_dir() -> PathBuf {
+        static N: AtomicU32 = AtomicU32::new(0);
+        let mut p = std::env::temp_dir();
+        p.push(format!("claude-ide-files-test-{}-{}", std::process::id(), N.fetch_add(1, Ordering::SeqCst)));
+        fs::create_dir_all(&p).unwrap();
+        p
+    }
+
+    fn cwd_str(dir: &Path) -> Option<String> {
+        Some(dir.display().to_string())
+    }
+
+    #[test]
+    fn create_entry_makes_a_file_and_a_folder() {
+        let dir = temp_dir();
+        let file = create_entry(cwd_str(&dir), String::new(), "note.txt".into(), false).unwrap();
+        assert_eq!(file.path, "note.txt");
+        assert!(dir.join("note.txt").is_file());
+
+        let folder = create_entry(cwd_str(&dir), String::new(), "sub".into(), true).unwrap();
+        assert_eq!(folder.path, "sub");
+        assert!(dir.join("sub").is_dir());
+
+        // Nested inside the just-created folder.
+        let nested = create_entry(cwd_str(&dir), "sub".into(), "deep.txt".into(), false).unwrap();
+        assert_eq!(nested.path, "sub/deep.txt");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn create_entry_rejects_escape_and_collision() {
+        let dir = temp_dir();
+        create_entry(cwd_str(&dir), String::new(), "note.txt".into(), false).unwrap();
+
+        assert!(create_entry(cwd_str(&dir), String::new(), "note.txt".into(), false).is_err()); // already exists
+        assert!(create_entry(cwd_str(&dir), String::new(), "..".into(), true).is_err());
+        assert!(create_entry(cwd_str(&dir), String::new(), "a/b".into(), false).is_err()); // embedded separator
+        assert!(create_entry(cwd_str(&dir), "does-not-exist".into(), "x.txt".into(), false).is_err()); // bad parent
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn duplicate_file_auto_numbers() {
+        let dir = temp_dir();
+        fs::write(dir.join("a.txt"), b"hello").unwrap();
+
+        let first = duplicate_file(cwd_str(&dir), "a.txt".into()).unwrap();
+        assert_eq!(first.path, "a copy.txt");
+        assert_eq!(fs::read_to_string(dir.join("a copy.txt")).unwrap(), "hello");
+
+        let second = duplicate_file(cwd_str(&dir), "a.txt".into()).unwrap();
+        assert_eq!(second.path, "a copy 2.txt");
+
+        assert!(duplicate_file(cwd_str(&dir), "missing.txt".into()).is_err());
+        let _ = fs::remove_dir_all(&dir);
     }
 }

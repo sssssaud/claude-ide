@@ -82,6 +82,20 @@ export function EditorToolbar() {
                 getActiveEditorHandle()?.editor.getAction("editor.action.gotoLine")?.run();
               }}
             />
+            <MenuItem
+              label="Compare with Checkpoint…"
+              onClick={() => {
+                setOpen(false);
+                getActiveEditorHandle()?.editor.getAction("checkpoints.compareActiveFile")?.run();
+              }}
+            />
+            <MenuItem
+              label="Claude: Ask About This Line…"
+              onClick={() => {
+                setOpen(false);
+                getActiveEditorHandle()?.editor.getAction("claude.askLine")?.run();
+              }}
+            />
             {agentEnabled && (
               <>
                 <div style={{ margin: "var(--space-2) 0", borderTop: "1px solid var(--color-border-subtle)" }} />

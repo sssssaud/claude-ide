@@ -14,13 +14,20 @@ import { useStore, type StoreApi } from "zustand";
 import Editor, { type OnMount } from "@monaco-editor/react";
 import type * as Monaco from "monaco-editor";
 import { EmptyState, LoadingState } from "@/components/states";
-import { AGENT_ACTION_LABELS, sendAgentAction, type AgentActionKind } from "@/commands/agentActions";
+import {
+  AGENT_ACTION_LABELS,
+  currentLineContext,
+  sendAgentAction,
+  sendLineQuestion,
+  type AgentActionKind,
+} from "@/commands/agentActions";
 import { languageForPath } from "@/editor/language";
 import { defineClaudeTheme, monacoThemeFor } from "@/editor/monacoSetup";
 import { normalizeFinalNewlines, trimTrailingWhitespace } from "@/editor/saveTransforms";
-import { readFile, writeFile } from "@/ipc/commands";
-import { isIpcError } from "@/ipc/types";
+import { checkpointTimeline, readFile, writeFile } from "@/ipc/commands";
+import { isIpcError, type CheckpointEntry } from "@/ipc/types";
 import { getActiveEditorHandle, setActiveEditorHandle } from "@/store/activeEditorHandle";
+import { activeConversationStore } from "@/store/conversation";
 import type { EditorState } from "@/store/editor";
 import { useEditorStatus } from "@/store/editorStatus";
 import { mergeEffective, mergeEffectiveFiles, useSettings, type EffectiveEditor } from "@/store/settings";
@@ -112,6 +119,11 @@ export function EditorPane({
   const [ready, setReady] = useState(false);
   const [contents, setContents] = useState<Record<string, ContentState>>({});
   const [saveErrors, setSaveErrors] = useState<Record<string, string>>({});
+  // "Compare with Checkpoint…" (Addendum II §S7) — set by a Monaco editor
+  // action, consumed by `CheckpointPickerModal` below.
+  const [checkpointPicker, setCheckpointPicker] = useState<{ path: string } | null>(null);
+  // "Ask About This Line…" (Addendum II §S7) — likewise.
+  const [askLine, setAskLine] = useState<{ path: string; line: number } | null>(null);
 
   const tabs = useStore(store, (s) => s.tabs);
   const activePath = useStore(store, (s) => s.activePath);
@@ -505,6 +517,31 @@ export function EditorPane({
                 run: () => sendAgentAction(kind),
               });
             }
+            // The one agent-bridge action that works on the cursor's line
+            // instead of a selection (§S7) — no `editorHasSelection` precondition.
+            editor.addAction({
+              id: "claude.askLine",
+              label: "Claude: Ask About This Line…",
+              contextMenuGroupId: "9_claude",
+              contextMenuOrder: order++,
+              run: () => {
+                const ctx = currentLineContext();
+                if (ctx) setAskLine(ctx);
+              },
+            });
+            // Compare with a saved checkpoint (§S7) — reuses the read-only
+            // checkpoint timeline (Phase 7 P2) already shown per-session in the
+            // Sessions panel, just entered from the file being edited instead.
+            editor.addAction({
+              id: "checkpoints.compareActiveFile",
+              label: "Compare with Checkpoint…",
+              contextMenuGroupId: "8_checkpoints",
+              contextMenuOrder: 1,
+              run: () => {
+                const path = store.getState().activePath;
+                if (path) setCheckpointPicker({ path });
+              },
+            });
             // Status Bar (§S5): live Ln:Col + selection length, for whichever
             // workspace is actually in front — `activeRef` (not the `active`
             // prop) since this closure is captured once, at mount.
@@ -536,6 +573,220 @@ export function EditorPane({
             )}
           </div>
         )}
+      </div>
+      {checkpointPicker && (
+        <CheckpointPickerModal
+          path={checkpointPicker.path}
+          cwd={cwd}
+          onOpen={(sessionId, version) => {
+            store.getState().openCheckpointDiff(checkpointPicker.path, sessionId, version);
+            setCheckpointPicker(null);
+          }}
+          onClose={() => setCheckpointPicker(null)}
+        />
+      )}
+      {askLine && (
+        <AskLineModal
+          path={askLine.path}
+          line={askLine.line}
+          onClose={() => setAskLine(null)}
+          onSend={(question) => {
+            sendLineQuestion(question);
+            setAskLine(null);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+/** "Compare with Checkpoint…" (§S7) — the active session's saved snapshots of
+ *  ONE file, newest first, reusing the same read-only checkpoint timeline the
+ *  Sessions panel already shows per-session (Phase 7 P2). Picking one opens the
+ *  same `openCheckpointDiff` diff tab that panel does. */
+function CheckpointPickerModal({
+  path,
+  cwd,
+  onOpen,
+  onClose,
+}: {
+  path: string;
+  cwd: string;
+  onOpen: (sessionId: string, version: number) => void;
+  onClose: () => void;
+}) {
+  const [state, setState] = useState<
+    | { kind: "loading" }
+    | { kind: "no-session" }
+    | { kind: "error"; message: string }
+    | { kind: "ready"; sessionId: string; entries: CheckpointEntry[] }
+  >({ kind: "loading" });
+
+  useEffect(() => {
+    const sessionId = activeConversationStore().getState().sessionId;
+    if (!sessionId) {
+      setState({ kind: "no-session" });
+      return;
+    }
+    let alive = true;
+    checkpointTimeline(sessionId, cwd)
+      .then((timeline) => {
+        if (!alive) return;
+        setState({
+          kind: "ready",
+          sessionId,
+          entries: timeline.entries.filter((e) => e.path === path),
+        });
+      })
+      .catch((e) => alive && setState({ kind: "error", message: isIpcError(e) ? e.message : "Could not load checkpoints" }));
+    return () => {
+      alive = false;
+    };
+  }, [path, cwd]);
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Compare with checkpoint"
+      className="fixed inset-0 flex items-center justify-center"
+      style={{ background: "rgba(0,0,0,0.45)", zIndex: 32 }}
+      onKeyDown={(e) => {
+        if (e.key === "Escape") {
+          e.preventDefault();
+          onClose();
+        }
+      }}
+    >
+      <div style={{ width: "min(420px, 90%)", maxHeight: "70vh", display: "flex", flexDirection: "column", padding: "var(--space-6)", borderRadius: "var(--radius-lg)", background: "var(--color-bg-overlay)", boxShadow: "var(--elev-3)" }}>
+        <p style={{ color: "var(--color-fg-primary)", fontSize: "var(--text-md)", fontWeight: 600 }}>Compare with Checkpoint</p>
+        <p style={{ color: "var(--color-fg-secondary)", fontSize: "var(--text-xs)", marginTop: "var(--space-1)" }}>{path}</p>
+        <div className="min-h-0 flex-1 overflow-auto" style={{ marginTop: "var(--space-4)" }}>
+          {state.kind === "loading" ? (
+            <p style={{ color: "var(--color-fg-secondary)", fontSize: "var(--text-sm)" }}>Loading…</p>
+          ) : state.kind === "no-session" ? (
+            <p style={{ color: "var(--color-fg-secondary)", fontSize: "var(--text-sm)" }}>
+              No active session yet — nothing to compare against.
+            </p>
+          ) : state.kind === "error" ? (
+            <p role="alert" style={{ color: "var(--color-status-danger)", fontSize: "var(--text-sm)" }}>{state.message}</p>
+          ) : state.entries.length === 0 ? (
+            <p style={{ color: "var(--color-fg-secondary)", fontSize: "var(--text-sm)" }}>
+              No saved checkpoints for this file in the current session yet.
+            </p>
+          ) : (
+            state.entries.map((e) => (
+              <button
+                key={e.id}
+                type="button"
+                onClick={() => onOpen(state.sessionId, e.version)}
+                className="flex w-full cursor-pointer items-center justify-between gap-[var(--space-3)] text-left"
+                style={{ padding: "var(--space-2) var(--space-3)", border: "none", borderRadius: "var(--radius-sm)", background: "transparent", color: "var(--color-fg-primary)", fontFamily: "var(--font-mono)", fontSize: "var(--text-xs)" }}
+                onMouseEnter={(ev) => (ev.currentTarget.style.background = "var(--color-bg-recessed)")}
+                onMouseLeave={(ev) => (ev.currentTarget.style.background = "transparent")}
+              >
+                <span>v{e.version} · {e.tool}</span>
+                <span style={{ color: "var(--color-fg-muted)" }}>{new Date(e.timestampMs).toLocaleString()}</span>
+              </button>
+            ))
+          )}
+        </div>
+        <div className="flex justify-end" style={{ marginTop: "var(--space-5)" }}>
+          <button
+            type="button"
+            onClick={onClose}
+            className="cursor-pointer"
+            style={{ padding: "var(--space-2) var(--space-5)", borderRadius: "var(--radius-md)", border: "1px solid var(--color-border-strong)", background: "transparent", color: "var(--color-fg-primary)", fontFamily: "var(--font-sans)", fontSize: "var(--text-sm)" }}
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** "Ask About This Line…" (§S7) — the one agent-bridge action that doesn't
+ *  need a selection; a free-form question about the cursor's line. `line`
+ *  here is only what was showing when the action opened (display context);
+ *  `sendLineQuestion` re-reads the live cursor at send time. */
+function AskLineModal({
+  path,
+  line,
+  onClose,
+  onSend,
+}: {
+  path: string;
+  line: number;
+  onClose: () => void;
+  onSend: (question: string) => void;
+}) {
+  const [question, setQuestion] = useState("");
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
+
+  const submit = () => {
+    const q = question.trim();
+    if (!q) return;
+    onSend(q);
+  };
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Ask about this line"
+      className="fixed inset-0 flex items-center justify-center"
+      style={{ background: "rgba(0,0,0,0.45)", zIndex: 32 }}
+      onKeyDown={(e) => {
+        if (e.key === "Escape") {
+          e.preventDefault();
+          onClose();
+        } else if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+          e.preventDefault();
+          submit();
+        }
+      }}
+    >
+      <div style={{ width: "min(440px, 90%)", padding: "var(--space-6)", borderRadius: "var(--radius-lg)", background: "var(--color-bg-overlay)", boxShadow: "var(--elev-3)" }}>
+        <p style={{ color: "var(--color-fg-primary)", fontSize: "var(--text-md)", fontWeight: 600 }}>Ask About This Line</p>
+        <p style={{ color: "var(--color-fg-secondary)", fontSize: "var(--text-xs)", marginTop: "var(--space-1)" }}>
+          {path} · line {line}
+        </p>
+        <textarea
+          ref={inputRef}
+          value={question}
+          onChange={(e) => setQuestion(e.target.value)}
+          placeholder="What do you want to know about this line?"
+          rows={3}
+          className="w-full"
+          style={{ marginTop: "var(--space-4)", resize: "vertical", padding: "var(--space-3)", border: "1px solid var(--color-border-strong)", borderRadius: "var(--radius-md)", background: "var(--color-bg-base)", color: "var(--color-fg-primary)", fontFamily: "var(--font-sans)", fontSize: "var(--text-sm)" }}
+        />
+        <div className="flex items-center justify-between" style={{ marginTop: "var(--space-5)" }}>
+          <span style={{ color: "var(--color-fg-muted)", fontFamily: "var(--font-mono)", fontSize: "var(--text-xs)" }}>Ctrl/Cmd+Enter to send</span>
+          <div className="flex gap-[var(--space-3)]">
+            <button
+              type="button"
+              onClick={onClose}
+              className="cursor-pointer"
+              style={{ padding: "var(--space-2) var(--space-5)", borderRadius: "var(--radius-md)", border: "1px solid var(--color-border-strong)", background: "transparent", color: "var(--color-fg-primary)", fontFamily: "var(--font-sans)", fontSize: "var(--text-sm)" }}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={submit}
+              disabled={!question.trim()}
+              className="cursor-pointer"
+              style={{ padding: "var(--space-2) var(--space-5)", borderRadius: "var(--radius-md)", border: "1px solid var(--color-accent)", background: "var(--color-accent)", color: "var(--color-bg-base)", fontFamily: "var(--font-sans)", fontSize: "var(--text-sm)", fontWeight: 500, opacity: !question.trim() ? 0.5 : 1 }}
+            >
+              Ask Claude
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );

@@ -17,6 +17,7 @@ import { useCallback, useEffect } from "react";
 import { Group, Panel, useDefaultLayout, usePanelRef } from "react-resizable-panels";
 import { ActivityBar } from "@/layout/ActivityBar";
 import { BottomPanel } from "@/layout/BottomPanel";
+import { CheatSheet } from "@/layout/CheatSheet";
 import { CommandPalette } from "@/layout/CommandPalette";
 import { ConversationPane } from "@/layout/ConversationPane";
 import { EditorRegion } from "@/layout/EditorRegion";
@@ -161,6 +162,7 @@ export function WorkspaceShell() {
       {!zen && <StatusBar />}
       <CommandPalette />
       <QuickOpen />
+      <CheatSheet />
     </div>
   );
 }

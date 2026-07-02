@@ -1,9 +1,9 @@
 /*
  * Matches a `KeyboardEvent` against a command's normalized `combo` string
  * (Addendum II §S3). "mod" means Ctrl on Windows/Linux, Cmd on macOS — the one
- * platform difference; everything else (b, shift+p, =, -, 0, ,) matches the
- * literal key. No chord/sequence support (e.g. "Ctrl+K Ctrl+S") — every
- * registered combo today is a single keystroke.
+ * platform difference; everything else matches the literal key. This module
+ * matches a single step; a two-step CHORD ("mod+k,mod+s") is comma-joined and
+ * handled by `layout/useLayoutShortcuts.ts`, which matches one step at a time.
  */
 
 export function matchesCombo(e: KeyboardEvent, combo: string): boolean {
@@ -50,15 +50,34 @@ export function captureCombo(e: KeyboardEvent): string | null {
 
 const isMac = typeof navigator !== "undefined" && /mac/i.test(navigator.platform || navigator.userAgent);
 
-/** Human-readable form of a normalized combo, e.g. "mod+shift+p" -> "Ctrl+Shift+P". */
+/** Human-readable form of a normalized combo, e.g. "mod+shift+p" -> "Ctrl+Shift+P",
+ *  or a chord "mod+k,mod+s" -> "Ctrl+K Ctrl+S". */
 export function formatCombo(combo: string): string {
   return combo
-    .split("+")
-    .map((part) => {
-      if (part === "mod") return isMac ? "Cmd" : "Ctrl";
-      if (part === "shift") return "Shift";
-      if (part === "alt") return isMac ? "Option" : "Alt";
-      return part.length === 1 ? part.toUpperCase() : part.charAt(0).toUpperCase() + part.slice(1);
-    })
-    .join("+");
+    .split(",")
+    .map((step) =>
+      step
+        .split("+")
+        .map((part) => {
+          if (part === "mod") return isMac ? "Cmd" : "Ctrl";
+          if (part === "shift") return "Shift";
+          if (part === "alt") return isMac ? "Option" : "Alt";
+          return part.length === 1 ? part.toUpperCase() : part.charAt(0).toUpperCase() + part.slice(1);
+        })
+        .join("+"),
+    )
+    .join(" ");
+}
+
+/** Whether the user is currently typing somewhere (a text input, a textarea —
+ *  including Monaco's own hidden input — or a contenteditable region). Guards
+ *  hotkeys that use a bare, unmodified printable key (Addendum II §S7's "?"
+ *  for the shortcut cheat sheet) so they can't fire mid-keystroke; every
+ *  mod-based combo doesn't need this; it already can't collide with typing. */
+export function isTypingContext(): boolean {
+  const el = document.activeElement;
+  if (!el) return false;
+  const tag = el.tagName;
+  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
+  return (el as HTMLElement).isContentEditable;
 }

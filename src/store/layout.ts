@@ -20,6 +20,10 @@ export type Region = "sidebar" | "editor" | "terminal";
 /** The side-panel views, selected from the activity bar. */
 export type View = "files" | "search" | "git" | "permissions" | "usage" | "sessions";
 
+/** The Bottom Panel's tabs (Addendum II §S6). Not persisted — always opens on
+ *  Terminal, like a fresh restart of any panel-tab app. */
+export type BottomTab = "terminal" | "output" | "problems";
+
 const STORAGE_KEY = "ide:panels";
 
 type Visibility = Record<Region, boolean>;
@@ -67,6 +71,8 @@ interface LayoutState extends Visibility {
    *  exiting zen restores exactly what was showing before. Never persisted
    *  (resets each launch; the Command Palette can always toggle it back). */
   zen: boolean;
+  /** The Bottom Panel's active tab (Terminal / Output / Problems). */
+  bottomTab: BottomTab;
   /** Flip one region's visibility. */
   toggle: (region: Region) => void;
   /** Set one region's visibility explicitly (used to sync a drag-to-collapse). */
@@ -75,6 +81,9 @@ interface LayoutState extends Visibility {
    *  collapses it (VS Code-style); otherwise it opens the panel on that view. */
   selectView: (view: View) => void;
   toggleZen: () => void;
+  /** Switch the Bottom Panel to a tab (e.g. "Open Terminal Here", §S7). Does
+   *  NOT show the panel itself — pair with `setVisible("terminal", true)`. */
+  setBottomTab: (tab: BottomTab) => void;
 }
 
 export const useLayout = create<LayoutState>((set, get) => {
@@ -89,6 +98,7 @@ export const useLayout = create<LayoutState>((set, get) => {
   return {
     ...initial,
     zen: false,
+    bottomTab: "terminal",
 
     toggle: (region) =>
       set((s) => {
@@ -121,5 +131,7 @@ export const useLayout = create<LayoutState>((set, get) => {
     },
 
     toggleZen: () => set((s) => ({ zen: !s.zen })),
+
+    setBottomTab: (tab) => set({ bottomTab: tab }),
   };
 });
