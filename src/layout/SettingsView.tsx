@@ -17,6 +17,7 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNod
 import { EmptyState, ErrorState, LoadingState } from "@/components/states";
 import { InlineTerminal } from "@/components/InlineTerminal";
 import { KeybindingsSection } from "@/layout/KeybindingsSection";
+import { PermissionsPanel } from "@/layout/PermissionsPanel";
 import { ThemePicker } from "@/layout/ThemePicker";
 import { listMarketplaces, listMcpServers, listPlugins } from "@/ipc/commands";
 import type { MarketplaceEntry, McpServerEntry, PluginEntry, ScopeSettings, SettingsScope } from "@/ipc/types";
@@ -33,7 +34,7 @@ import {
 } from "@/store/settings";
 import { useActiveCwd } from "@/store/workspaces";
 
-type Category = "editor" | "files" | "terminal" | "appearance" | "keybindings" | "account" | "plugins" | "mcp";
+type Category = "editor" | "files" | "terminal" | "appearance" | "keybindings" | "account" | "permissions" | "plugins" | "mcp";
 type SettingsCategory = keyof ScopeSettings;
 
 const CATEGORIES: { id: Category; label: string }[] = [
@@ -43,15 +44,17 @@ const CATEGORIES: { id: Category; label: string }[] = [
   { id: "appearance", label: "Appearance" },
   { id: "keybindings", label: "Keybindings" },
   { id: "account", label: "Account" },
+  { id: "permissions", label: "Permissions" },
   { id: "plugins", label: "Plugins & Skills" },
   { id: "mcp", label: "MCP Servers" },
 ];
 
-/** Categories that are action-oriented (no draft controls) rather than the
- *  generic control-list rendering — Account, Plugins & Skills, MCP Servers.
- *  All three are user-global, not workspace-scoped, so the "open a folder"
- *  note doesn't apply to them either. */
-const ACTION_CATEGORIES: Category[] = ["account", "plugins", "mcp"];
+/** Categories that render a self-contained section with its own actions/save,
+ *  rather than the generic staged-apply control-list — Account, Permissions,
+ *  Plugins & Skills, MCP Servers. They skip the generic heading and the
+ *  staged-apply footer. (Permissions is workspace-scoped and Account/Plugins/
+ *  MCP are user-global, but all four own their own save path.) */
+const ACTION_CATEGORIES: Category[] = ["account", "permissions", "plugins", "mcp"];
 
 /** Which backend sub-object each control's default lives in, for the "unset"
  *  fallback and the text control's clear-to-placeholder behaviour. Untyped as
@@ -320,6 +323,7 @@ export function SettingsView() {
                   </div>
                   {!q && category === "keybindings" && <KeybindingsSection />}
                   {!q && category === "account" && <AccountSection />}
+                  {!q && category === "permissions" && <PermissionsPanel />}
                   {!q && category === "plugins" && <PluginsSection />}
                   {!q && category === "mcp" && <McpSection />}
                 </>
