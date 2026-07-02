@@ -71,6 +71,12 @@ interface ConversationState {
   draftInsert: string | null;
   insertDraft: (text: string) => void;
   clearDraftInsert: () => void;
+  /** The estimated context-token total at the moment the context-full warning
+   *  (Addendum III §S9) was last dismissed, or `null` if never dismissed since
+   *  the current session started. The banner re-arms once usage grows
+   *  meaningfully past this point — dismissing doesn't silence it forever. */
+  contextWarningDismissedAt: number | null;
+  dismissContextWarning: (atTokens: number) => void;
   send: (prompt: string) => Promise<void>;
   cancel: () => Promise<void>;
   /**
@@ -282,9 +288,11 @@ const makeConversationStore = (cwd: string): StoreApi<ConversationState> =>
     rawLog: [],
     pendingOpen: null,
     draftInsert: null,
+    contextWarningDismissedAt: null,
 
     insertDraft: (text) => set({ draftInsert: text }),
     clearDraftInsert: () => set({ draftInsert: null }),
+    dismissContextWarning: (atTokens) => set({ contextWarningDismissedAt: atTokens }),
 
     send: async (prompt: string) => {
       const text = prompt.trim();
@@ -401,6 +409,7 @@ const makeConversationStore = (cwd: string): StoreApi<ConversationState> =>
         cost: null,
         usage: null,
         truncated: false,
+        contextWarningDismissedAt: null,
         pendingOpen: { resume: sessionId, fork },
       });
       try {
@@ -433,6 +442,7 @@ const makeConversationStore = (cwd: string): StoreApi<ConversationState> =>
         cost: null,
         usage: null,
         truncated: false,
+        contextWarningDismissedAt: null,
         pendingOpen: null,
       });
     },

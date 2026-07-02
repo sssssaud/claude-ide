@@ -27,10 +27,16 @@ use tokio::sync::Mutex;
 use crate::error::{IpcError, IpcErrorKind, IpcResult};
 
 /// Token usage for a turn (subset; grows when the real parser provides more).
+/// `cache_read_input_tokens`/`cache_creation_input_tokens` dominate true
+/// context size on a long-running session (a live probe showed cache-read
+/// alone at 39k+ tokens in a near-empty conversation) — `input_tokens` alone
+/// badly undercounts how full the context window actually is.
 #[derive(Debug, Clone, Serialize)]
 pub struct Usage {
     pub input_tokens: u64,
     pub output_tokens: u64,
+    pub cache_read_input_tokens: u64,
+    pub cache_creation_input_tokens: u64,
 }
 
 /// The typed engine event (spec 2.3), serialized internally-tagged by `type`
@@ -85,6 +91,16 @@ pub enum EngineEvent {
     LineTruncated { limit: usize },
     /// A newer-CLI event type we don't model — logged, benign (spec 2.3).
     Unknown { kind: String },
+    /// A system/status event whose schema we deliberately haven't modeled yet,
+    /// captured RAW instead of discarded (Addendum III §S10, capture-first).
+    /// `rate_limit_event` is the target: it's a real top-level NDJSON message
+    /// type (confirmed present), but its field schema has never been observed
+    /// live, so there is no honest way to build a usage/reset-time UI on top of
+    /// it today. Every unrecognized `system/<subtype>` gets the same treatment.
+    /// This event carries the FULL original JSON to the frontend's existing
+    /// `rawLog` (Output/Logs tab) purely for future inspection — no field is
+    /// interpreted or surfaced as a fact anywhere yet.
+    RawSystemEvent { kind: String, raw: Value },
 }
 
 // ----- Persistent `claude` session per workspace (spec 2.5) -------------------
@@ -492,7 +508,10 @@ pub fn parse_events(line: &str) -> Vec<EngineEvent> {
                 slash_commands: string_vec(v.get("slash_commands")),
                 tools: string_vec(v.get("tools")),
             }],
-            other => vec![EngineEvent::Unknown { kind: format!("system/{}", other.unwrap_or("?")) }],
+            other => vec![EngineEvent::RawSystemEvent {
+                kind: format!("system/{}", other.unwrap_or("?")),
+                raw: v.clone(),
+            }],
         },
 
         // Token streaming lives in stream_event > content_block_delta > text_delta.
@@ -548,6 +567,8 @@ pub fn parse_events(line: &str) -> Vec<EngineEvent> {
             usage: Usage {
                 input_tokens: usage_field(&v, "input_tokens"),
                 output_tokens: usage_field(&v, "output_tokens"),
+                cache_read_input_tokens: usage_field(&v, "cache_read_input_tokens"),
+                cache_creation_input_tokens: usage_field(&v, "cache_creation_input_tokens"),
             },
             session_id: str_field(&v, "session_id"),
         }],
@@ -576,7 +597,12 @@ pub fn parse_events(line: &str) -> Vec<EngineEvent> {
         }
 
         "" => vec![EngineEvent::Unknown { kind: "<missing type>".into() }],
-        // rate_limit_event, control_response, and any future top-level types: benign.
+        // Real, confirmed-present type; unmodeled schema (Addendum III §S10) —
+        // captured raw instead of discarded so a real occurrence is inspectable.
+        "rate_limit_event" => {
+            vec![EngineEvent::RawSystemEvent { kind: "rate_limit_event".into(), raw: v.clone() }]
+        }
+        // control_response and any future top-level types: benign.
         other => vec![EngineEvent::Unknown { kind: other.to_string() }],
     }
 }
@@ -617,7 +643,7 @@ mod tests {
     const MSG_START: &str = r#"{"type":"stream_event","event":{"type":"message_start","message":{}},"session_id":"s"}"#;
     const ASSISTANT_TOOL: &str = r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"ok"},{"type":"tool_use","id":"tu-1","name":"Read","input":{"file_path":"a.rs"}}]},"session_id":"s"}"#;
     const USER_RESULT: &str = r#"{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tu-1","content":"data","is_error":false}]},"session_id":"s"}"#;
-    const RESULT: &str = r#"{"type":"result","subtype":"success","is_error":false,"total_cost_usd":0.12,"session_id":"sess-123","usage":{"input_tokens":100,"output_tokens":7}}"#;
+    const RESULT: &str = r#"{"type":"result","subtype":"success","is_error":false,"total_cost_usd":0.12,"session_id":"sess-123","usage":{"input_tokens":100,"output_tokens":7,"cache_read_input_tokens":39149,"cache_creation_input_tokens":512}}"#;
 
     #[test]
     fn parses_init() {
@@ -669,6 +695,8 @@ mod tests {
                 assert_eq!(*total_cost_usd, Some(0.12));
                 assert_eq!(usage.input_tokens, 100);
                 assert_eq!(usage.output_tokens, 7);
+                assert_eq!(usage.cache_read_input_tokens, 39149);
+                assert_eq!(usage.cache_creation_input_tokens, 512);
                 assert_eq!(session_id, "sess-123");
             }
             other => panic!("expected Result, got {other:?}"),
@@ -683,9 +711,32 @@ mod tests {
     #[test]
     fn unknown_type_is_unknown() {
         assert!(matches!(
-            &parse_events(r#"{"type":"rate_limit_event","foo":1}"#)[..],
-            [EngineEvent::Unknown { kind }] if kind == "rate_limit_event"
+            &parse_events(r#"{"type":"control_response","foo":1}"#)[..],
+            [EngineEvent::Unknown { kind }] if kind == "control_response"
         ));
+    }
+
+    #[test]
+    fn rate_limit_event_is_captured_raw_not_discarded() {
+        match &parse_events(r#"{"type":"rate_limit_event","resetsAt":"2026-07-03T00:00:00Z","status":"allowed"}"#)[..] {
+            [EngineEvent::RawSystemEvent { kind, raw }] => {
+                assert_eq!(kind, "rate_limit_event");
+                assert_eq!(raw["status"], "allowed");
+                assert_eq!(raw["resetsAt"], "2026-07-03T00:00:00Z");
+            }
+            other => panic!("expected RawSystemEvent, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn unrecognized_system_subtype_is_captured_raw() {
+        match &parse_events(r#"{"type":"system","subtype":"status","detail":"requesting"}"#)[..] {
+            [EngineEvent::RawSystemEvent { kind, raw }] => {
+                assert_eq!(kind, "system/status");
+                assert_eq!(raw["detail"], "requesting");
+            }
+            other => panic!("expected RawSystemEvent, got {other:?}"),
+        }
     }
 
     // Real `can_use_tool` control request captured from claude 2.1.191 run with

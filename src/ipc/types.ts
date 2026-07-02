@@ -46,10 +46,14 @@ export interface PerfStats {
   rssMb: number;
 }
 
-/** Mirror of Rust `Usage` (spec 2.3). */
+/** Mirror of Rust `Usage` (spec 2.3). `cache_read_input_tokens` +
+ *  `cache_creation_input_tokens` dominate true context size on a long
+ *  session — `input_tokens` alone badly undercounts it (Addendum III §S9). */
 export interface Usage {
   input_tokens: number;
   output_tokens: number;
+  cache_read_input_tokens: number;
+  cache_creation_input_tokens: number;
 }
 
 /** Mirror of Rust `SessionMeta` (spec 3.2) — one session in the rail. */
@@ -382,7 +386,12 @@ export type EngineEvent =
   | { type: "stopped" }
   | { type: "parse_error"; raw: string }
   | { type: "line_truncated"; limit: number }
-  | { type: "unknown"; kind: string };
+  | { type: "unknown"; kind: string }
+  /** A system/status event with an unmodeled schema, captured RAW instead of
+   *  discarded (Addendum III §S10, capture-first — see `rawLog`/Output-Logs
+   *  tab). `rate_limit_event` is the target; no field here is interpreted or
+   *  surfaced as a fact anywhere yet, only logged for future inspection. */
+  | { type: "raw_system_event"; kind: string; raw: unknown };
 
 /** Type guard for errors thrown by the invoke wrappers. */
 export function isIpcError(value: unknown): value is IpcError {

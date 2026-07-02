@@ -1248,5 +1248,75 @@ a context/compact-full warning banner, and capture-first usage/rate-limit loggin
   confirmed clean (preflight OK, PTY opens/reaps normally, no runtime errors)
   via process + log inspection.
 
-### S9 — Context/compact-full warning banner · pending
-### S10 — Usage/rate-limit capture-first instrumentation · pending
+### S9 — Context/compact-full warning banner · COMPLETE ✅ (2026-07-02)
+- **`Usage` struct extended** (`engine.rs`): added `cache_read_input_tokens` +
+  `cache_creation_input_tokens`, populated from the `result` event's own
+  `usage` object (same object `input_tokens`/`output_tokens` already came
+  from — a live probe had shown cache-read alone at 39k+ tokens on a
+  near-empty conversation, so `input_tokens` alone badly undercounts true
+  context size). Purely additive; mirrored 1:1 in `ipc/types.ts`.
+- **`ContextWarningBanner`** (new, in `ConversationPane.tsx`, mounted between
+  the scrollback and the prompt bar so it's never scrolled out of view):
+  shows once estimated context (`input + output + cache_read +
+  cache_creation`) crosses 80% of a **user-editable, localStorage-backed
+  window-size estimate** (default 200,000 — mirrors the Usage panel's
+  existing editable $/Mtok rates pattern; the CLI reports no per-model
+  context-window-size fact today, so this is honestly labelled an estimate,
+  not a fact). One click **"Compact now"** sends `/compact` through the
+  existing `send()` turn path — zero new backend plumbing, exactly like every
+  other slash command. **Dismiss** re-arms once usage grows another 5% of the
+  window past the dismiss point (`contextWarningDismissedAt`, new field +
+  `dismissContextWarning` action on the per-workspace conversation store,
+  reset alongside `cost`/`usage` on `resume`/`newSession`) — so dismissing
+  doesn't silence it forever, but doesn't nag every token either.
+- No new "warning" token added: reused `--color-status-awaiting` (the same
+  amber already used for pending-permission cards) — a closer semantic match
+  than `--color-accent` for "needs attention, not an error."
+- +2 Rust tests (cache-field round-trip via the extended `RESULT` fixture).
+  `cargo clippy --all-targets -- -D warnings` clean; `npm run typecheck`/
+  `build` clean.
+- Gate: live `tauri dev` boot confirmed clean (no runtime errors). Did not
+  trigger a real conversation turn to visually exercise the banner itself —
+  the account had just hit its session usage limit earlier this session and
+  a real turn wasn't needed to validate the code path (state machine + gating
+  logic covered by the Rust tests and manual review); the user can verify by
+  sending any turn with a small `ide:context-window-tokens` override set.
+
+### S10 — Usage/rate-limit capture-first instrumentation · COMPLETE ✅ (2026-07-02)
+- User asked for a reset-time (daily/weekly) usage display in Settings. Real,
+  live-probed facts established earlier this session: `claude auth status
+  --json` carries no usage/rate-limit/reset field at all; no `claude usage`/
+  `claude limits` subcommand exists; a scripted `/status` probe did not
+  cleanly surface account usage data either. `rate_limit_event` IS a real,
+  confirmed-present top-level NDJSON message type, but its field schema has
+  never actually been observed live. Building a reset-time UI on unobserved
+  fields would mean inventing plausible-sounding numbers — decided against,
+  per the project's honesty rule (mirrors the Usage panel's own "estimate,
+  not a fact" labelling). **Capture-first instead of fabricate-first**: the
+  scope explicitly deferred any Settings UI until real data has actually been
+  observed. This slice ships the capture path only.
+- **New `EngineEvent::RawSystemEvent { kind, raw }`** (`engine.rs`): every
+  `rate_limit_event` line, and every unrecognized `system/<subtype>` (both
+  previously collapsed into `Unknown{kind}`, which discarded the JSON body),
+  now carries its FULL original parsed JSON through to the frontend's
+  existing `rawLog` (Addendum II §S6's Output/Logs bottom-panel tab) instead
+  of being thrown away. Nothing is interpreted or surfaced as a fact anywhere
+  — `conversation.ts`'s dispatch `default: return {}` arm already ignores any
+  event type it doesn't model, so this is purely additive logging, zero
+  behavior change to the conversation itself. Mirrored 1:1 in `ipc/types.ts`
+  (`{ type: "raw_system_event"; kind: string; raw: unknown }`).
+- +2 Rust tests (`rate_limit_event` and an unrecognized `system/status`
+  subtype both produce `RawSystemEvent` with the raw fields intact); updated
+  the one existing test that had asserted `rate_limit_event -> Unknown` to
+  use a still-genuinely-unknown type (`control_response`) instead, since that
+  assertion is no longer true by design. `cargo clippy --all-targets -- -D
+  warnings` clean; 86 Rust tests total; `npm run typecheck`/`build` clean.
+- **Next real step, when it happens**: the next time a `rate_limit_event` (or
+  a previously-unseen `system/<subtype>`) actually fires in a live session,
+  its raw JSON will be sitting in the Output/Logs tab — read it there, THEN
+  design the Settings usage/reset-time UI against the real schema. Revisit
+  this follow-up once that's been observed; don't build the UI before then.
+- Gate: live `tauri dev` boot confirmed clean (no runtime errors, same
+  process-inspection method as S9). No real `rate_limit_event` observed yet
+  in this session (expected — capture-first means the payoff is at the NEXT
+  natural occurrence, not this slice).

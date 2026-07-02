@@ -9,6 +9,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent } from "react";
 import { activeConversationStore, useActiveConversation, type ConvItem } from "@/store/conversation";
+import type { Usage } from "@/ipc/types";
 
 // Built-in session commands confirmed present in the CLI (2.1.190) — used as the
 // slash menu's source until the live `slash_commands` list arrives with `init`.
@@ -55,10 +56,159 @@ export function ConversationPane() {
           </div>
         )}
       </div>
+      <ContextWarningBanner />
       <PromptBar />
     </section>
   );
 }
+
+/** Estimated total context tokens for a turn's usage — `input_tokens` alone
+ *  badly undercounts it; the cache fields dominate on a long session
+ *  (Addendum III §S9). An estimate, not a fact the CLI reports directly. */
+function contextTokens(usage: Usage): number {
+  return (
+    usage.input_tokens +
+    usage.output_tokens +
+    usage.cache_read_input_tokens +
+    usage.cache_creation_input_tokens
+  );
+}
+
+const CONTEXT_WINDOW_KEY = "ide:context-window-tokens";
+const DEFAULT_CONTEXT_WINDOW = 200_000;
+/** Show once estimated usage crosses this fraction of the configured window —
+ *  matches the point the CLI itself starts nagging about `/compact`. */
+const WARN_RATIO = 0.8;
+/** After a dismiss, require this much further growth (as a fraction of the
+ *  window) before re-arming — so the banner doesn't reappear on every token. */
+const RE_ARM_RATIO = 0.05;
+
+function loadContextWindow(): number {
+  try {
+    const raw = localStorage.getItem(CONTEXT_WINDOW_KEY);
+    const n = raw ? Number(raw) : NaN;
+    return Number.isFinite(n) && n > 0 ? n : DEFAULT_CONTEXT_WINDOW;
+  } catch {
+    return DEFAULT_CONTEXT_WINDOW;
+  }
+}
+
+/** A dismissible heads-up when the estimated context is getting full, with a
+ *  one-click "Compact now" — `/compact` sent as an ordinary turn (spec 2.3's
+ *  existing `send()` path; zero new backend plumbing). Addendum III §S9: the
+ *  user asked for a notification instead of having to notice the CLI's own
+ *  `/compact` nag themselves. The window size is a user-editable ESTIMATE
+ *  (localStorage, mirroring the Usage panel's editable $/Mtok rates) — the
+ *  CLI reports no per-model context-window-size fact today. */
+function ContextWarningBanner() {
+  const usage = useActiveConversation((s) => s.usage);
+  const dismissedAt = useActiveConversation((s) => s.contextWarningDismissedAt);
+  const dismiss = useActiveConversation((s) => s.dismissContextWarning);
+  const streaming = useActiveConversation((s) => s.streaming);
+  const [windowSize, setWindowSize] = useState(loadContextWindow);
+  const [editing, setEditing] = useState(false);
+
+  const used = usage ? contextTokens(usage) : 0;
+  const ratio = windowSize > 0 ? used / windowSize : 0;
+  const reArmed = dismissedAt == null || used > dismissedAt + windowSize * RE_ARM_RATIO;
+  const show = usage != null && ratio >= WARN_RATIO && reArmed;
+
+  const saveWindow = (v: number) => {
+    const next = Number.isFinite(v) && v > 0 ? Math.round(v) : DEFAULT_CONTEXT_WINDOW;
+    setWindowSize(next);
+    try {
+      localStorage.setItem(CONTEXT_WINDOW_KEY, String(next));
+    } catch {
+      /* storage unavailable — the estimate just won't persist */
+    }
+  };
+
+  if (!show) return null;
+
+  const pct = Math.min(999, Math.round(ratio * 100));
+
+  return (
+    <div role="status" style={bannerStyle}>
+      <span style={{ fontSize: "var(--text-sm)", color: "var(--color-fg-primary)" }}>
+        Context ~{pct}% full (estimate) — the CLI will start trimming early history soon.
+      </span>
+      <div className="flex items-center gap-[var(--space-2)]" style={{ marginLeft: "auto" }}>
+        {editing ? (
+          <input
+            autoFocus
+            type="number"
+            min={1000}
+            defaultValue={windowSize}
+            onBlur={(e) => {
+              saveWindow(e.target.valueAsNumber);
+              setEditing(false);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+              if (e.key === "Escape") setEditing(false);
+            }}
+            style={{
+              width: "84px",
+              background: "var(--color-bg-base)",
+              border: "1px solid var(--color-border-subtle)",
+              borderRadius: "var(--radius-sm)",
+              padding: "1px var(--space-1)",
+              fontFamily: "var(--font-mono)",
+              fontSize: "var(--text-xs)",
+              color: "var(--color-fg-primary)",
+            }}
+          />
+        ) : (
+          <button type="button" onClick={() => setEditing(true)} className="cursor-pointer" style={bannerGhostBtnStyle}>
+            window: {windowSize.toLocaleString()}
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={() => void activeConversationStore().getState().send("/compact")}
+          disabled={streaming}
+          className={streaming ? "" : "cursor-pointer"}
+          style={bannerBtnStyle}
+        >
+          Compact now
+        </button>
+        <button type="button" onClick={() => dismiss(used)} className="cursor-pointer" style={bannerGhostBtnStyle}>
+          Dismiss
+        </button>
+      </div>
+    </div>
+  );
+}
+
+const bannerStyle: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: "var(--space-2)",
+  flexWrap: "wrap",
+  padding: "var(--space-2) var(--space-5)",
+  borderTop: "1px solid var(--color-status-awaiting)",
+  background: "var(--color-bg-raised)",
+};
+
+const bannerBtnStyle: CSSProperties = {
+  border: "1px solid var(--color-status-awaiting)",
+  borderRadius: "var(--radius-sm)",
+  padding: "2px var(--space-3)",
+  fontFamily: "var(--font-mono)",
+  fontSize: "var(--text-xs)",
+  background: "var(--color-status-awaiting)",
+  color: "var(--color-bg-base)",
+};
+
+const bannerGhostBtnStyle: CSSProperties = {
+  border: "1px solid var(--color-border-subtle)",
+  borderRadius: "var(--radius-sm)",
+  padding: "2px var(--space-3)",
+  fontFamily: "var(--font-mono)",
+  fontSize: "var(--text-xs)",
+  background: "transparent",
+  color: "var(--color-fg-secondary)",
+};
 
 function PaneHeader() {
   const usage = useActiveConversation((s) => s.usage);
@@ -67,7 +217,7 @@ function PaneHeader() {
 
   const ctx =
     usage != null
-      ? `${(usage.input_tokens + usage.output_tokens).toLocaleString()} tok`
+      ? `${contextTokens(usage).toLocaleString()} tok`
       : model
         ? model
         : "—";
