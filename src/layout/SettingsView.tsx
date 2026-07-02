@@ -822,7 +822,7 @@ function PluginsMarketplacesBlock({
           {marketplaces.map((m) => {
             const name = m.name;
             return (
-              <li key={name ?? m.installLocation ?? Math.random()} className="flex items-center justify-between" style={pluginsRowStyle}>
+              <li key={name ?? m.installLocation ?? Math.random()} className="flex flex-wrap items-center justify-between gap-1" style={pluginsRowStyle}>
                 <span style={pluginsMonoStyle}>
                   {name ?? "?"}{" "}
                   <span style={{ color: "var(--color-fg-muted)" }}>
@@ -891,7 +891,7 @@ function PluginsInstalledBlock({
             const id = p.id;
             const { name: pname, source } = splitPluginId(id);
             return (
-              <li key={id ?? Math.random()} className="flex items-center justify-between" style={pluginsRowStyle}>
+              <li key={id ?? Math.random()} className="flex flex-wrap items-center justify-between gap-1" style={pluginsRowStyle}>
                 <span style={pluginsMonoStyle}>
                   {pname} <span style={{ color: "var(--color-fg-muted)" }}>@{source}{p.version ? ` · v${p.version}` : ""}</span>{" "}
                   <span style={{ color: p.enabled ? "var(--color-status-success)" : "var(--color-fg-muted)" }}>
@@ -961,7 +961,7 @@ function PluginsSkillsBlock({ skills, onRun }: { skills: PluginEntry[]; onRun: (
             const id = s.id;
             const { name: sname } = splitPluginId(id);
             return (
-              <li key={id ?? Math.random()} className="flex items-center justify-between" style={pluginsRowStyle}>
+              <li key={id ?? Math.random()} className="flex flex-wrap items-center justify-between gap-1" style={pluginsRowStyle}>
                 <span style={pluginsMonoStyle}>
                   /{sname} {s.version && <span style={{ color: "var(--color-fg-muted)" }}>· v{s.version}</span>}
                 </span>
@@ -1120,7 +1120,7 @@ function McpSection() {
           ) : (
             <ul className="flex flex-col gap-[2px]" style={{ marginBottom: "var(--space-2)" }}>
               {servers.map((s) => (
-                <li key={s.name} className="flex items-center justify-between" style={pluginsRowStyle}>
+                <li key={s.name} className="flex flex-wrap items-center justify-between gap-1" style={pluginsRowStyle}>
                   <span style={pluginsMonoStyle}>
                     {s.name}{" "}
                     <span style={{ color: "var(--color-fg-muted)" }}>

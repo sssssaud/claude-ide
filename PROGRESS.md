@@ -1418,3 +1418,41 @@ a context/compact-full warning banner, and capture-first usage/rate-limit loggin
   list`'s raw text output was independently captured and verified via direct
   shell execution before `mcp.rs` was written, and the fixture tests assert
   against that exact captured text.
+
+### Visual verification pass: Agents / Plugins & Skills / MCP Servers · COMPLETE ✅ (2026-07-03)
+- User pushed back on "boot log looked clean" as a substitute for actually
+  looking at the rendered UI. This environment has no visible native window
+  (Tauri's GTK window runs but isn't reachable by any screenshot tool here —
+  confirmed via `spectacle -a`/`-f` both capturing the wrong window/this
+  terminal, `wmctrl` seeing zero windows, no Chrome extension connected) and
+  no OS-level input synthesis (`xdotool`/`wtype`/`ydotool` all absent under
+  Wayland). Worked around both: Tauri's own `@tauri-apps/api/mocks.js`
+  (`mockIPC`/`mockWindows`) stood in for the backend so the real frontend
+  renders under plain Vite; headless `google-chrome --screenshot` (with
+  `--virtual-time-budget` so async mount/preflight settles) captured actual
+  pixels; clicks were simulated as real in-page DOM `.click()` calls
+  (genuine synthetic React events, just dispatched from page JS instead of
+  the OS) driven by a scratch `mock-test.html` harness, deleted afterward.
+- Screenshotted and eyeballed all three panels built this session: Agents
+  (S8), Settings → Plugins & Skills (S11), Settings → MCP Servers (S12) —
+  all render correctly with realistic fake data.
+- **Found and fixed a real bug this way**: MCP server rows (and, by the same
+  shared style, Plugins/Marketplaces/Skills rows) used
+  `flex items-center justify-between` with no wrap. A server with a long
+  target URL (typical for MCP — `https://api.githubcopilot.com/mcp/`, etc.)
+  pushed its Login/Logout/Remove buttons off the visible panel, needing a
+  horizontal scroll to reach them. Fixed by adding `flex-wrap`+`gap-1` to
+  all four row `<li>`s in `SettingsView.tsx` so the action buttons drop to
+  their own line instead of overflowing. Re-screenshotted to confirm the
+  fix — buttons now fully visible on every row, no scroll needed.
+- One false alarm caught and ruled out honestly rather than reported: a
+  screenshot appeared to show the category rail highlighting the wrong
+  entry ("Text Editor" instead of "Plugins & Skills") while the content
+  pane showed the right panel. Verified against the actual DOM
+  (`--dump-dom`, checking `aria-current`) before concluding anything — the
+  state was correct (`aria-current="true"` on the right button); the
+  mismatch was a misreading of the screenshot's dark-theme colors, not an
+  app bug.
+- `npm run typecheck` / `npm run build` clean after the fix. No Rust changes
+  (frontend-only). `mock-test.html` deleted; background Vite dev server
+  stopped.
