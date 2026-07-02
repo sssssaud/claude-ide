@@ -13,7 +13,7 @@
  */
 
 import type { CSSProperties } from "react";
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Group, Panel, useDefaultLayout, usePanelRef } from "react-resizable-panels";
 import { ActivityBar } from "@/layout/ActivityBar";
 import { BottomPanel } from "@/layout/BottomPanel";
@@ -50,6 +50,14 @@ export function WorkspaceShell() {
 
   const sidebarRef = usePanelRef();
   const editorRef = usePanelRef();
+
+  // The sidebar panel's live width in px (null until first measured). The drag
+  // divider is gated on this, not just the stored `sidebar` intent: if the panel
+  // ends up collapsed (0px) while the store still says visible, showing the
+  // separator would put a resize cursor over the empty left edge with nothing to
+  // resize. Gating on the real width can only ever HIDE a divider that has no
+  // panel behind it — it can't affect a genuinely open panel's resizing.
+  const [sidebarPx, setSidebarPx] = useState<number | null>(null);
 
   useLayoutShortcuts();
   // The Sessions rail is now a side-panel view, so its load + auto-continue
@@ -100,6 +108,10 @@ export function WorkspaceShell() {
   const syncFromDrag =
     (region: Region) =>
     (size: { inPixels: number }, _id: unknown, prev: unknown) => {
+      // Track the real sidebar width on every resize (including the mount
+      // measurement and programmatic collapse/expand) so the divider gate below
+      // reflects reality, not just stored intent.
+      if (region === "sidebar") setSidebarPx(size.inPixels);
       if (prev === undefined) return;
       // Zen mode drives the sidebar panel via collapse()/expand() without
       // touching the stored toggle (so turning zen off restores exactly what
@@ -137,7 +149,9 @@ export function WorkspaceShell() {
           >
             <SidePanel />
           </Panel>
-          {effectiveSidebarVisible && <ResizeSeparator orientation="horizontal" />}
+          {effectiveSidebarVisible && (sidebarPx === null || sidebarPx > 0) && (
+            <ResizeSeparator orientation="horizontal" />
+          )}
           <Panel id="conversation" minSize="320px" style={PANEL}>
             <ConversationPane />
           </Panel>
