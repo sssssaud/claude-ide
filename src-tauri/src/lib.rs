@@ -110,6 +110,7 @@ pub fn run(startup: Instant) {
             commands::delete_agent_def,
             commands::list_plugins,
             commands::list_marketplaces,
+            commands::list_available_plugins,
             commands::list_mcp_servers,
             commands::memory_health,
         ])

@@ -1579,5 +1579,18 @@ committed and screenshot-verified.
   it's a distinct argv value, no shell) — +1 Rust test (100 total). Applies to
   the NEXT session (sessions open lazily on first turn); the picker shows
   "(next)" + a tooltip while one is live, since `--model` is fixed at spawn.
-- **3/4 — Browse & install plugins**: pending.
-- **4/4 — Steer running agents**: pending.
+- **3/4 — Browse & install plugins** (`plugins.rs`, `SettingsView.tsx`): the
+  CLI has no "list available plugins" command (only installed). But each
+  marketplace's `installLocation/.claude-plugin/marketplace.json` lists its
+  full catalog (255 in the official one) with name/description/category/author
+  — so `list_available_plugins()` reads those manifests (read-only, like
+  reading transcripts) and returns a flat list tagged by marketplace. New
+  `AvailablePlugin` + `parse_manifest_plugins` (+2 tests, 102 total; author
+  may be a `{name}` object or a bare string). Frontend: a search-gated,
+  capped-at-40 BROWSE block in Plugins & Skills — type to filter the catalog,
+  each row shows name · category · marketplace + description with an Install
+  button (`claude plugin install name@marketplace` via InlineTerminal) or an
+  "installed" tag (cross-referenced against `plugin list`). Verified: search
+  "security" narrows 4→2 correctly, Install buttons present.
+- **4/4 — Steer running agents**: pending (needs its own look at the daemon /
+  live-agent interrupt surface before building).

@@ -10,6 +10,8 @@
 //! `InlineTerminal` on the frontend — the CLI's own command, typed into a real
 //! shell exactly as a user would — never a new hand-rolled mutation path here.
 
+use std::fs;
+use std::path::Path;
 use std::process::Command;
 
 use serde::{Deserialize, Serialize};
@@ -61,6 +63,69 @@ pub async fn list_marketplaces() -> IpcResult<Vec<MarketplaceEntry>> {
     })
     .await
     .map_err(|e| IpcError::from(AppError::Io(std::io::Error::other(e.to_string()))))?
+}
+
+/// One installable plugin, read from a marketplace's own manifest — there is no
+/// `claude plugin` command that lists *available* (vs installed) plugins, so we
+/// read the manifest the CLI already cloned to each marketplace's
+/// `installLocation` (`.claude-plugin/marketplace.json`). Read-only, same as
+/// reading session transcripts; install still runs the CLI's own `plugin
+/// install <name>@<marketplace>` through `InlineTerminal`.
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AvailablePlugin {
+    pub name: Option<String>,
+    pub description: Option<String>,
+    pub category: Option<String>,
+    pub author: Option<String>,
+    /// The marketplace this entry came from (for `install name@marketplace`).
+    pub marketplace: Option<String>,
+}
+
+/// Enumerate installable plugins across every configured marketplace by reading
+/// each one's manifest. A marketplace with no readable/parseable manifest is
+/// skipped (never fabricated); order follows marketplace order then manifest
+/// order.
+pub async fn list_available_plugins() -> IpcResult<Vec<AvailablePlugin>> {
+    let marketplaces = list_marketplaces().await?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut out = Vec::new();
+        for m in &marketplaces {
+            let Some(loc) = m.install_location.as_deref() else { continue };
+            let manifest = Path::new(loc).join(".claude-plugin").join("marketplace.json");
+            let Ok(text) = fs::read_to_string(&manifest) else { continue };
+            out.extend(parse_manifest_plugins(&text, m.name.as_deref()));
+        }
+        Ok(out)
+    })
+    .await
+    .map_err(|e| IpcError::from(AppError::Io(std::io::Error::other(e.to_string()))))?
+}
+
+/// Parse the `plugins[]` array out of a marketplace manifest. Tolerant: a
+/// missing/mis-typed `plugins` key yields an empty list; `author` may be a
+/// `{name}` object or a bare string.
+fn parse_manifest_plugins(text: &str, marketplace: Option<&str>) -> Vec<AvailablePlugin> {
+    let Ok(v) = serde_json::from_str::<Value>(text) else { return Vec::new() };
+    let Some(arr) = v.get("plugins").and_then(Value::as_array) else { return Vec::new() };
+    arr.iter()
+        .map(|p| AvailablePlugin {
+            name: str_field(p, "name"),
+            description: str_field(p, "description"),
+            category: str_field(p, "category"),
+            author: p
+                .get("author")
+                .and_then(|a| a.get("name"))
+                .and_then(Value::as_str)
+                .map(str::to_string)
+                .or_else(|| str_field(p, "author")),
+            marketplace: marketplace.map(str::to_string),
+        })
+        .collect()
+}
+
+fn str_field(v: &Value, key: &str) -> Option<String> {
+    v.get(key).and_then(Value::as_str).map(str::to_string)
 }
 
 fn run_json_array<T: for<'de> Deserialize<'de>>(args: &[&str]) -> IpcResult<Vec<T>> {
@@ -138,5 +203,31 @@ mod tests {
         assert_eq!(entries.len(), 2);
         assert_eq!(entries[0].id.as_deref(), Some("good@x"));
         assert_eq!(entries[1].id.as_deref(), Some("also-good@x"));
+    }
+
+    #[test]
+    fn parses_marketplace_manifest_plugins() {
+        // Shape taken from the real anthropics/claude-plugins-official manifest.
+        let raw = r#"{
+            "name": "claude-plugins-official",
+            "plugins": [
+                {"name":"42crunch-api-security-testing","description":"Automate API security","author":{"name":"42Crunch"},"category":"security","source":{"source":"git-subdir"}},
+                {"name":"code-review","description":"Review diffs","author":"Anthropic","category":"dev"}
+            ]
+        }"#;
+        let plugins = parse_manifest_plugins(raw, Some("claude-plugins-official"));
+        assert_eq!(plugins.len(), 2);
+        assert_eq!(plugins[0].name.as_deref(), Some("42crunch-api-security-testing"));
+        assert_eq!(plugins[0].author.as_deref(), Some("42Crunch")); // object {name}
+        assert_eq!(plugins[0].category.as_deref(), Some("security"));
+        assert_eq!(plugins[0].marketplace.as_deref(), Some("claude-plugins-official"));
+        assert_eq!(plugins[1].author.as_deref(), Some("Anthropic")); // bare string
+    }
+
+    #[test]
+    fn manifest_without_plugins_key_is_empty() {
+        assert!(parse_manifest_plugins("{}", Some("m")).is_empty());
+        assert!(parse_manifest_plugins("not json", Some("m")).is_empty());
+        assert!(parse_manifest_plugins(r#"{"plugins":"nope"}"#, Some("m")).is_empty());
     }
 }

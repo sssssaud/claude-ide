@@ -23,7 +23,7 @@ use crate::perf::{self, PerfStats};
 use crate::permissions::{ProjectPermissions, ProjectPermissionsFile};
 use crate::mcp::McpServerEntry;
 use crate::memory::MemoryHealth;
-use crate::plugins::{MarketplaceEntry, PluginEntry};
+use crate::plugins::{AvailablePlugin, MarketplaceEntry, PluginEntry};
 use crate::preflight::{self, PreflightReport};
 use crate::pty::PtyRegistry;
 use crate::search::SearchResults;
@@ -413,6 +413,14 @@ pub async fn list_plugins() -> IpcResult<Vec<PluginEntry>> {
 #[tauri::command]
 pub async fn list_marketplaces() -> IpcResult<Vec<MarketplaceEntry>> {
     crate::plugins::list_marketplaces().await
+}
+
+/// List installable plugins across configured marketplaces (read from each
+/// marketplace's manifest — the CLI has no "list available" command). Install
+/// still runs `claude plugin install` through InlineTerminal on the frontend.
+#[tauri::command]
+pub async fn list_available_plugins() -> IpcResult<Vec<AvailablePlugin>> {
+    crate::plugins::list_available_plugins().await
 }
 
 // ----- MCP servers (Addendum III §S12) ----------------------------------------

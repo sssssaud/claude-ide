@@ -19,8 +19,8 @@ import { InlineTerminal } from "@/components/InlineTerminal";
 import { KeybindingsSection } from "@/layout/KeybindingsSection";
 import { PermissionsPanel } from "@/layout/PermissionsPanel";
 import { ThemePicker } from "@/layout/ThemePicker";
-import { listMarketplaces, listMcpServers, listPlugins } from "@/ipc/commands";
-import type { MarketplaceEntry, McpServerEntry, PluginEntry, ScopeSettings, SettingsScope } from "@/ipc/types";
+import { listAvailablePlugins, listMarketplaces, listMcpServers, listPlugins } from "@/ipc/commands";
+import type { AvailablePlugin, MarketplaceEntry, McpServerEntry, PluginEntry, ScopeSettings, SettingsScope } from "@/ipc/types";
 import { isIpcError } from "@/ipc/types";
 import { shellQuote } from "@/lib/shell";
 import { useAuth } from "@/store/auth";
@@ -785,6 +785,7 @@ function PluginsSection() {
         <>
           <PluginsMarketplacesBlock marketplaces={marketplaces} onRun={run} />
           <PluginsInstalledBlock plugins={regularPlugins} marketplaces={marketplaces} onRun={run} />
+          <PluginsBrowseBlock installed={plugins} onRun={run} />
           <PluginsSkillsBlock skills={skills} onRun={run} />
         </>
       )}
@@ -943,6 +944,101 @@ function PluginsInstalledBlock({
           Install
         </button>
       </div>
+    </PluginsSectionBlock>
+  );
+}
+
+/** Browse & install plugins from configured marketplaces (Addendum III §S14,
+ *  feature 3/4). The catalog can be large (hundreds), so results are search-
+ *  gated and capped; installing runs the CLI's own `plugin install` in the
+ *  shared InlineTerminal, never a hand-rolled mutation. */
+function PluginsBrowseBlock({
+  installed,
+  onRun,
+}: {
+  installed: PluginEntry[];
+  onRun: (command: string, label: string) => void;
+}) {
+  const [available, setAvailable] = useState<AvailablePlugin[] | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+
+  useEffect(() => {
+    listAvailablePlugins()
+      .then(setAvailable)
+      .catch((e) => setLoadError(isIpcError(e) ? e.message : "Could not load the plugin catalog"));
+  }, []);
+
+  const installedNames = new Set(installed.map((p) => splitPluginId(p.id).name).filter(Boolean));
+  const q = query.trim().toLowerCase();
+  const matches = q
+    ? (available ?? []).filter(
+        (p) =>
+          (p.name ?? "").toLowerCase().includes(q) ||
+          (p.description ?? "").toLowerCase().includes(q) ||
+          (p.category ?? "").toLowerCase().includes(q),
+      )
+    : [];
+  const CAP = 40;
+  const shown = matches.slice(0, CAP);
+
+  return (
+    <PluginsSectionBlock title={`Browse${available ? ` (${available.length})` : ""}`}>
+      {loadError && <p style={pluginsMutedStyle}>{loadError}</p>}
+      <input
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        placeholder={available ? `Search ${available.length} plugins…` : "Loading catalog…"}
+        spellCheck={false}
+        className="min-w-0 w-full"
+        style={{ ...pluginsInputStyle, marginBottom: "var(--space-2)" }}
+      />
+      {!q ? (
+        <p style={pluginsMutedStyle}>Type to search installable plugins from your marketplaces.</p>
+      ) : shown.length === 0 ? (
+        <p style={pluginsMutedStyle}>No matches.</p>
+      ) : (
+        <ul className="flex flex-col gap-[2px]">
+          {shown.map((p) => {
+            const isInstalled = p.name != null && installedNames.has(p.name);
+            const id = p.name && p.marketplace ? `${p.name}@${p.marketplace}` : (p.name ?? "");
+            return (
+              <li key={id || Math.random()} className="flex flex-wrap items-start justify-between gap-1" style={pluginsRowStyle}>
+                <div className="min-w-0" style={{ flex: 1 }}>
+                  <div style={pluginsMonoStyle}>
+                    {p.name}{" "}
+                    <span style={{ color: "var(--color-fg-muted)" }}>
+                      {p.category ? `· ${p.category} ` : ""}· {p.marketplace}
+                    </span>
+                  </div>
+                  {p.description && (
+                    <div style={{ color: "var(--color-fg-muted)", fontSize: "var(--text-xs)", marginTop: "2px", overflowWrap: "anywhere" }}>
+                      {p.description.length > 140 ? `${p.description.slice(0, 140)}…` : p.description}
+                    </div>
+                  )}
+                </div>
+                {isInstalled ? (
+                  <span style={{ ...pluginsMonoStyle, color: "var(--color-status-success)" }}>installed</span>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => onRun(`claude plugin install ${shellQuote(id)}`, `plugin install ${id}`)}
+                    disabled={!id}
+                    style={primaryBtnStyle(!!id)}
+                  >
+                    Install
+                  </button>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {matches.length > CAP && (
+        <p style={pluginsMutedStyle}>
+          Showing {CAP} of {matches.length} — refine your search.
+        </p>
+      )}
     </PluginsSectionBlock>
   );
 }

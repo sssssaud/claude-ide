@@ -224,6 +224,17 @@ export interface MarketplaceEntry {
   installLocation: string | null;
 }
 
+/** Mirror of Rust `AvailablePlugin` (Addendum III §S14) — one installable
+ *  plugin read from a marketplace's manifest (the CLI has no "list available"
+ *  command). Install runs `claude plugin install name@marketplace`. */
+export interface AvailablePlugin {
+  name: string | null;
+  description: string | null;
+  category: string | null;
+  author: string | null;
+  marketplace: string | null;
+}
+
 /** Mirror of Rust `McpServerEntry` (Addendum III §S12) — one row parsed from
  *  `claude mcp list`'s human-readable output (no `--json` exists for it, so
  *  `status` is the CLI's own text verbatim, never re-worded). */

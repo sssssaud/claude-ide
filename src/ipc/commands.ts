@@ -14,6 +14,7 @@ import type {
   AgentDefSummary,
   AgentSession,
   AuthStatus,
+  AvailablePlugin,
   CheckpointDiff,
   CheckpointTimeline,
   DaemonStatus,
@@ -514,6 +515,16 @@ export async function listMarketplaces(): Promise<MarketplaceEntry[]> {
 // Read-only status, parsed from `claude mcp list`'s human-readable output (no
 // `--json` exists for it). Every mutating action runs the CLI's own command
 // through `InlineTerminal`, not a wrapper here.
+
+/** List installable plugins across configured marketplaces (from their
+ *  manifests). Install still runs the CLI's own command via InlineTerminal. */
+export async function listAvailablePlugins(): Promise<AvailablePlugin[]> {
+  try {
+    return await invoke<AvailablePlugin[]>("list_available_plugins");
+  } catch (e) {
+    normalizeError(e);
+  }
+}
 
 /** List configured MCP servers (health-checks each one — can take a moment). */
 export async function listMcpServers(): Promise<McpServerEntry[]> {
