@@ -29,7 +29,7 @@ export function ConversationPane() {
   return (
     <section className="flex h-full min-w-0 flex-col" style={{ background: "var(--color-bg-base)" }}>
       <PaneHeader />
-      <div className="min-h-0 flex-1 overflow-y-auto" style={{ padding: "var(--space-6)" }}>
+      <div className="min-h-0 flex-1 overflow-y-auto" style={{ padding: "var(--space-6)", overflowX: "hidden" }}>
         {items.length === 0 ? (
           <EmptyInvite />
         ) : (
@@ -266,7 +266,7 @@ function ConversationItem({ item, streaming }: { item: ConvItem; streaming: bool
             <Role label="you" color="var(--color-fg-secondary)" />
             <CopyMarkdownButton text={`**You:**\n\n${item.text}`} />
           </div>
-          <p style={{ color: "var(--color-fg-primary)", whiteSpace: "pre-wrap" }}>{item.text}</p>
+          <p style={{ color: "var(--color-fg-primary)", whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{item.text}</p>
         </div>
       );
     case "assistant":
@@ -276,7 +276,7 @@ function ConversationItem({ item, streaming }: { item: ConvItem; streaming: bool
             <Role label="claude" color="var(--color-accent)" />
             <CopyMarkdownButton text={`**Claude:**\n\n${item.text}`} />
           </div>
-          <p style={{ color: "var(--color-fg-primary)", whiteSpace: "pre-wrap" }}>
+          <p style={{ color: "var(--color-fg-primary)", whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>
             {item.text}
             {item.stopped && (
               <span style={{ color: "var(--color-fg-muted)", fontStyle: "italic" }}> (stopped)</span>
@@ -791,6 +791,7 @@ const toolBody: CSSProperties = {
   fontSize: "var(--text-xs)",
   color: "var(--color-fg-secondary)",
   whiteSpace: "pre-wrap",
+  overflowWrap: "anywhere",
 };
 const sendBtn: CSSProperties = {
   border: "1px solid var(--color-accent)",
