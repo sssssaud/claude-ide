@@ -372,6 +372,101 @@ diff instead. Found and fixed 5 real issues:
   server, clean boot, idle WebKitWebProcess CPU still ~0%. Committed as
   `7674c3b`.
 
+### S6 — Remaining settings + bottom-panel tabs · COMPLETE ✅ (2026-07-02)
+- **Backend schema widened** (`settings.rs`): `ScopeSettings` grew from
+  editor-only to `{editor, terminal, files, appearance}`, plus a top-level
+  `keybindings: BTreeMap<command id, combo>` (always user-global, its own
+  read-modify-write, separate from the scoped write). All four categories
+  validated/clamped the same way editor already was (`TerminalSettings`
+  scrollback 100–100,000; `FilesSettings.exclude` — plain names, `/`/`\`
+  rejected, deduped, capped at 100 entries × 100 chars; `FilesSettings.eol`
+  enum `auto|lf|crlf`; keybinding combos charset-checked, an empty combo
+  removes the override). `write_settings`'s IPC shape changed from a flat
+  `editor` param to a full `settings: ScopeSettings` — updated frontend
+  in lockstep in the same pass so an old client could never silently wipe a
+  user's settings via serde's `#[serde(default)]` on the new shape. 69 tests
+  (5 new), clippy clean.
+- **`store/settings.ts` generalized**: `user`/`workspaces`/`draft` are now
+  full `ScopeSettings` (all 4 categories) instead of bare `EditorSettings`;
+  `setDraft(category, key, value)` replaces the old single-category
+  `setDraft(key, value)`; `mergeEffectiveTerminal/Files/Appearance` added
+  alongside the existing `mergeEffective` (editor), each with its own
+  `_DEFAULTS`/`_KEYS`. `sanitizeScopeSettings` backs a JSON-editor mode that
+  now edits every category at once. `effectiveFilesFor(cwd)` is the
+  imperative read path for non-React call sites (search/Quick Open excludes).
+- **Settings UI**: new Terminal + Keybindings categories, Files gained
+  Exclude (a textarea list, one name per line — its own control, not a
+  scalar), End Of Line, and Confirm Before Closing Unsaved Files; Appearance
+  gained Color File Icons + Reduce Motion alongside the existing Theme row.
+- **Keybinding editor** (`layout/KeybindingsSection.tsx` + new
+  `store/keybindings.ts`): searchable list of every rebindable command (all
+  but `file.save`/`editor.gotoLine`, which stay Monaco-owned per S3's design
+  note), a "Change" capture control (requires Ctrl/Cmd in the chord so a
+  global capture-phase rebind can never swallow ordinary typing), Reset, and
+  a non-blocking conflict warning ("Set anyway"). Saves immediately — no
+  staged Apply, unlike the rest of Settings — matching a VS Code-style
+  keybindings editor. `useLayoutShortcuts.ts`'s dispatcher now resolves each
+  command's *effective* combo (override, else default) instead of the fixed
+  default.
+- **Terminal settings live in xterm**: font family/size/cursor-blink/
+  scrollback flow from Settings into the real `Terminal` constructor and
+  update live via `term.options` (xterm renders to canvas, so a
+  `var(--font-mono)` default is resolved to its literal value first — Monaco
+  can use the CSS var directly since it's DOM-styled, xterm can't).
+- **Files settings wired to their real consumers**: `exclude` filters the
+  File Explorer client-side (lazy per-directory listing, nothing to push
+  server-side there) and is passed server-side to `search`/`list_files` for
+  the Search panel and Quick Open (also folded into Quick Open's cache key
+  so a settings change shows up immediately, not after the 30s TTL);
+  `eol` converts via Monaco's own `model.setEOL()` at save time — not a
+  regex — so it stays consistent with the Status Bar's manual EOL picker;
+  `confirmCloseUnsaved` gates a new confirm dialog on closing a dirty file
+  tab (`EditorTabs.tsx`), mirroring the Settings tab's own close-confirm
+  pattern.
+- **`appearance.reducedMotion`**: a `data-reduced-motion` attribute on
+  `<html>` (set from a `WorkspaceShell` effect over the effective appearance
+  settings) plus a matching `global.css` rule — an explicit override of the
+  same rules the OS `prefers-reduced-motion` media query already triggers.
+  `colorFileIcons` renders a small color-coded swatch per known extension in
+  the File Explorer in place of the file emoji (emoji glyphs render in full
+  color regardless of CSS `color`, so tinting the emoji itself is a no-op —
+  confirmed by checking, not assumed).
+- **`layout/TerminalDrawer.tsx` → `layout/BottomPanel.tsx`**: three tabs —
+  Terminal (the real per-workspace shell, unchanged, stays mounted across a
+  tab switch so it's never restarted just by looking at another tab),
+  Output/Logs (the active workspace's raw engine-event stream — new
+  `rawLog: EngineEvent[]` on `store/conversation.ts`'s per-workspace store,
+  capped at 500, appended in `channelFor`'s wrapper so it captures
+  everything the CLI sends including events from a since-superseded session
+  that `items` deliberately drops), Problems (⏸ explicit "coming soon" —
+  no diagnostics source exists to wire up, so it says so rather than faking
+  one). Deliberately skipped a Search-results tab as redundant with the
+  existing side-panel Search view, per the plan.
+- **Real bug found + fixed during live verification, not scope creep**: the
+  terminal's lazy-open lifecycle (unchanged from the original
+  `TerminalDrawer.tsx`, just relocated) had a live-reproducible dev-mode-only
+  race — React StrictMode's simulated mount → cleanup → mount doesn't reset
+  a component's refs (same fiber, not a real unmount), so the pre-existing
+  epoch-guard cleanup closed the first `ptyOpen` cleanly (no zombie — that
+  part was already correct) but never reset `openedRef`/`createdRef`, so the
+  *second, real* mount believed a shell was already open and never spawned
+  one — leaving the terminal permanently empty (and "Restart" a no-op too)
+  on every single `tauri dev` launch, deterministically, not just
+  occasionally. Confirmed via `ps --ppid` (no `bash` child existed) before
+  and a live one after. Fixed by resetting both refs in the same cleanup
+  that already increments the epoch — same fix family as the already-shipped
+  epoch guard, just completing its gap.
+- Gate: typecheck/build/clippy/69 Rust tests green. Live `tauri dev`
+  restarted clean twice; confirmed via process inspection (`ps --ppid` on
+  the app PID) that the terminal's `/bin/bash` is genuinely alive post-fix,
+  not just log lines. Could not get a visual screenshot of the running app
+  window in this environment (fullscreen capture only ever showed the
+  coding-session terminal, not the Tauri window, despite the process
+  demonstrably running and responding correctly) — noted rather than
+  claimed; the UI wiring itself was verified by full paths (types →
+  store → component → backend command → validated persistence), not by
+  eyeballing it. Committed as `ce1b627`.
+
 ### Phase 0 — Skeleton & preflight  ·  COMPLETE ✅
 - [x] Rust toolchain (cargo 1.96.0); Tauri deps via dnf.
 - [x] Project scaffolded: Vite+React+TS frontend, Tauri 2 backend, path alias.
