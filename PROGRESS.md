@@ -1369,3 +1369,52 @@ a context/compact-full warning banner, and capture-first usage/rate-limit loggin
   the exact same `claude_bin::path()` + `Command::new(...).args([...])`
   pattern `agents.rs` already uses successfully (proven by the boot log's
   own `preflight complete` line, which resolves the same binary path).
+
+### S12 — Settings: MCP Servers · COMPLETE ✅ (2026-07-02)
+- The third pillar alongside S8's Agents and S11's Plugins & Skills — self-
+  suggested when asked "does anything feel missing," then user approved:
+  "do it then that mcp management and other fixes."
+- **Real constraint that shaped the design**: unlike `claude plugin list`,
+  `claude mcp list` has **no `--json`** (checked its `--help` directly before
+  building anything) — it health-checks every server and prints a human-
+  readable line per server (`"<name>: <target>[ (<TRANSPORT>)] - <status>"`).
+  Building a `plugins.rs`-style structured JSON mirror wasn't possible; a
+  hand-rolled config-file read was considered and rejected (the CLI is the
+  documented source of truth for this, not its internal config schema).
+- **New `src-tauri/src/mcp.rs`**: a deliberately tolerant text-line parser —
+  finds the first `": "` for the name, the last `" - "` for the status, an
+  optional trailing `" (WORD)"` for transport — any line that doesn't fit
+  (progress chrome like "Checking MCP server health…", blanks) is silently
+  skipped, never fabricated or allowed to panic. Status text is kept
+  **verbatim** from the CLI (e.g. "✔ Connected", "✘ Failed to connect"),
+  never re-worded, so an upstream wording change degrades gracefully instead
+  of silently lying. +5 Rust tests, including one against real output
+  captured live this session (14 real connectors: Adobe, Spotify, Gmail,
+  GitHub via a plugin's bundled MCP server, etc.) — a mix of connected,
+  needs-authentication, and failed-to-connect rows, all parsed correctly,
+  plus a synthetic stdio-style (no-parens) case since none of the live ones
+  happened to be stdio.
+- **New Settings category "MCP Servers"**, same shape as S11's Plugins &
+  Skills: one list (name · target · transport badge · status, color-coded by
+  substring match on the CLI's own text) + an Add form (name, target,
+  transport select) + per-row Login/Logout/Remove — every action still just
+  types the real `claude mcp add/login/logout/remove` command into
+  `InlineTerminal`. Deliberately did NOT try to guess which actions apply to
+  which server (e.g. hiding Login for a non-OAuth stdio server) — the CLI's
+  own response to an inapplicable action is more honest than a guessed
+  conditional.
+- **Other fixes** (same request, "and other fixes"): `CLAUDE.md`'s "Current
+  status" section was still stale (said "Pending: Phase 3", the very first
+  Addendum II slice) — rewritten to match this file's ground truth through
+  S12, and pointed at this file for detail instead of duplicating it. Also
+  dropped a stray leading "edit" line the user had typed at the top of
+  `CLAUDE.md` by accident. `CLAUDE.md` stays uncommitted per existing
+  convention. Asked the user directly about the empty, untracked
+  `myfile.txt` rather than deleting it unasked.
+- Gate: 95 Rust tests green (parser tests validated against real captured
+  CLI output, not synthetic guesses), clippy clean, typecheck/build clean.
+  Live `tauri dev` boot confirmed clean (no runtime errors); no additional
+  GUI screenshot (same no-native-automation constraint as S11) — `claude mcp
+  list`'s raw text output was independently captured and verified via direct
+  shell execution before `mcp.rs` was written, and the fixture tests assert
+  against that exact captured text.

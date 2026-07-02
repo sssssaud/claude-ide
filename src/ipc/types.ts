@@ -224,6 +224,16 @@ export interface MarketplaceEntry {
   installLocation: string | null;
 }
 
+/** Mirror of Rust `McpServerEntry` (Addendum III §S12) — one row parsed from
+ *  `claude mcp list`'s human-readable output (no `--json` exists for it, so
+ *  `status` is the CLI's own text verbatim, never re-worded). */
+export interface McpServerEntry {
+  name: string;
+  target: string;
+  transport: string | null;
+  status: string;
+}
+
 /** The `editor.wordWrap` values Monaco understands (Addendum II §1). */
 export type WordWrap = "off" | "on" | "wordWrapColumn" | "bounded";
 

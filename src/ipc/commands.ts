@@ -24,6 +24,7 @@ import type {
   GitDiff,
   GitStatus,
   MarketplaceEntry,
+  McpServerEntry,
   PerfStats,
   PluginEntry,
   PreflightReport,
@@ -501,6 +502,20 @@ export async function listPlugins(): Promise<PluginEntry[]> {
 export async function listMarketplaces(): Promise<MarketplaceEntry[]> {
   try {
     return await invoke<MarketplaceEntry[]>("list_marketplaces");
+  } catch (e) {
+    normalizeError(e);
+  }
+}
+
+// ----- MCP servers (Addendum III §S12) --------------------------------------
+// Read-only status, parsed from `claude mcp list`'s human-readable output (no
+// `--json` exists for it). Every mutating action runs the CLI's own command
+// through `InlineTerminal`, not a wrapper here.
+
+/** List configured MCP servers (health-checks each one — can take a moment). */
+export async function listMcpServers(): Promise<McpServerEntry[]> {
+  try {
+    return await invoke<McpServerEntry[]>("list_mcp_servers");
   } catch (e) {
     normalizeError(e);
   }

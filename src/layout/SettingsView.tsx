@@ -18,8 +18,8 @@ import { EmptyState, ErrorState, LoadingState } from "@/components/states";
 import { InlineTerminal } from "@/components/InlineTerminal";
 import { KeybindingsSection } from "@/layout/KeybindingsSection";
 import { ThemePicker } from "@/layout/ThemePicker";
-import { listMarketplaces, listPlugins } from "@/ipc/commands";
-import type { MarketplaceEntry, PluginEntry, ScopeSettings, SettingsScope } from "@/ipc/types";
+import { listMarketplaces, listMcpServers, listPlugins } from "@/ipc/commands";
+import type { MarketplaceEntry, McpServerEntry, PluginEntry, ScopeSettings, SettingsScope } from "@/ipc/types";
 import { isIpcError } from "@/ipc/types";
 import { shellQuote } from "@/lib/shell";
 import { useAuth } from "@/store/auth";
@@ -33,7 +33,7 @@ import {
 } from "@/store/settings";
 import { useActiveCwd } from "@/store/workspaces";
 
-type Category = "editor" | "files" | "terminal" | "appearance" | "keybindings" | "account" | "plugins";
+type Category = "editor" | "files" | "terminal" | "appearance" | "keybindings" | "account" | "plugins" | "mcp";
 type SettingsCategory = keyof ScopeSettings;
 
 const CATEGORIES: { id: Category; label: string }[] = [
@@ -44,13 +44,14 @@ const CATEGORIES: { id: Category; label: string }[] = [
   { id: "keybindings", label: "Keybindings" },
   { id: "account", label: "Account" },
   { id: "plugins", label: "Plugins & Skills" },
+  { id: "mcp", label: "MCP Servers" },
 ];
 
 /** Categories that are action-oriented (no draft controls) rather than the
- *  generic control-list rendering — Account and Plugins & Skills. Both are
- *  user-global, not workspace-scoped, so the "open a folder" note doesn't
- *  apply to them either. */
-const ACTION_CATEGORIES: Category[] = ["account", "plugins"];
+ *  generic control-list rendering — Account, Plugins & Skills, MCP Servers.
+ *  All three are user-global, not workspace-scoped, so the "open a folder"
+ *  note doesn't apply to them either. */
+const ACTION_CATEGORIES: Category[] = ["account", "plugins", "mcp"];
 
 /** Which backend sub-object each control's default lives in, for the "unset"
  *  fallback and the text control's clear-to-placeholder behaviour. Untyped as
@@ -320,6 +321,7 @@ export function SettingsView() {
                   {!q && category === "keybindings" && <KeybindingsSection />}
                   {!q && category === "account" && <AccountSection />}
                   {!q && category === "plugins" && <PluginsSection />}
+                  {!q && category === "mcp" && <McpSection />}
                 </>
               )}
             </div>
@@ -327,7 +329,7 @@ export function SettingsView() {
         </div>
       )}
 
-      <Footer dirty={dirty} disabled={workspaceUnavailable} hidden={(category === "keybindings" || category === "plugins") && !q} />
+      <Footer dirty={dirty} disabled={workspaceUnavailable} hidden={(category === "keybindings" || ACTION_CATEGORIES.includes(category)) && !q} />
       {confirmingClose && <CloseConfirm />}
     </section>
   );
@@ -1033,6 +1035,152 @@ const pluginsPrimaryBtnStyle: CSSProperties = {
   background: "transparent",
   color: "var(--color-fg-primary)",
 };
+
+// ---- MCP Servers (Addendum III §S12) -----------------------------------------
+// Never hand-rolled: `claude mcp list` has no `--json`, so `mcp.rs` is a
+// best-effort parse of its human-readable text (never fabricated — a line
+// that doesn't fit is just skipped). Every mutating action runs the CLI's own
+// command through InlineTerminal, same pattern as Plugins & Skills / Account.
+
+function mcpStatusColor(status: string): string {
+  if (/fail/i.test(status)) return "var(--color-status-danger)";
+  if (/need.*auth/i.test(status)) return "var(--color-status-awaiting)";
+  if (/connect/i.test(status)) return "var(--color-status-success)";
+  return "var(--color-fg-muted)";
+}
+
+function McpSection() {
+  const [servers, setServers] = useState<McpServerEntry[] | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [activeCommand, setActiveCommand] = useState<string | null>(null);
+  const [activeLabel, setActiveLabel] = useState("");
+  const [name, setName] = useState("");
+  const [target, setTarget] = useState("");
+  const [transport, setTransport] = useState<"" | "http" | "sse">("");
+
+  const load = () => {
+    setLoadError(null);
+    listMcpServers()
+      .then(setServers)
+      .catch((e) => setLoadError(isIpcError(e) ? e.message : "Could not load MCP servers"));
+  };
+
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const run = (command: string, label: string) => {
+    setActiveCommand(command);
+    setActiveLabel(label);
+  };
+  const finishRun = () => {
+    setActiveCommand(null);
+    load();
+  };
+
+  const add = () => {
+    const n = name.trim();
+    const t = target.trim();
+    if (!n || !t) return;
+    const flag = transport ? `--transport ${transport} ` : "";
+    run(`claude mcp add ${flag}${shellQuote(n)} ${shellQuote(t)}`, `mcp add ${n}`);
+    setName("");
+    setTarget("");
+    setTransport("");
+  };
+
+  return (
+    <div style={{ marginTop: "var(--space-2)" }}>
+      <p style={{ color: "var(--color-fg-primary)", fontSize: "var(--text-sm)", fontWeight: 600, padding: "0 var(--space-3)" }}>
+        MCP Servers
+      </p>
+      <p style={{ color: "var(--color-fg-secondary)", fontSize: "var(--text-xs)", padding: "0 var(--space-3)", marginTop: "var(--space-1)", maxWidth: "640px" }}>
+        Every action below runs the real <code>claude mcp</code> command in a small terminal. Status text is the
+        CLI's own, verbatim — <code>claude mcp list</code> has no structured output to read instead.
+      </p>
+
+      {loadError && <Banner tone="error" text={loadError} />}
+
+      {activeCommand && (
+        <div style={{ margin: "var(--space-3)", padding: "var(--space-3)", border: "1px solid var(--color-border-subtle)", borderRadius: "var(--radius-md)", background: "var(--color-bg-recessed)" }}>
+          <p style={{ color: "var(--color-fg-secondary)", fontSize: "var(--text-xs)", marginBottom: "var(--space-2)" }}>
+            Running: <code>{activeLabel}</code>
+          </p>
+          <InlineTerminal key={activeCommand} command={activeCommand} onExit={finishRun} />
+        </div>
+      )}
+
+      {servers === null ? (
+        <p style={{ color: "var(--color-fg-secondary)", fontSize: "var(--text-xs)", padding: "var(--space-3)" }}>Checking server health…</p>
+      ) : (
+        <PluginsSectionBlock title={`Servers (${servers.length})`}>
+          {servers.length === 0 ? (
+            <p style={pluginsMutedStyle}>None configured.</p>
+          ) : (
+            <ul className="flex flex-col gap-[2px]" style={{ marginBottom: "var(--space-2)" }}>
+              {servers.map((s) => (
+                <li key={s.name} className="flex items-center justify-between" style={pluginsRowStyle}>
+                  <span style={pluginsMonoStyle}>
+                    {s.name}{" "}
+                    <span style={{ color: "var(--color-fg-muted)" }}>
+                      · {s.target}
+                      {s.transport ? ` (${s.transport})` : ""}
+                    </span>{" "}
+                    <span style={{ color: mcpStatusColor(s.status) }}>{s.status}</span>
+                  </span>
+                  <span className="flex items-center gap-[var(--space-1)]">
+                    <button type="button" onClick={() => run(`claude mcp login ${shellQuote(s.name)}`, `mcp login ${s.name}`)} className="cursor-pointer" style={pluginsSmallBtnStyle}>
+                      Login
+                    </button>
+                    <button type="button" onClick={() => run(`claude mcp logout ${shellQuote(s.name)}`, `mcp logout ${s.name}`)} className="cursor-pointer" style={pluginsSmallBtnStyle}>
+                      Logout
+                    </button>
+                    <button type="button" onClick={() => run(`claude mcp remove ${shellQuote(s.name)}`, `mcp remove ${s.name}`)} className="cursor-pointer" style={pluginsSmallBtnStyle}>
+                      Remove
+                    </button>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+          <div className="flex items-center gap-[var(--space-2)]" style={{ flexWrap: "wrap" }}>
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="name"
+              spellCheck={false}
+              className="min-w-0"
+              style={{ ...pluginsInputStyle, width: "120px" }}
+            />
+            <input
+              value={target}
+              onChange={(e) => setTarget(e.target.value)}
+              placeholder="URL or local command"
+              spellCheck={false}
+              className="min-w-0 flex-1"
+              style={pluginsInputStyle}
+            />
+            <select value={transport} onChange={(e) => setTransport(e.target.value as "" | "http" | "sse")} className="cursor-pointer" style={pluginsInputStyle}>
+              <option value="">stdio (local command)</option>
+              <option value="http">http</option>
+              <option value="sse">sse</option>
+            </select>
+            <button
+              type="button"
+              onClick={add}
+              disabled={!name.trim() || !target.trim()}
+              className={name.trim() && target.trim() ? "cursor-pointer" : ""}
+              style={pluginsPrimaryBtnStyle}
+            >
+              Add
+            </button>
+          </div>
+        </PluginsSectionBlock>
+      )}
+    </div>
+  );
+}
 
 // ---- Apply / Discard footer -------------------------------------------------
 

@@ -21,6 +21,7 @@ use crate::files::{DirEntry, FileContents};
 use crate::git::{GitBranches, GitDiff, GitStatus};
 use crate::perf::{self, PerfStats};
 use crate::permissions::{ProjectPermissions, ProjectPermissionsFile};
+use crate::mcp::McpServerEntry;
 use crate::plugins::{MarketplaceEntry, PluginEntry};
 use crate::preflight::{self, PreflightReport};
 use crate::pty::PtyRegistry;
@@ -409,6 +410,19 @@ pub async fn list_plugins() -> IpcResult<Vec<PluginEntry>> {
 #[tauri::command]
 pub async fn list_marketplaces() -> IpcResult<Vec<MarketplaceEntry>> {
     crate::plugins::list_marketplaces().await
+}
+
+// ----- MCP servers (Addendum III §S12) ----------------------------------------
+// Read-only status for Settings, parsed from `claude mcp list`'s human-
+// readable output (it has no `--json`, unlike `claude plugin list`). Every
+// mutating action (add, remove, login, logout) runs the CLI's own command
+// through `InlineTerminal` on the frontend, not here.
+
+/// List configured MCP servers (health-checks each one, so this can take a
+/// moment — the CLI's own behavior, not something this command adds).
+#[tauri::command]
+pub async fn list_mcp_servers() -> IpcResult<Vec<McpServerEntry>> {
+    crate::mcp::list_mcp_servers().await
 }
 
 // ----- App settings (Addendum II §1, S1) -------------------------------------

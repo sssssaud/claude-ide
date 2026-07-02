@@ -14,6 +14,7 @@ mod engine;
 mod error;
 mod files;
 mod git;
+mod mcp;
 mod perf;
 mod permissions;
 mod plugins;
@@ -108,6 +109,7 @@ pub fn run(startup: Instant) {
             commands::delete_agent_def,
             commands::list_plugins,
             commands::list_marketplaces,
+            commands::list_mcp_servers,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
