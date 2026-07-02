@@ -855,7 +855,7 @@ function PluginsMarketplacesBlock({
           className="min-w-0 flex-1"
           style={pluginsInputStyle}
         />
-        <button type="button" onClick={add} disabled={!source.trim()} className={source.trim() ? "cursor-pointer" : ""} style={pluginsPrimaryBtnStyle}>
+        <button type="button" onClick={add} disabled={!source.trim()} style={primaryBtnStyle(!!source.trim())}>
           Add
         </button>
       </div>
@@ -935,7 +935,7 @@ function PluginsInstalledBlock({
               </option>
             ))}
         </select>
-        <button type="button" onClick={install} disabled={!name.trim()} className={name.trim() ? "cursor-pointer" : ""} style={pluginsPrimaryBtnStyle}>
+        <button type="button" onClick={install} disabled={!name.trim()} style={primaryBtnStyle(!!name.trim())}>
           Install
         </button>
       </div>
@@ -985,7 +985,7 @@ function PluginsSkillsBlock({ skills, onRun }: { skills: PluginEntry[]; onRun: (
           className="min-w-0 flex-1"
           style={pluginsInputStyle}
         />
-        <button type="button" onClick={create} disabled={!name.trim()} className={name.trim() ? "cursor-pointer" : ""} style={pluginsPrimaryBtnStyle}>
+        <button type="button" onClick={create} disabled={!name.trim()} style={primaryBtnStyle(!!name.trim())}>
           New skill
         </button>
       </div>
@@ -1035,6 +1035,12 @@ const pluginsPrimaryBtnStyle: CSSProperties = {
   background: "transparent",
   color: "var(--color-fg-primary)",
 };
+// A primary action (Add / Install / New skill) is disabled until its input has
+// text — so give the disabled state a visible cue (dimmed + not-allowed cursor),
+// otherwise the button looks live but silently does nothing when clicked.
+function primaryBtnStyle(enabled: boolean): CSSProperties {
+  return { ...pluginsPrimaryBtnStyle, opacity: enabled ? 1 : 0.4, cursor: enabled ? "pointer" : "not-allowed" };
+}
 
 // ---- MCP Servers (Addendum III §S12) -----------------------------------------
 // Never hand-rolled: `claude mcp list` has no `--json`, so `mcp.rs` is a
@@ -1170,8 +1176,7 @@ function McpSection() {
               type="button"
               onClick={add}
               disabled={!name.trim() || !target.trim()}
-              className={name.trim() && target.trim() ? "cursor-pointer" : ""}
-              style={pluginsPrimaryBtnStyle}
+              style={primaryBtnStyle(!!name.trim() && !!target.trim())}
             >
               Add
             </button>

@@ -1531,3 +1531,27 @@ a context/compact-full warning banner, and capture-first usage/rate-limit loggin
   build` clean. Two real screenshot-verified UI states (healthy + critical)
   plus a Tokens-tab regression check, all with genuinely rendered pixels,
   not inference.
+
+### Bugfix — invisible disabled state on Settings primary buttons (2026-07-03)
+- User report (running the real app): "when i go on plugin and i click add
+  the button doesn't work." Diagnosed before touching anything — reproduced
+  both cases in the mocked-IPC harness. Root cause: the Add / Install / New
+  skill / MCP-Add buttons are `disabled` until their input has text (correct
+  behavior — you can't add an empty marketplace), but `pluginsPrimaryBtnStyle`
+  had **no disabled appearance**. A disabled button looked pixel-identical to
+  a live one, so clicking it on an empty field did nothing with zero feedback
+  — reads exactly as "the button is broken." Confirmed via screenshot: empty
+  field → button looks fully active; typed → same button fires the command.
+- Fix: a small `primaryBtnStyle(enabled)` helper — dims to opacity 0.4 and
+  sets `cursor: not-allowed` when disabled, full strength + pointer when
+  enabled. Applied to all four primary action buttons (the three in Plugins &
+  Skills + the MCP Add), dropping the now-redundant conditional `className`
+  cursor logic. Re-screenshotted: disabled buttons now visibly greyed; typed
+  → enabled, fires, input clears, button dims again. Frontend-only; typecheck
+  + build clean.
+- Secondary observation (NOT changed — out of scope of the report): the
+  "Running: …" InlineTerminal renders at the top of the section, so if the
+  section is scrolled down when you trigger an action from a lower block, its
+  output can be above the fold. Worth a follow-up (scroll-into-view or render
+  the terminal inline near the triggering block) but not what "button doesn't
+  work" was about.
