@@ -1592,10 +1592,10 @@ committed and screenshot-verified.
   button (`claude plugin install name@marketplace` via InlineTerminal) or an
   "installed" tag (cross-referenced against `plugin list`). Verified: search
   "security" narrows 4→2 correctly, Install buttons present.
-- **4/4 — Steer running agents**: deferred to the END of the phase list at the
-  user's request ("put it on the last of these phase; there are many other
-  things that are important") — other priorities go ahead of it (TBD from the
-  user).
+- **4/4 — Steer running agents** (done — was deferred to the end at the user's
+  request, then built after the model/effort pickers): a mid-turn composer with
+  a **Queue** (type-ahead) and **Send now** (interrupt-and-redirect) path. Full
+  writeup below ("Steering a live turn").
 - **Model picker polish** (user-tested the real app): (1) the select rendered
   as a white native widget on the dark header; (2) labels now carry the current
   version — Opus 4.8 / Sonnet 5 / Haiku 4.5 / Fable 5 — instead of bare tier
@@ -1624,3 +1624,33 @@ committed and screenshot-verified.
   fixed at spawn). Header now reads `model [Opus 4.8 ▾]  effort [High ▾]`;
   layout verified in Chrome, dark theming guaranteed by the committed
   `color-scheme` fix.
+- **Steering a live turn** (feature 4/4, the last of the burst): let the user
+  redirect or line up work *while a turn is streaming*, instead of only being
+  able to wait or hard-Stop.
+  - **CLI behavior probed first** (wrapper rule — validate, don't guess): a
+    scratch harness spawned `claude --input-format stream-json` with a long
+    turn, then wrote a second `user` message mid-stream. Result: the first turn
+    **ran to completion**, then the second ran as a **separate turn** (two
+    `result`s). So a mid-turn send is **queued by the CLI, never injected** into
+    the running turn — the ONLY way to redirect a live turn is to `interrupt`
+    first, then send. This finding shaped the whole design.
+  - **Two capabilities, both composed from existing engine primitives — zero
+    new backend, zero new commands:**
+    - **Queue / type-ahead**: composing while streaming holds the message in a
+      new `queued: string[]` (conversation store), shown as removable chips
+      above the composer. On each natural turn end (`result`) the store flushes
+      the next one through the normal `send()` path (own user bubble, streaming
+      state, model/effort) — the CLI runs one message per turn, so they play out
+      in order. (Enter, or the **Queue** button.)
+    - **Send now (steer)**: `steerNow()` jumps the message to the front of the
+      queue, sets a one-shot `pendingFlushOnStop`, and calls the existing
+      `cancel()` (the `control_request{interrupt}`). The interrupt's `stopped`
+      then flushes that message as the immediate next turn. (⌘/Ctrl+Enter, or
+      the accent **Send now** button.)
+  - **Flush is deliberately narrow**: `result` always flushes; `stopped` flushes
+    **only** when `pendingFlushOnStop` is set (i.e. a `steerNow`) — a plain user
+    **Stop** or a session EOF must never auto-send the queue. Queue cleared on
+    session switch (resume/new).
+  - Composer while streaming: `[Stop]` always; `[Queue] [Send now]` when the box
+    has text; placeholder shows the two shortcuts. Verified in Chrome (queued
+    chips + all three buttons render). Typecheck + build clean; no Rust touched.

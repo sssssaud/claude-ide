@@ -81,6 +81,21 @@ interface ConversationState {
   dismissContextWarning: (atTokens: number) => void;
   send: (prompt: string) => Promise<void>;
   cancel: () => Promise<void>;
+  /** Follow-up messages composed mid-turn, run in order once the current turn
+   *  completes (steering: type-ahead). The CLI runs one user message per turn
+   *  and buffers extras rather than injecting them (verified against the
+   *  installed binary), so the IDE holds them explicitly — visible + cancelable
+   *  — and sends each at a turn boundary through the normal `send` path. */
+  queued: string[];
+  /** Hold a follow-up to run after the current turn ends. No-op if blank; runs
+   *  immediately if composed while idle. */
+  enqueue: (text: string) => void;
+  /** Drop a still-pending queued follow-up by index (before it is sent). */
+  dequeue: (index: number) => void;
+  /** Redirect the LIVE turn now: interrupt it, then run `text` as the next turn.
+   *  The only way to steer an in-flight turn — a plain mid-turn send is queued by
+   *  the CLI, not injected into the running turn (verified against the binary). */
+  steerNow: (text: string) => Promise<void>;
   /**
    * Answer a pending tool-permission request (P1 review queue). `toolId` is the
    * tool card's id (== the CLI's `tool_use_id`); `updatedInput` (allow only)
@@ -131,6 +146,10 @@ const makeConversationStore = (cwd: string): StoreApi<ConversationState> =>
   // workspace is focused (whether or not a prior session existed), so a manual
   // `+ NEW` or resume afterwards is never silently re-continued.
   let autoContinued = false;
+  // True only when the next `stopped` was fired by `steerNow` (an interrupt made
+  // to run a queued follow-up immediately). A plain user Stop or a session EOF
+  // leaves this false, so neither auto-sends the queue.
+  let pendingFlushOnStop = false;
 
   const dispatch = (ev: EngineEvent) => {
     set((s) => {
@@ -268,12 +287,36 @@ const makeConversationStore = (cwd: string): StoreApi<ConversationState> =>
       : items;
   };
 
+  // Run the next queued follow-up, if any, now that the turn has ended. Each
+  // becomes its own turn via the normal send path (user bubble, streaming state,
+  // model/effort all handled) — the CLI runs one message per turn, so queued
+  // items play out in order, one per turn.
+  const flushQueue = () => {
+    if (get().streaming) return;
+    const q = get().queued;
+    if (q.length === 0) return;
+    const [next, ...rest] = q;
+    set({ queued: rest });
+    void get().send(next);
+  };
+
   // Wrap `dispatch` so only events from the still-current session are applied.
   // The raw log records every event that arrives here regardless of epoch —
   // it's a debug trace of what the CLI sent, not of what got applied.
   const channelFor = (boundEpoch: number) => (ev: EngineEvent) => {
     set((s) => ({ rawLog: appendRawLog(s.rawLog, ev) }));
-    if (boundEpoch === epoch) dispatch(ev);
+    if (boundEpoch !== epoch) return;
+    dispatch(ev);
+    // At a turn boundary, run the next queued follow-up. Natural completion
+    // (`result`) always flushes; an interrupt (`stopped`) only flushes when it
+    // was fired by `steerNow` to make room for an immediate redirect — a plain
+    // user Stop or a session EOF must not auto-send the queue.
+    if (ev.type === "result") {
+      flushQueue();
+    } else if (ev.type === "stopped" && pendingFlushOnStop) {
+      pendingFlushOnStop = false;
+      flushQueue();
+    }
   };
 
   return {
@@ -290,6 +333,7 @@ const makeConversationStore = (cwd: string): StoreApi<ConversationState> =>
     rawLog: [],
     pendingOpen: null,
     draftInsert: null,
+    queued: [],
     contextWarningDismissedAt: null,
 
     insertDraft: (text) => set({ draftInsert: text }),
@@ -351,6 +395,30 @@ const makeConversationStore = (cwd: string): StoreApi<ConversationState> =>
       } catch {
         /* best-effort; the turn will also end on its own */
       }
+    },
+
+    enqueue: (text) => {
+      const t = text.trim();
+      if (!t) return;
+      set((s) => ({ queued: [...s.queued, t] }));
+      // Composed while idle (not mid-turn): just run it now.
+      if (!get().streaming) flushQueue();
+    },
+
+    dequeue: (index) => set((s) => ({ queued: s.queued.filter((_, i) => i !== index) })),
+
+    steerNow: async (text) => {
+      const t = text.trim();
+      if (!t) return;
+      if (!get().streaming) {
+        void get().send(t);
+        return;
+      }
+      // Jump the queue, then interrupt so the current turn ends now; the
+      // stopped-handler flushes this as the immediate next turn.
+      set((s) => ({ queued: [t, ...s.queued] }));
+      pendingFlushOnStop = true;
+      await get().cancel();
     },
 
     resolvePermission: async (toolId, decision, updatedInput) => {
@@ -417,6 +485,7 @@ const makeConversationStore = (cwd: string): StoreApi<ConversationState> =>
         usage: null,
         truncated: false,
         contextWarningDismissedAt: null,
+        queued: [],
         pendingOpen: { resume: sessionId, fork },
       });
       try {
@@ -450,6 +519,7 @@ const makeConversationStore = (cwd: string): StoreApi<ConversationState> =>
         usage: null,
         truncated: false,
         contextWarningDismissedAt: null,
+        queued: [],
         pendingOpen: null,
       });
     },

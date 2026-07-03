@@ -592,6 +592,10 @@ function PromptBar() {
   const streaming = useActiveConversation((s) => s.streaming);
   const send = useActiveConversation((s) => s.send);
   const cancel = useActiveConversation((s) => s.cancel);
+  const enqueue = useActiveConversation((s) => s.enqueue);
+  const dequeue = useActiveConversation((s) => s.dequeue);
+  const steerNow = useActiveConversation((s) => s.steerNow);
+  const queued = useActiveConversation((s) => s.queued);
   const liveCommands = useActiveConversation((s) => s.slashCommands);
   const draftInsert = useActiveConversation((s) => s.draftInsert);
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -631,13 +635,30 @@ function PromptBar() {
     inputRef.current?.focus();
   };
 
-  const submit = () => {
-    const text = value.trim();
-    if (!text || streaming) return;
-    void send(text);
+  const clearInput = () => {
     setValue("");
     setDismissed(false);
     setSel(0);
+  };
+
+  // Enter's action depends on whether a turn is live: idle → send; mid-turn →
+  // queue the follow-up (runs when the turn ends). This is the safe default —
+  // no in-flight work is lost.
+  const runPrimary = () => {
+    const text = value.trim();
+    if (!text) return;
+    if (streaming) enqueue(text);
+    else void send(text);
+    clearInput();
+  };
+
+  // Steer the live turn: interrupt it now and run this next (⌘/Ctrl+Enter). The
+  // only way to redirect an in-flight turn — a plain send would just queue.
+  const runSteerNow = () => {
+    const text = value.trim();
+    if (!text || !streaming) return;
+    void steerNow(text);
+    clearInput();
   };
 
   const onKeyDown = (e: ReactKeyboardEvent<HTMLInputElement>) => {
@@ -665,7 +686,8 @@ function PromptBar() {
     }
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      submit();
+      if (streaming && (e.metaKey || e.ctrlKey)) runSteerNow();
+      else runPrimary();
     }
   };
 
@@ -674,6 +696,44 @@ function PromptBar() {
       className="shrink-0"
       style={{ padding: "var(--space-4) var(--space-5)", borderTop: "1px solid var(--color-border-subtle)" }}
     >
+      {queued.length > 0 && (
+        <ul
+          aria-label="Queued follow-ups"
+          className="flex flex-wrap items-center gap-[var(--space-2)]"
+          style={{ margin: 0, marginBottom: "var(--space-2)", padding: 0, listStyle: "none" }}
+        >
+          {queued.map((q, i) => (
+            <li key={i}>
+              <span style={queuedChipStyle}>
+                <span aria-hidden="true" style={{ opacity: 0.6 }}>
+                  {i + 1}.
+                </span>
+                <span
+                  style={{
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                    maxWidth: "36ch",
+                  }}
+                  title={q}
+                >
+                  {q}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => dequeue(i)}
+                  aria-label={`Remove queued follow-up ${i + 1}`}
+                  title="Remove from queue"
+                  className="cursor-pointer"
+                  style={queuedChipRemoveStyle}
+                >
+                  ✕
+                </button>
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
       <div className="relative">
         {menuOpen && <SlashMenu matches={matches} selected={selected} onPick={accept} />}
         <div
@@ -691,7 +751,11 @@ function PromptBar() {
             value={value}
             onChange={(e) => change(e.currentTarget.value)}
             onKeyDown={onKeyDown}
-            placeholder="Ask Claude to…   ( / for commands )"
+            placeholder={
+              streaming
+                ? "Steer or queue a follow-up…   ( ⏎ queue · ⌘/Ctrl+⏎ send now )"
+                : "Ask Claude to…   ( / for commands )"
+            }
             aria-label="Prompt"
             role="combobox"
             aria-expanded={menuOpen}
@@ -706,13 +770,37 @@ function PromptBar() {
             }}
           />
           {streaming ? (
-            <button type="button" onClick={() => void cancel()} className="cursor-pointer" style={stopBtn}>
-              Stop
-            </button>
+            <>
+              <button type="button" onClick={() => void cancel()} className="cursor-pointer" style={stopBtn}>
+                Stop
+              </button>
+              {value.trim() && (
+                <>
+                  <button
+                    type="button"
+                    onClick={runPrimary}
+                    title="Queue this to run when the current turn ends (⏎)"
+                    className="cursor-pointer"
+                    style={stopBtn}
+                  >
+                    Queue
+                  </button>
+                  <button
+                    type="button"
+                    onClick={runSteerNow}
+                    title="Interrupt the current turn and run this now (⌘/Ctrl+⏎)"
+                    className="cursor-pointer"
+                    style={sendBtn}
+                  >
+                    Send now
+                  </button>
+                </>
+              )}
+            </>
           ) : (
             <button
               type="button"
-              onClick={submit}
+              onClick={runPrimary}
               disabled={!value.trim()}
               className="cursor-pointer"
               style={{ ...sendBtn, opacity: value.trim() ? 1 : 0.4 }}
@@ -887,4 +975,27 @@ const stopBtn: CSSProperties = {
   fontWeight: 500,
   padding: "var(--space-2) var(--space-4)",
   borderRadius: "var(--radius-sm)",
+};
+// A pending queued follow-up (steering type-ahead), shown above the composer.
+const queuedChipStyle: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  gap: "var(--space-2)",
+  maxWidth: "100%",
+  padding: "2px var(--space-2)",
+  borderRadius: "var(--radius-sm)",
+  background: "var(--color-bg-raised)",
+  border: "1px solid var(--color-border-subtle)",
+  fontFamily: "var(--font-mono)",
+  fontSize: "var(--text-xs)",
+  color: "var(--color-fg-secondary)",
+};
+const queuedChipRemoveStyle: CSSProperties = {
+  border: "none",
+  background: "transparent",
+  padding: 0,
+  color: "var(--color-fg-muted)",
+  fontFamily: "var(--font-mono)",
+  fontSize: "var(--text-xs)",
+  lineHeight: 1,
 };
