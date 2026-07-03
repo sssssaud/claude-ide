@@ -9,6 +9,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent } from "react";
 import { activeConversationStore, useActiveConversation, type ConvItem } from "@/store/conversation";
+import { EFFORTS, useEffort } from "@/store/effort";
 import { MODELS, useModel } from "@/store/model";
 import type { Usage } from "@/ipc/types";
 
@@ -231,6 +232,7 @@ function PaneHeader() {
       <span style={monoLabel}>CONVERSATION</span>
       <div className="flex min-w-0 items-center gap-[var(--space-3)]">
         <ModelPicker sessionLive={sessionLive} />
+        <EffortPicker sessionLive={sessionLive} />
         <span style={{ ...monoLabel, color: "var(--color-fg-muted)" }}>
           {ctx} · {dollars}
         </span>
@@ -257,19 +259,7 @@ function ModelPicker({ sessionLive }: { sessionLive: boolean }) {
         onChange={(e) => setModel(e.target.value)}
         aria-label="Session model"
         className="cursor-pointer"
-        style={{
-          // Explicit dark background + color: a `transparent` select falls back
-          // to WebKitGTK's native (white) widget, which looked wrong on the dark
-          // header. Matches the app's other dropdowns (e.g. Permissions mode) —
-          // keep the native arrow, just set a dark background.
-          background: "var(--color-bg-raised)",
-          border: "1px solid var(--color-border-subtle)",
-          borderRadius: "var(--radius-sm)",
-          padding: "1px var(--space-2)",
-          fontFamily: "var(--font-mono)",
-          fontSize: "var(--text-xs)",
-          color: "var(--color-fg-primary)",
-        }}
+        style={headerSelectStyle}
       >
         {MODELS.map((m) => (
           <option key={m.value} value={m.value}>
@@ -281,6 +271,49 @@ function ModelPicker({ sessionLive }: { sessionLive: boolean }) {
     </label>
   );
 }
+
+/** Picks the reasoning effort the NEXT session spawns with (`--effort`). Same
+ *  next-session semantics as the model picker (effort is fixed at spawn). */
+function EffortPicker({ sessionLive }: { sessionLive: boolean }) {
+  const effort = useEffort((s) => s.effort);
+  const setEffort = useEffort((s) => s.setEffort);
+  const appliesNext = sessionLive;
+
+  return (
+    <label className="flex items-center gap-[var(--space-1)]" title={appliesNext ? "Effort for the next session (the running one keeps its level)" : "Reasoning effort for this session"}>
+      <span aria-hidden="true" style={{ ...monoLabel, color: "var(--color-fg-muted)" }}>
+        effort
+      </span>
+      <select
+        value={effort}
+        onChange={(e) => setEffort(e.target.value)}
+        aria-label="Session reasoning effort"
+        className="cursor-pointer"
+        style={headerSelectStyle}
+      >
+        {EFFORTS.map((e) => (
+          <option key={e.value} value={e.value}>
+            {e.label}
+            {appliesNext ? " (next)" : ""}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+// Shared style for the header model/effort dropdowns. An explicit dark
+// background matters on WebKitGTK (a transparent select falls back to the light
+// native widget); `color-scheme: dark` (tokens.css) themes the arrow + popup.
+const headerSelectStyle: CSSProperties = {
+  background: "var(--color-bg-raised)",
+  border: "1px solid var(--color-border-subtle)",
+  borderRadius: "var(--radius-sm)",
+  padding: "1px var(--space-2)",
+  fontFamily: "var(--font-mono)",
+  fontSize: "var(--text-xs)",
+  color: "var(--color-fg-primary)",
+};
 
 function EmptyInvite() {
   return (

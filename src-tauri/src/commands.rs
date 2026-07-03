@@ -89,10 +89,11 @@ pub fn default_workspace() -> IpcResult<String> {
 pub async fn open_workspace(
     cwd: Option<String>,
     model: Option<String>,
+    effort: Option<String>,
     on_event: Channel<EngineEvent>,
     registry: State<'_, Arc<WorkspaceRegistry>>,
 ) -> IpcResult<String> {
-    registry.open(cwd, model, on_event).await
+    registry.open(cwd, model, effort, on_event).await
 }
 
 /// Send one turn into a workspace session. Prompt text is treated strictly as
@@ -165,10 +166,11 @@ pub async fn resume_workspace(
     session_id: String,
     fork: bool,
     model: Option<String>,
+    effort: Option<String>,
     on_event: Channel<EngineEvent>,
     registry: State<'_, Arc<WorkspaceRegistry>>,
 ) -> IpcResult<String> {
-    registry.open_with(cwd, Some(session_id), fork, model, on_event).await
+    registry.open_with(cwd, Some(session_id), fork, model, effort, on_event).await
 }
 
 /// Read a past session's transcript into renderable conversation items so a

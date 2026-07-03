@@ -1612,3 +1612,15 @@ committed and screenshot-verified.
   actual WebKitGTK window this time** (not Chrome): the model picker is now
   dark. **Methodology lesson: verify native-control/rendering changes in the
   real WebKitGTK app, never headless Chrome — the two renderers differ.**
+- **Effort picker** (user asked "and what abt effort how i select it?"): a
+  second per-session selector beside the model picker, via the CLI's own
+  `--effort` (levels low/medium/high/xhigh/max, verified against
+  `claude --help`). Mirrors the model picker exactly: new `store/effort.ts`
+  (persisted to localStorage), `effort: Option<String>` threaded through
+  `engine::open`/`open_with` → `open_workspace`/`resume_workspace` → IPC
+  wrappers → the store's lazy open, backend `validate_effort` allow-list
+  (+1 Rust test, 103 total; distinct argv value, no shell). Also applies to
+  the NEXT session with the same "(next)" hint while one is live (effort is
+  fixed at spawn). Header now reads `model [Opus 4.8 ▾]  effort [High ▾]`;
+  layout verified in Chrome, dark theming guaranteed by the committed
+  `color-scheme` fix.

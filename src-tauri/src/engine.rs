@@ -135,9 +135,10 @@ impl WorkspaceRegistry {
         &self,
         cwd: Option<String>,
         model: Option<String>,
+        effort: Option<String>,
         channel: Channel<EngineEvent>,
     ) -> IpcResult<String> {
-        self.open_with(cwd, None, false, model, channel).await
+        self.open_with(cwd, None, false, model, effort, channel).await
     }
 
     /// Spawn a session, optionally resuming an existing conversation by id
@@ -151,6 +152,7 @@ impl WorkspaceRegistry {
         resume: Option<String>,
         fork: bool,
         model: Option<String>,
+        effort: Option<String>,
         channel: Channel<EngineEvent>,
     ) -> IpcResult<String> {
         let cwd = resolve_cwd(cwd)?;
@@ -160,6 +162,8 @@ impl WorkspaceRegistry {
         // it's passed as a distinct argv value (no shell), but we still reject
         // anything outside that shape so a bad value can't reach the CLI.
         let model = validate_model(model)?;
+        // `--effort` takes one of a fixed set of levels (verified via `--help`).
+        let effort = validate_effort(effort)?;
 
         let mut args: Vec<String> = [
             "-p",
@@ -194,6 +198,10 @@ impl WorkspaceRegistry {
         if let Some(m) = model {
             args.push("--model".to_string());
             args.push(m);
+        }
+        if let Some(e) = effort {
+            args.push("--effort".to_string());
+            args.push(e);
         }
 
         let mut child = Command::new(claude)
@@ -436,6 +444,26 @@ fn validate_model(model: Option<String>) -> IpcResult<Option<String>> {
         Err(IpcError::new(
             IpcErrorKind::InvalidInput,
             "Unrecognized model — use an alias (opus/sonnet/haiku/fable) or a claude-* id",
+        ))
+    }
+}
+
+/// Validate an optional `--effort` value against the CLI's fixed set (verified
+/// via `claude --help`: low/medium/high/xhigh/max). None/blank means "no
+/// `--effort`" (the CLI's own default). The picker only offers valid levels, so
+/// this is defense-in-depth.
+fn validate_effort(effort: Option<String>) -> IpcResult<Option<String>> {
+    let Some(raw) = effort else { return Ok(None) };
+    let e = raw.trim();
+    if e.is_empty() {
+        return Ok(None);
+    }
+    if matches!(e, "low" | "medium" | "high" | "xhigh" | "max") {
+        Ok(Some(e.to_string()))
+    } else {
+        Err(IpcError::new(
+            IpcErrorKind::InvalidInput,
+            "Unrecognized effort — use one of low/medium/high/xhigh/max",
         ))
     }
 }
@@ -711,6 +739,16 @@ mod tests {
         assert!(validate_model(Some("--dangerous".into())).is_err());
         assert!(validate_model(Some("gpt-4".into())).is_err());
         assert!(validate_model(Some("claude-; rm -rf".into())).is_err());
+    }
+
+    #[test]
+    fn validate_effort_accepts_and_rejects() {
+        assert_eq!(validate_effort(Some("high".into())).unwrap(), Some("high".into()));
+        assert_eq!(validate_effort(Some("xhigh".into())).unwrap(), Some("xhigh".into()));
+        assert_eq!(validate_effort(None).unwrap(), None);
+        assert_eq!(validate_effort(Some("".into())).unwrap(), None);
+        assert!(validate_effort(Some("ultra".into())).is_err());
+        assert!(validate_effort(Some("--flag".into())).is_err());
     }
 
     #[test]

@@ -109,11 +109,12 @@ export async function openWorkspace(
   onEvent: (event: EngineEvent) => void,
   cwd?: string,
   model?: string,
+  effort?: string,
 ): Promise<string> {
   const channel = new Channel<EngineEvent>();
   channel.onmessage = onEvent;
   try {
-    return await invoke<string>("open_workspace", { cwd, model, onEvent: channel });
+    return await invoke<string>("open_workspace", { cwd, model, effort, onEvent: channel });
   } catch (e) {
     normalizeError(e);
   }
@@ -197,11 +198,12 @@ export async function resumeWorkspace(
   fork: boolean,
   cwd?: string,
   model?: string,
+  effort?: string,
 ): Promise<string> {
   const channel = new Channel<EngineEvent>();
   channel.onmessage = onEvent;
   try {
-    return await invoke<string>("resume_workspace", { cwd, sessionId, fork, model, onEvent: channel });
+    return await invoke<string>("resume_workspace", { cwd, sessionId, fork, model, effort, onEvent: channel });
   } catch (e) {
     normalizeError(e);
   }
