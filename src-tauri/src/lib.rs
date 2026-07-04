@@ -27,6 +27,7 @@ mod sessions;
 mod settings;
 mod state;
 mod usage;
+mod tokens;
 mod workspace;
 
 use std::sync::Arc;
@@ -53,6 +54,16 @@ pub fn run(startup: Instant) {
         .manage(Arc::new(WorkspaceRegistry::default()))
         .manage(Arc::new(PtyRegistry::default()))
         .manage(Arc::new(SessionsRegistry::default()))
+        .setup(|app| {
+            // Token store lives in the app config dir; resolved once here so
+            // engine/PTY spawns can inject stored API tokens without an
+            // AppHandle (tokens.rs).
+            match app.path().app_config_dir() {
+                Ok(dir) => tokens::init(dir),
+                Err(e) => tracing::warn!("no app config dir; token store disabled: {e}"),
+            }
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             commands::preflight,
             commands::auth_status,
@@ -113,6 +124,10 @@ pub fn run(startup: Instant) {
             commands::list_available_plugins,
             commands::list_mcp_servers,
             commands::memory_health,
+            commands::read_attachment,
+            commands::tokens_status,
+            commands::token_set,
+            commands::token_clear,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

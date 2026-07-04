@@ -58,6 +58,11 @@ impl PtyRegistry {
         let mut cmd = CommandBuilder::new(&shell);
         cmd.cwd(&cwd);
         cmd.env("TERM", "xterm-256color");
+        // Same stored-token injection as the engine (tokens.rs): the terminal's
+        // git/gh/hf CLIs see GITHUB_TOKEN/HF_TOKEN without shell-profile setup.
+        for (k, v) in crate::tokens::injectable_env() {
+            cmd.env(k, v);
+        }
 
         let child = pair
             .slave

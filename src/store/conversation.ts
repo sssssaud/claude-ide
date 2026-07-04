@@ -15,14 +15,14 @@ import {
   readSession,
   resumeWorkspace,
 } from "@/ipc/commands";
-import type { EngineEvent, Usage } from "@/ipc/types";
+import type { Attachment, EngineEvent, Usage } from "@/ipc/types";
 import { isIpcError } from "@/ipc/types";
 import { useEffort } from "@/store/effort";
 import { useModel } from "@/store/model";
 import { useWorkspaces } from "@/store/workspaces";
 
 export type ConvItem =
-  | { kind: "user"; id: string; text: string }
+  | { kind: "user"; id: string; text: string; attachments?: string[] }
   | { kind: "assistant"; id: string; text: string; stopped?: boolean }
   | { kind: "notice"; id: string; text: string }
   | {
@@ -79,23 +79,23 @@ interface ConversationState {
    *  meaningfully past this point — dismissing doesn't silence it forever. */
   contextWarningDismissedAt: number | null;
   dismissContextWarning: (atTokens: number) => void;
-  send: (prompt: string) => Promise<void>;
+  send: (prompt: string, attachments?: Attachment[]) => Promise<void>;
   cancel: () => Promise<void>;
   /** Follow-up messages composed mid-turn, run in order once the current turn
    *  completes (steering: type-ahead). The CLI runs one user message per turn
    *  and buffers extras rather than injecting them (verified against the
    *  installed binary), so the IDE holds them explicitly — visible + cancelable
    *  — and sends each at a turn boundary through the normal `send` path. */
-  queued: string[];
+  queued: { text: string; attachments: Attachment[] }[];
   /** Hold a follow-up to run after the current turn ends. No-op if blank; runs
    *  immediately if composed while idle. */
-  enqueue: (text: string) => void;
+  enqueue: (text: string, attachments?: Attachment[]) => void;
   /** Drop a still-pending queued follow-up by index (before it is sent). */
   dequeue: (index: number) => void;
   /** Redirect the LIVE turn now: interrupt it, then run `text` as the next turn.
    *  The only way to steer an in-flight turn — a plain mid-turn send is queued by
    *  the CLI, not injected into the running turn (verified against the binary). */
-  steerNow: (text: string) => Promise<void>;
+  steerNow: (text: string, attachments?: Attachment[]) => Promise<void>;
   /**
    * Answer a pending tool-permission request (P1 review queue). `toolId` is the
    * tool card's id (== the CLI's `tool_use_id`); `updatedInput` (allow only)
@@ -297,7 +297,7 @@ const makeConversationStore = (cwd: string): StoreApi<ConversationState> =>
     if (q.length === 0) return;
     const [next, ...rest] = q;
     set({ queued: rest });
-    void get().send(next);
+    void get().send(next.text, next.attachments);
   };
 
   // Wrap `dispatch` so only events from the still-current session are applied.
@@ -340,9 +340,9 @@ const makeConversationStore = (cwd: string): StoreApi<ConversationState> =>
     clearDraftInsert: () => set({ draftInsert: null }),
     dismissContextWarning: (atTokens) => set({ contextWarningDismissedAt: atTokens }),
 
-    send: async (prompt: string) => {
+    send: async (prompt: string, attachments: Attachment[] = []) => {
       const text = prompt.trim();
-      if (!text || get().streaming) return;
+      if ((!text && attachments.length === 0) || get().streaming) return;
       currentAssistantId = null;
       // Track slash-command turns so a no-output command still leaves a trace.
       turnIsCommand = text.startsWith("/");
@@ -351,7 +351,15 @@ const makeConversationStore = (cwd: string): StoreApi<ConversationState> =>
       // `streaming` flips synchronously here, so a second send is blocked until
       // the turn ends — which also prevents opening the session twice.
       set((s) => ({
-        items: [...s.items, { kind: "user", id: `u-${Date.now()}`, text }],
+        items: [
+          ...s.items,
+          {
+            kind: "user",
+            id: `u-${Date.now()}`,
+            text,
+            ...(attachments.length ? { attachments: attachments.map((a) => a.name) } : {}),
+          },
+        ],
         streaming: true,
         error: null,
       }));
@@ -373,7 +381,7 @@ const makeConversationStore = (cwd: string): StoreApi<ConversationState> =>
             : await openWorkspace(onEvent, cwd, model, effort);
           set({ workspaceId: wsId, pendingOpen: null });
         }
-        await engineSend(wsId, text);
+        await engineSend(wsId, text, attachments.length ? attachments : undefined);
       } catch (e) {
         // A failed send means the session is unusable; drop it so the next
         // attempt opens a fresh one, and reap the child if one was spawned.
@@ -397,26 +405,26 @@ const makeConversationStore = (cwd: string): StoreApi<ConversationState> =>
       }
     },
 
-    enqueue: (text) => {
+    enqueue: (text, attachments = []) => {
       const t = text.trim();
-      if (!t) return;
-      set((s) => ({ queued: [...s.queued, t] }));
+      if (!t && attachments.length === 0) return;
+      set((s) => ({ queued: [...s.queued, { text: t, attachments }] }));
       // Composed while idle (not mid-turn): just run it now.
       if (!get().streaming) flushQueue();
     },
 
     dequeue: (index) => set((s) => ({ queued: s.queued.filter((_, i) => i !== index) })),
 
-    steerNow: async (text) => {
+    steerNow: async (text, attachments = []) => {
       const t = text.trim();
-      if (!t) return;
+      if (!t && attachments.length === 0) return;
       if (!get().streaming) {
-        void get().send(t);
+        void get().send(t, attachments);
         return;
       }
       // Jump the queue, then interrupt so the current turn ends now; the
       // stopped-handler flushes this as the immediate next turn.
-      set((s) => ({ queued: [t, ...s.queued] }));
+      set((s) => ({ queued: [{ text: t, attachments }, ...s.queued] }));
       pendingFlushOnStop = true;
       await get().cancel();
     },

@@ -475,6 +475,7 @@ dependencies = [
 name = "claude-ide"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "notify",
  "portable-pty",
  "serde",

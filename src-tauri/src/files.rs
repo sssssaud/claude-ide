@@ -263,6 +263,75 @@ fn resolve_within(root: &Path, rel: &str) -> IpcResult<PathBuf> {
     Ok(canon)
 }
 
+/// Attachment size caps (raw bytes, pre-base64): match the API's practical
+/// limits — ~5MB per image, PDFs well under the 32MB request cap, text kept
+/// small because it lands inline in the prompt.
+const MAX_IMAGE_BYTES: u64 = 5 * 1024 * 1024;
+const MAX_PDF_BYTES: u64 = 20 * 1024 * 1024;
+const MAX_ATTACH_TEXT_BYTES: u64 = 400 * 1024;
+
+/// Read a user-picked file into a composer `Attachment` (see commands.rs
+/// `read_attachment` for the trust story). Classification is by extension:
+/// images and PDFs are base64-encoded, UTF-8 text passes through, video/audio
+/// gets an honest "can't watch video" refusal, and any other binary is refused.
+pub fn read_attachment(path: &str) -> IpcResult<crate::engine::Attachment> {
+    use base64::Engine as _;
+
+    let path = Path::new(path.trim());
+    let canon = fs::canonicalize(path).map_err(|e| invalid(&format!("Cannot open the file: {e}")))?;
+    if !canon.is_file() {
+        return Err(invalid("Not a file"));
+    }
+    let name = canon
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "attachment".to_owned());
+    let ext = canon
+        .extension()
+        .map(|e| e.to_string_lossy().to_ascii_lowercase())
+        .unwrap_or_default();
+
+    let (kind, media_type, cap) = match ext.as_str() {
+        "png" => ("image", "image/png", MAX_IMAGE_BYTES),
+        "jpg" | "jpeg" => ("image", "image/jpeg", MAX_IMAGE_BYTES),
+        "gif" => ("image", "image/gif", MAX_IMAGE_BYTES),
+        "webp" => ("image", "image/webp", MAX_IMAGE_BYTES),
+        "pdf" => ("document", "application/pdf", MAX_PDF_BYTES),
+        "mp4" | "mkv" | "avi" | "mov" | "webm" | "m4v" | "mp3" | "wav" | "ogg" | "flac"
+        | "m4a" => {
+            return Err(invalid(
+                "Claude can't watch videos or listen to audio. Attach an image, a PDF, or a text file instead.",
+            ))
+        }
+        _ => ("text", "text/plain", MAX_ATTACH_TEXT_BYTES),
+    };
+
+    let len = fs::metadata(&canon).map(|m| m.len()).unwrap_or(u64::MAX);
+    if len > cap {
+        return Err(invalid(&format!(
+            "{name} is too large to attach (max {}MB for this type)",
+            cap / (1024 * 1024)
+        )));
+    }
+    let bytes = fs::read(&canon).map_err(|e| internal(format!("Could not read {name}: {e}")))?;
+
+    let data = match kind {
+        "text" => String::from_utf8(bytes).map_err(|_| {
+            invalid(&format!(
+                "{name} is a binary file Claude can't take as an attachment. Supported: images (PNG/JPEG/GIF/WebP), PDF, and text files."
+            ))
+        })?,
+        _ => base64::engine::general_purpose::STANDARD.encode(bytes),
+    };
+
+    Ok(crate::engine::Attachment {
+        name,
+        kind: kind.to_owned(),
+        media_type: media_type.to_owned(),
+        data,
+    })
+}
+
 fn internal(message: String) -> IpcError {
     IpcError::new(IpcErrorKind::Internal, message)
 }

@@ -102,10 +102,12 @@ pub async fn open_workspace(
 pub async fn engine_send(
     workspace_id: String,
     prompt: String,
+    attachments: Option<Vec<crate::engine::Attachment>>,
     registry: State<'_, Arc<WorkspaceRegistry>>,
 ) -> IpcResult<()> {
     let prompt = prompt.trim();
-    if prompt.is_empty() {
+    let attachments = attachments.unwrap_or_default();
+    if prompt.is_empty() && attachments.is_empty() {
         return Err(IpcError::new(IpcErrorKind::InvalidInput, "Prompt is empty"));
     }
     if prompt.len() > MAX_PROMPT_LEN {
@@ -114,7 +116,20 @@ pub async fn engine_send(
             "Prompt exceeds the maximum length",
         ));
     }
-    registry.send(&workspace_id, prompt).await
+    registry.send(&workspace_id, prompt, &attachments).await
+}
+
+/// Read a user-picked file (native open dialog) into a composer attachment:
+/// classify by extension, cap the size, base64-encode images/PDFs, pass text
+/// files through as text. Videos and other binaries are refused with an honest
+/// message — Claude models cannot watch video. The path comes from the OS file
+/// picker, so any readable file is fair game (attaching outside the workspace
+/// is the point); no directory containment applies here.
+#[tauri::command]
+pub async fn read_attachment(path: String) -> IpcResult<crate::engine::Attachment> {
+    tauri::async_runtime::spawn_blocking(move || crate::files::read_attachment(&path))
+        .await
+        .map_err(|e| IpcError::new(IpcErrorKind::Internal, format!("Attachment read failed: {e}")))?
 }
 
 /// Interrupt the in-flight turn in a workspace (resolves to a clean `Stopped`;
@@ -508,6 +523,30 @@ pub fn write_keybindings(
     overrides: std::collections::BTreeMap<String, String>,
 ) -> IpcResult<()> {
     crate::settings::write_keybindings(&app_config_dir(&app)?, overrides)
+}
+
+// ----- Global API tokens (GitHub / Hugging Face) ------------------------------
+// Stored once in `app_config_dir/tokens.json` (0600), injected as standard env
+// vars into every engine session and terminal PTY at spawn (tokens.rs). The
+// secret itself never crosses the IPC boundary back to the frontend.
+
+/// Masked presence per provider — never the token itself.
+#[tauri::command]
+pub fn tokens_status(app: tauri::AppHandle) -> IpcResult<Vec<crate::tokens::TokenStatus>> {
+    crate::tokens::status(&app_config_dir(&app)?)
+}
+
+/// Store (or replace) one provider's token ("github" | "huggingface").
+/// Takes effect for engine sessions and terminals opened afterwards.
+#[tauri::command]
+pub fn token_set(app: tauri::AppHandle, provider: String, token: String) -> IpcResult<()> {
+    crate::tokens::set(&app_config_dir(&app)?, &provider, &token)
+}
+
+/// Remove one provider's stored token (idempotent).
+#[tauri::command]
+pub fn token_clear(app: tauri::AppHandle, provider: String) -> IpcResult<()> {
+    crate::tokens::clear(&app_config_dir(&app)?, &provider)
 }
 
 // ----- Git source control (spec 5.A.3, Phase 4) ------------------------------

@@ -13,14 +13,14 @@
  * `KeybindingsSection`. Tokens only, keyboard-operable, three states present.
  */
 
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { EmptyState, ErrorState, LoadingState } from "@/components/states";
 import { InlineTerminal } from "@/components/InlineTerminal";
 import { KeybindingsSection } from "@/layout/KeybindingsSection";
 import { PermissionsPanel } from "@/layout/PermissionsPanel";
 import { ThemePicker } from "@/layout/ThemePicker";
-import { listAvailablePlugins, listMarketplaces, listMcpServers, listPlugins } from "@/ipc/commands";
-import type { AvailablePlugin, MarketplaceEntry, McpServerEntry, PluginEntry, ScopeSettings, SettingsScope } from "@/ipc/types";
+import { listAvailablePlugins, listMarketplaces, listMcpServers, listPlugins, tokenClear, tokenSet, tokensStatus } from "@/ipc/commands";
+import type { AvailablePlugin, MarketplaceEntry, McpServerEntry, PluginEntry, ScopeSettings, SettingsScope, TokenProvider, TokenStatus } from "@/ipc/types";
 import { isIpcError } from "@/ipc/types";
 import { shellQuote } from "@/lib/shell";
 import { useAuth } from "@/store/auth";
@@ -34,7 +34,7 @@ import {
 } from "@/store/settings";
 import { useActiveCwd } from "@/store/workspaces";
 
-type Category = "editor" | "files" | "terminal" | "appearance" | "keybindings" | "account" | "permissions" | "plugins" | "mcp";
+type Category = "editor" | "files" | "terminal" | "appearance" | "keybindings" | "account" | "tokens" | "permissions" | "plugins" | "mcp";
 type SettingsCategory = keyof ScopeSettings;
 
 const CATEGORIES: { id: Category; label: string }[] = [
@@ -44,6 +44,7 @@ const CATEGORIES: { id: Category; label: string }[] = [
   { id: "appearance", label: "Appearance" },
   { id: "keybindings", label: "Keybindings" },
   { id: "account", label: "Account" },
+  { id: "tokens", label: "API Tokens" },
   { id: "permissions", label: "Permissions" },
   { id: "plugins", label: "Plugins & Skills" },
   { id: "mcp", label: "MCP Servers" },
@@ -54,7 +55,7 @@ const CATEGORIES: { id: Category; label: string }[] = [
  *  Plugins & Skills, MCP Servers. They skip the generic heading and the
  *  staged-apply footer. (Permissions is workspace-scoped and Account/Plugins/
  *  MCP are user-global, but all four own their own save path.) */
-const ACTION_CATEGORIES: Category[] = ["account", "permissions", "plugins", "mcp"];
+const ACTION_CATEGORIES: Category[] = ["account", "tokens", "permissions", "plugins", "mcp"];
 
 /** Which backend sub-object each control's default lives in, for the "unset"
  *  fallback and the text control's clear-to-placeholder behaviour. Untyped as
@@ -323,6 +324,7 @@ export function SettingsView() {
                   </div>
                   {!q && category === "keybindings" && <KeybindingsSection />}
                   {!q && category === "account" && <AccountSection />}
+                  {!q && category === "tokens" && <TokensSection />}
                   {!q && category === "permissions" && <PermissionsPanel />}
                   {!q && category === "plugins" && <PluginsSection />}
                   {!q && category === "mcp" && <McpSection />}
@@ -704,6 +706,125 @@ function AccountSection() {
             </div>
           )}
         </>
+      )}
+    </div>
+  );
+}
+
+// ---- API Tokens (global GitHub / Hugging Face credentials) ------------------
+// One secure store (`tokens.rs`: app-config `tokens.json`, 0600) entered once
+// here; injected as standard env vars into every engine session and terminal
+// opened afterwards. The secret never comes back over IPC — only a masked tail.
+
+const TOKEN_PROVIDERS: { id: TokenProvider; label: string; hint: string; vars: string }[] = [
+  { id: "github", label: "GitHub", hint: "Personal access token (ghp_… or github_pat_…)", vars: "GITHUB_TOKEN, GH_TOKEN" },
+  { id: "huggingface", label: "Hugging Face", hint: "Access token (hf_…)", vars: "HF_TOKEN, HUGGING_FACE_HUB_TOKEN" },
+];
+
+function TokensSection() {
+  const [statuses, setStatuses] = useState<TokenStatus[] | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState<TokenProvider | null>(null);
+  const [rowError, setRowError] = useState<Record<string, string>>({});
+
+  const refresh = useCallback(async () => {
+    try {
+      setStatuses(await tokensStatus());
+      setLoadError(null);
+    } catch (e) {
+      setLoadError(isIpcError(e) ? e.message : "Couldn't read the token store");
+    }
+  }, []);
+
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  const act = async (provider: TokenProvider, fn: () => Promise<void>) => {
+    setBusy(provider);
+    setRowError((r) => ({ ...r, [provider]: "" }));
+    try {
+      await fn();
+      setDrafts((d) => ({ ...d, [provider]: "" }));
+      await refresh();
+    } catch (e) {
+      setRowError((r) => ({ ...r, [provider]: isIpcError(e) ? e.message : "Something went wrong" }));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <div style={{ marginTop: "var(--space-2)", padding: "var(--space-4) var(--space-3)", borderTop: "1px solid var(--color-border-subtle)" }}>
+      <p style={{ color: "var(--color-fg-primary)", fontSize: "var(--text-sm)", fontWeight: 600 }}>API Tokens</p>
+      <p style={{ color: "var(--color-fg-secondary)", fontSize: "var(--text-xs)", marginTop: "var(--space-2)" }}>
+        Enter a token once and every new agent session and terminal gets it automatically as standard
+        environment variables. Stored owner-only-readable in the app config folder — never in a project,
+        never sent anywhere except the tools that read those variables. A variable already set in your
+        shell always wins over the stored token. Applies to sessions and terminals opened after saving.
+      </p>
+
+      {loadError ? (
+        <div style={{ marginTop: "var(--space-3)" }}>
+          <ErrorState title="Couldn't read the token store" error={{ kind: "internal", message: loadError }} onRetry={() => void refresh()} />
+        </div>
+      ) : !statuses ? (
+        <p style={{ color: "var(--color-fg-secondary)", fontSize: "var(--text-xs)", marginTop: "var(--space-2)" }}>Loading…</p>
+      ) : (
+        TOKEN_PROVIDERS.map((p) => {
+          const st = statuses.find((s) => s.provider === p.id);
+          const stored = st?.masked ?? null;
+          const draft = drafts[p.id] ?? "";
+          return (
+            <div key={p.id} style={{ marginTop: "var(--space-4)" }}>
+              <p style={{ color: "var(--color-fg-primary)", fontSize: "var(--text-sm)" }}>
+                {p.label}
+                <span style={{ color: "var(--color-fg-secondary)", fontSize: "var(--text-xs)", marginLeft: "var(--space-2)" }}>
+                  {stored ? `saved (${stored})` : "not set"}
+                </span>
+              </p>
+              <p style={{ color: "var(--color-fg-secondary)", fontSize: "var(--text-xs)", marginTop: "var(--space-1)" }}>
+                {p.hint} · fills {p.vars}
+              </p>
+              {st?.envOverridden && (
+                <p style={{ color: "var(--color-fg-secondary)", fontSize: "var(--text-xs)", marginTop: "var(--space-1)" }}>
+                  Already set in your environment — the stored token won't override it.
+                </p>
+              )}
+              <div style={{ display: "flex", gap: "var(--space-2)", marginTop: "var(--space-2)", alignItems: "center" }}>
+                <input
+                  type="password"
+                  value={draft}
+                  onChange={(e) => setDrafts((d) => ({ ...d, [p.id]: e.target.value }))}
+                  placeholder={stored ? "Replace token…" : "Paste token…"}
+                  aria-label={`${p.label} token`}
+                  autoComplete="off"
+                  spellCheck={false}
+                  style={{
+                    flex: "0 1 320px",
+                    padding: "var(--space-2)",
+                    background: "var(--color-bg-base)",
+                    color: "var(--color-fg-primary)",
+                    border: "1px solid var(--color-border-subtle)",
+                    borderRadius: "var(--radius-sm)",
+                    fontFamily: "var(--font-mono)",
+                    fontSize: "var(--text-xs)",
+                  }}
+                />
+                <Button primary disabled={busy !== null || !draft.trim()} onClick={() => void act(p.id, () => tokenSet(p.id, draft))}>
+                  {busy === p.id ? "Saving…" : "Save"}
+                </Button>
+                {stored && (
+                  <Button disabled={busy !== null} onClick={() => void act(p.id, () => tokenClear(p.id))}>
+                    Remove
+                  </Button>
+                )}
+              </div>
+              {rowError[p.id] && <Banner tone="error" text={rowError[p.id]} />}
+            </div>
+          );
+        })
       )}
     </div>
   );

@@ -11,7 +11,9 @@ import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent } from "react";
 import { activeConversationStore, useActiveConversation, type ConvItem } from "@/store/conversation";
 import { EFFORTS, useEffort } from "@/store/effort";
 import { MODELS, useModel } from "@/store/model";
-import type { Usage } from "@/ipc/types";
+import type { Attachment, Usage } from "@/ipc/types";
+import { pickAttachmentFiles, readAttachment } from "@/ipc/commands";
+import { isIpcError } from "@/ipc/types";
 
 // Built-in session commands confirmed present in the CLI (2.1.190) — used as the
 // slash menu's source until the live `slash_commands` list arrives with `init`.
@@ -342,6 +344,12 @@ function ConversationItem({ item, streaming }: { item: ConvItem; streaming: bool
             <CopyMarkdownButton text={`**You:**\n\n${item.text}`} />
           </div>
           <p style={{ color: "var(--color-fg-primary)", whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{item.text}</p>
+          {item.attachments && item.attachments.length > 0 && (
+            <p style={{ color: "var(--color-fg-secondary)", fontSize: "var(--text-xs)", margin: 0 }}>
+              <span aria-hidden="true">📎 </span>
+              {item.attachments.join(", ")}
+            </p>
+          )}
         </div>
       );
     case "assistant":
@@ -589,6 +597,9 @@ function PromptBar() {
   const [value, setValue] = useState("");
   const [sel, setSel] = useState(0);
   const [dismissed, setDismissed] = useState(false);
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [attachError, setAttachError] = useState<string | null>(null);
+  const [attaching, setAttaching] = useState(false);
   const streaming = useActiveConversation((s) => s.streaming);
   const send = useActiveConversation((s) => s.send);
   const cancel = useActiveConversation((s) => s.cancel);
@@ -641,24 +652,93 @@ function PromptBar() {
     setSel(0);
   };
 
+  // Composer attachments (images/PDF/text). Read + validated by the backend
+  // (`read_attachment`); sent as content blocks ahead of the prompt text.
+  const MAX_ATTACH = 8;
+
+  const addAttachment = (a: Attachment) => {
+    setAttachments((prev) => {
+      if (prev.length >= MAX_ATTACH) {
+        setAttachError(`At most ${MAX_ATTACH} attachments per message`);
+        return prev;
+      }
+      return [...prev, a];
+    });
+  };
+
+  const pickFiles = async () => {
+    setAttachError(null);
+    setAttaching(true);
+    try {
+      for (const path of await pickAttachmentFiles()) {
+        addAttachment(await readAttachment(path));
+      }
+    } catch (e) {
+      setAttachError(isIpcError(e) ? e.message : "Couldn't attach that file");
+    } finally {
+      setAttaching(false);
+      inputRef.current?.focus();
+    }
+  };
+
+  // Paste an image straight from the clipboard (screenshots).
+  const onPaste = (e: React.ClipboardEvent<HTMLInputElement>) => {
+    const item = Array.from(e.clipboardData.items).find((i) => i.type.startsWith("image/"));
+    if (!item) return;
+    const file = item.getAsFile();
+    if (!file) return;
+    e.preventDefault();
+    setAttachError(null);
+    const reader = new FileReader();
+    reader.onload = () => {
+      const url = String(reader.result); // data:image/png;base64,…
+      const mediaType = url.slice(5, url.indexOf(";"));
+      if (!["image/png", "image/jpeg", "image/gif", "image/webp"].includes(mediaType)) {
+        setAttachError("Only PNG, JPEG, GIF, or WebP images can be pasted");
+        return;
+      }
+      addAttachment({
+        name: `pasted-image.${mediaType.split("/")[1]}`,
+        kind: "image",
+        mediaType,
+        data: url.slice(url.indexOf(",") + 1),
+      });
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const removeAttachment = (index: number) => {
+    setAttachments((prev) => prev.filter((_, i) => i !== index));
+    setAttachError(null);
+  };
+
+  const takeComposer = () => {
+    const text = value.trim();
+    const atts = attachments;
+    clearInput();
+    setAttachments([]);
+    setAttachError(null);
+    return { text, atts };
+  };
+
+  const composerEmpty = !value.trim() && attachments.length === 0;
+
   // Enter's action depends on whether a turn is live: idle → send; mid-turn →
   // queue the follow-up (runs when the turn ends). This is the safe default —
   // no in-flight work is lost.
   const runPrimary = () => {
-    const text = value.trim();
-    if (!text) return;
-    if (streaming) enqueue(text);
-    else void send(text);
-    clearInput();
+    if (composerEmpty) return;
+    const { text, atts } = takeComposer();
+    if (streaming) enqueue(text, atts);
+    else void send(text, atts);
   };
 
   // Steer the live turn: interrupt it now and run this next (⌘/Ctrl+Enter). The
   // only way to redirect an in-flight turn — a plain send would just queue.
   const runSteerNow = () => {
-    const text = value.trim();
-    if (!text || !streaming) return;
-    void steerNow(text);
-    clearInput();
+    if (composerEmpty || !streaming) return;
+    const { text, atts } = takeComposer();
+    void steerNow(text, atts);
   };
 
   const onKeyDown = (e: ReactKeyboardEvent<HTMLInputElement>) => {
@@ -715,10 +795,15 @@ function PromptBar() {
                     whiteSpace: "nowrap",
                     maxWidth: "36ch",
                   }}
-                  title={q}
+                  title={q.text}
                 >
-                  {q}
+                  {q.text}
                 </span>
+                {q.attachments.length > 0 && (
+                  <span aria-label={`${q.attachments.length} attachments`} style={{ opacity: 0.6 }}>
+                    📎{q.attachments.length}
+                  </span>
+                )}
                 <button
                   type="button"
                   onClick={() => dequeue(i)}
@@ -734,6 +819,42 @@ function PromptBar() {
           ))}
         </ul>
       )}
+      {attachments.length > 0 && (
+        <ul
+          aria-label="Attachments"
+          className="flex flex-wrap items-center gap-[var(--space-2)]"
+          style={{ margin: 0, marginBottom: "var(--space-2)", padding: 0, listStyle: "none" }}
+        >
+          {attachments.map((a, i) => (
+            <li key={`${a.name}-${i}`}>
+              <span style={queuedChipStyle}>
+                <span aria-hidden="true">📎</span>
+                <span
+                  style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "28ch" }}
+                  title={a.name}
+                >
+                  {a.name}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => removeAttachment(i)}
+                  aria-label={`Remove attachment ${a.name}`}
+                  title="Remove attachment"
+                  className="cursor-pointer"
+                  style={queuedChipRemoveStyle}
+                >
+                  ✕
+                </button>
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {attachError && (
+        <p role="alert" style={{ color: "var(--color-danger)", fontSize: "var(--text-xs)", margin: 0, marginBottom: "var(--space-2)" }}>
+          {attachError}
+        </p>
+      )}
       <div className="relative">
         {menuOpen && <SlashMenu matches={matches} selected={selected} onPick={accept} />}
         <div
@@ -746,11 +867,30 @@ function PromptBar() {
           }}
         >
           <span style={{ ...mono, color: "var(--color-accent)" }}>›</span>
+          <button
+            type="button"
+            onClick={() => void pickFiles()}
+            disabled={attaching}
+            aria-label="Attach files (images, PDF, text)"
+            title="Attach files — images, PDF, or text. Paste screenshots directly into the box."
+            className="cursor-pointer"
+            style={{
+              border: "none",
+              background: "transparent",
+              color: "var(--color-fg-secondary)",
+              fontSize: "var(--text-base)",
+              padding: 0,
+              opacity: attaching ? 0.5 : 1,
+            }}
+          >
+            📎
+          </button>
           <input
             ref={inputRef}
             value={value}
             onChange={(e) => change(e.currentTarget.value)}
             onKeyDown={onKeyDown}
+            onPaste={onPaste}
             placeholder={
               streaming
                 ? "Steer or queue a follow-up…   ( ⏎ queue · ⌘/Ctrl+⏎ send now )"
@@ -801,9 +941,9 @@ function PromptBar() {
             <button
               type="button"
               onClick={runPrimary}
-              disabled={!value.trim()}
+              disabled={composerEmpty}
               className="cursor-pointer"
-              style={{ ...sendBtn, opacity: value.trim() ? 1 : 0.4 }}
+              style={{ ...sendBtn, opacity: composerEmpty ? 0.4 : 1 }}
             >
               Send
             </button>

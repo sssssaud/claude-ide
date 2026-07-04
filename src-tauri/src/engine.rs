@@ -17,7 +17,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tauri::ipc::Channel;
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWriteExt, BufReader};
@@ -207,6 +207,10 @@ impl WorkspaceRegistry {
         let mut child = Command::new(claude)
             .args(&args)
             .current_dir(&cwd)
+            // Stored GitHub/HF tokens as standard env vars (tokens.rs), so
+            // every session can push/pull/download without re-entering keys.
+            // Vars already set in the app's environment are never overridden.
+            .envs(crate::tokens::injectable_env())
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -287,13 +291,19 @@ impl WorkspaceRegistry {
     }
 
     /// Write one turn (a user message) to the session's stdin.
-    pub async fn send(&self, workspace_id: &str, prompt: &str) -> IpcResult<()> {
+    pub async fn send(
+        &self,
+        workspace_id: &str,
+        prompt: &str,
+        attachments: &[Attachment],
+    ) -> IpcResult<()> {
         let ws = self.get(workspace_id).await?;
         // Clear any stale interrupt flag so it can't bleed into this fresh turn.
         ws.interrupting.store(false, Ordering::SeqCst);
+        let content = build_content(prompt, attachments)?;
         let line = serde_json::to_string(&json!({
             "type": "user",
-            "message": { "role": "user", "content": [{ "type": "text", "text": prompt }] },
+            "message": { "role": "user", "content": content },
         }))
         .expect("serialize user message")
             + "\n";
@@ -407,6 +417,110 @@ async fn shutdown_workspace(ws: &Workspace) {
             let _ = child.wait().await; // reap so there is no zombie
         }
     }
+}
+
+/// One composer attachment, produced by `read_attachment` (commands.rs) or a
+/// clipboard image paste. Crosses the IPC boundary, so `build_content`
+/// re-validates everything — kind and media type against allow-lists, sizes
+/// against caps — before any of it reaches the `claude` child's stdin.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Attachment {
+    /// Display name (file basename); shown to the model as the block title.
+    pub name: String,
+    /// "image" (base64 in `data`) | "document" (base64 PDF) | "text" (plain
+    /// text in `data` — .md/.txt/source files, sent inline as a text block).
+    pub kind: String,
+    /// MIME type; checked against the allow-list for the kind.
+    pub media_type: String,
+    pub data: String,
+}
+
+/// Attachment caps. Claude's API takes images to ~5MB and PDFs to ~32MB;
+/// base64 inflates by 4/3, and everything rides one stdin line, so stay
+/// comfortably inside.
+const MAX_ATTACHMENT_COUNT: usize = 8;
+const MAX_IMAGE_B64: usize = 7 * 1024 * 1024; // ~5MB raw
+const MAX_PDF_B64: usize = 27 * 1024 * 1024; // ~20MB raw
+const MAX_TEXT_CHARS: usize = 400_000;
+const MAX_NAME_LEN: usize = 255;
+
+const IMAGE_TYPES: [&str; 4] = ["image/png", "image/jpeg", "image/gif", "image/webp"];
+
+/// The user-turn content blocks: attachments first (image/document/inline
+/// text), the typed prompt as the final text block. Validation here is the
+/// trust boundary — the frontend is not trusted to have checked anything.
+fn build_content(prompt: &str, attachments: &[Attachment]) -> IpcResult<Vec<Value>> {
+    if attachments.len() > MAX_ATTACHMENT_COUNT {
+        return Err(invalid_input(format!(
+            "Too many attachments (max {MAX_ATTACHMENT_COUNT})"
+        )));
+    }
+    let mut content = Vec::with_capacity(attachments.len() + 1);
+    for a in attachments {
+        let name = a.name.trim();
+        if name.is_empty() || name.len() > MAX_NAME_LEN || name.chars().any(char::is_control) {
+            return Err(invalid_input("Attachment has an invalid name".into()));
+        }
+        match a.kind.as_str() {
+            "image" => {
+                if !IMAGE_TYPES.contains(&a.media_type.as_str()) {
+                    return Err(invalid_input(format!(
+                        "Unsupported image type for {name} (use PNG, JPEG, GIF, or WebP)"
+                    )));
+                }
+                if a.data.len() > MAX_IMAGE_B64 {
+                    return Err(invalid_input(format!("Image {name} is too large (max ~5MB)")));
+                }
+                content.push(json!({
+                    "type": "image",
+                    "source": { "type": "base64", "media_type": a.media_type, "data": a.data },
+                }));
+            }
+            "document" => {
+                if a.media_type != "application/pdf" {
+                    return Err(invalid_input(format!(
+                        "Only PDF documents are supported ({name})"
+                    )));
+                }
+                if a.data.len() > MAX_PDF_B64 {
+                    return Err(invalid_input(format!("PDF {name} is too large (max ~20MB)")));
+                }
+                content.push(json!({
+                    "type": "document",
+                    "source": { "type": "base64", "media_type": "application/pdf", "data": a.data },
+                    "title": name,
+                }));
+            }
+            "text" => {
+                if a.data.len() > MAX_TEXT_CHARS {
+                    return Err(invalid_input(format!(
+                        "Text file {name} is too large to attach inline (max ~400KB)"
+                    )));
+                }
+                content.push(json!({
+                    "type": "text",
+                    "text": format!("[Attached file: {name}]\n\n{}", a.data),
+                }));
+            }
+            _ => {
+                return Err(invalid_input(format!(
+                    "Unsupported attachment kind for {name}"
+                )))
+            }
+        }
+    }
+    if !prompt.is_empty() {
+        content.push(json!({ "type": "text", "text": prompt }));
+    }
+    if content.is_empty() {
+        return Err(invalid_input("Nothing to send".into()));
+    }
+    Ok(content)
+}
+
+fn invalid_input(message: String) -> IpcError {
+    IpcError::new(IpcErrorKind::InvalidInput, message)
 }
 
 fn stdin_err(e: std::io::Error) -> IpcError {
@@ -789,6 +903,55 @@ mod tests {
             }
             other => panic!("expected Result, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn build_content_validates_attachments() {
+        let img = |data: &str| Attachment {
+            name: "a.png".into(),
+            kind: "image".into(),
+            media_type: "image/png".into(),
+            data: data.into(),
+        };
+
+        // Image + prompt → image block first, text block last.
+        let blocks = build_content("look", &[img("aGVsbG8=")]).unwrap();
+        assert_eq!(blocks.len(), 2);
+        assert_eq!(blocks[0]["type"], "image");
+        assert_eq!(blocks[1]["text"], "look");
+
+        // Attachment-only send is fine; fully empty is not.
+        assert_eq!(build_content("", &[img("x")]).unwrap().len(), 1);
+        assert!(build_content("", &[]).is_err());
+
+        // Unknown kind, bad media type, oversized data, bad name → refused.
+        let mut bad = img("x");
+        bad.kind = "video".into();
+        assert!(build_content("", &[bad]).is_err());
+        let mut bad = img("x");
+        bad.media_type = "image/tiff".into();
+        assert!(build_content("", &[bad]).is_err());
+        assert!(build_content("", &[img(&"A".repeat(MAX_IMAGE_B64 + 1))]).is_err());
+        let mut bad = img("x");
+        bad.name = "evil\u{7}name".into();
+        assert!(build_content("", &[bad]).is_err());
+
+        // PDF must be application/pdf; text rides inline with its filename.
+        let pdf = Attachment {
+            name: "r.pdf".into(),
+            kind: "document".into(),
+            media_type: "application/pdf".into(),
+            data: "cGRm".into(),
+        };
+        assert_eq!(build_content("", &[pdf]).unwrap()[0]["type"], "document");
+        let txt = Attachment {
+            name: "notes.md".into(),
+            kind: "text".into(),
+            media_type: "text/plain".into(),
+            data: "hello".into(),
+        };
+        let blocks = build_content("", &[txt]).unwrap();
+        assert!(blocks[0]["text"].as_str().unwrap().contains("notes.md"));
     }
 
     #[test]

@@ -10,6 +10,7 @@ import { open as openDialog } from "@tauri-apps/plugin-dialog";
 // shape. Erased at build time, so no runtime import cycle with the store.
 import type { ConvItem } from "@/store/conversation";
 import type {
+  Attachment,
   AgentDef,
   AgentDefSummary,
   AgentSession,
@@ -39,6 +40,8 @@ import type {
   SessionSearchResults,
   SettingsDoc,
   SettingsScope,
+  TokenProvider,
+  TokenStatus,
   UsageReport,
 } from "./types";
 import { isIpcError } from "./types";
@@ -134,6 +137,26 @@ export async function pickFolder(): Promise<string | null> {
   }
 }
 
+/** Native multi-file picker for composer attachments. Resolves to absolute
+ *  paths ([] if cancelled). Filtered to what Claude can actually take —
+ *  images, PDF, and text/code files. */
+export async function pickAttachmentFiles(): Promise<string[]> {
+  try {
+    const selected = await openDialog({
+      multiple: true,
+      title: "Attach Files",
+      filters: [
+        { name: "Supported (images, PDF, text)", extensions: ["png", "jpg", "jpeg", "gif", "webp", "pdf", "txt", "md", "csv", "json", "log", "py", "rs", "ts", "tsx", "js", "html", "css", "toml", "yaml", "yml"] },
+        { name: "All files", extensions: ["*"] },
+      ],
+    });
+    if (Array.isArray(selected)) return selected;
+    return typeof selected === "string" ? [selected] : [];
+  } catch (e) {
+    normalizeError(e);
+  }
+}
+
 /** The default workspace root (canonical absolute path) to seed the first tab. */
 export async function defaultWorkspace(): Promise<string> {
   try {
@@ -143,10 +166,26 @@ export async function defaultWorkspace(): Promise<string> {
   }
 }
 
-/** Send one turn into a workspace session; responses arrive over its channel. */
-export async function engineSend(workspaceId: string, prompt: string): Promise<void> {
+/** Send one turn into a workspace session; responses arrive over its channel.
+ *  Attachments (images/PDF/text — see `readAttachment`) become content blocks
+ *  ahead of the prompt text. */
+export async function engineSend(
+  workspaceId: string,
+  prompt: string,
+  attachments?: Attachment[],
+): Promise<void> {
   try {
-    await invoke<void>("engine_send", { workspaceId, prompt });
+    await invoke<void>("engine_send", { workspaceId, prompt, attachments });
+  } catch (e) {
+    normalizeError(e);
+  }
+}
+
+/** Read a user-picked file into a composer attachment (backend classifies,
+ *  caps size, base64-encodes; refuses video/audio and unknown binaries). */
+export async function readAttachment(path: string): Promise<Attachment> {
+  try {
+    return await invoke<Attachment>("read_attachment", { path });
   } catch (e) {
     normalizeError(e);
   }
@@ -571,6 +610,37 @@ export async function writeSettings(
 ): Promise<void> {
   try {
     await invoke<void>("write_settings", { scope, workspaceKey, settings });
+  } catch (e) {
+    normalizeError(e);
+  }
+}
+
+/** Masked presence per token provider (github / huggingface) — the backend
+ *  never returns the secret itself, only "…" + last 4 characters. */
+export async function tokensStatus(): Promise<TokenStatus[]> {
+  try {
+    return await invoke<TokenStatus[]>("tokens_status");
+  } catch (e) {
+    normalizeError(e);
+  }
+}
+
+/** Store (or replace) one provider's API token. Stored 0600 in the app config
+ *  dir and injected as standard env vars (GITHUB_TOKEN/GH_TOKEN,
+ *  HF_TOKEN/HUGGING_FACE_HUB_TOKEN) into engine sessions and terminals opened
+ *  afterwards. */
+export async function tokenSet(provider: TokenProvider, token: string): Promise<void> {
+  try {
+    await invoke<void>("token_set", { provider, token });
+  } catch (e) {
+    normalizeError(e);
+  }
+}
+
+/** Remove one provider's stored token (idempotent). */
+export async function tokenClear(provider: TokenProvider): Promise<void> {
+  try {
+    await invoke<void>("token_clear", { provider });
   } catch (e) {
     normalizeError(e);
   }

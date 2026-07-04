@@ -329,6 +329,27 @@ export interface AppearanceSettings {
   reducedMotion?: boolean;
 }
 
+/** Mirror of Rust `Attachment` (engine.rs) — one composer attachment.
+ *  `data` is base64 for image/document, plain text for kind "text". */
+export interface Attachment {
+  name: string;
+  kind: "image" | "document" | "text";
+  mediaType: string;
+  data: string;
+}
+
+/** Providers modelled by the global token store (`tokens.rs`). */
+export type TokenProvider = "github" | "huggingface";
+
+/** Mirror of Rust `TokenStatus` — masked presence, never the secret. */
+export interface TokenStatus {
+  provider: TokenProvider;
+  /** null = not stored; otherwise "…" + last 4 chars. */
+  masked: string | null;
+  /** The env var is already set outside the app; stored token won't override it. */
+  envOverridden: boolean;
+}
+
 /** Mirror of Rust `ScopeSettings` — one scope's settings, every category. */
 export interface ScopeSettings {
   editor: EditorSettings;

@@ -1654,3 +1654,47 @@ committed and screenshot-verified.
   - Composer while streaming: `[Stop]` always; `[Queue] [Send now]` when the box
     has text; placeholder shows the two shortcuts. Verified in Chrome (queued
     chips + all three buttons render). Typecheck + build clean; no Rust touched.
+
+## Addendum III S15 — attachments, global API tokens, new app icon (2026-07-05)
+
+- **App icon**: replaced the placeholder Tauri icons with the official Claude
+  Code pixel creature (user-supplied `claudecode-color.png`, 640×640,
+  transparent) composited onto Anthropic's dark slate (#262624) rounded square
+  at 1024², then `npx tauri icon` regenerated every size in `src-tauri/icons/`
+  (32/64/128/128@2x, .icns, .ico, Square*). Mobile icon sets it also emitted
+  were deleted (desktop-only app). Shows after next build.
+- **Global API tokens (GitHub / Hugging Face)** — enter once, every session
+  and terminal reuses them:
+  - `src-tauri/src/tokens.rs`: store at `<app_config_dir>/tokens.json`,
+    written **0600**, provider allow-list (github, huggingface), tokens
+    validated single-line ASCII ≤512. `status()` returns only a masked tail
+    (`…abcd`) — the secret never crosses IPC back to the frontend.
+  - Injection at spawn: engine child (`engine.rs` `.envs(...)`) and terminal
+    PTY (`pty.rs`) both get `GITHUB_TOKEN`/`GH_TOKEN` +
+    `HF_TOKEN`/`HUGGING_FACE_HUB_TOKEN` — **only when the var isn't already
+    set** in the app's environment (user's shell config always wins). Config
+    dir resolved once in a `setup` hook → `tokens::init` (OnceLock), so no
+    spawn-signature threading.
+  - Settings → **API Tokens** section: per-provider password input, Save /
+    Remove, masked "saved (…abcd)" status, env-overridden notice. 3 new IPC
+    commands (`tokens_status`, `token_set`, `token_clear`).
+- **Composer attachments (images, PDF, text files)**:
+  - CLI capability **verified first-hand** against claude 2.1.201 before
+    building: base64 `image` and `document` (PDF) content blocks sent over
+    `--input-format stream-json` stdin both work (haiku described a test
+    image; read a magic word out of a generated PDF). **Video/audio is not
+    accepted by Claude models — refused with an honest message**, not faked.
+  - Backend: `Attachment {name, kind, mediaType, data}` (engine.rs);
+    `build_content` is the trust boundary — kind/media-type allow-lists
+    (PNG/JPEG/GIF/WebP; application/pdf), size caps (image ~5MB, PDF ~20MB,
+    text 400KB, max 8), attachment blocks first, prompt text last;
+    attachment-only sends allowed. `read_attachment` command
+    (files.rs) classifies by extension, caps size, base64-encodes
+    (new dep: `base64 0.22`), passes UTF-8 text through, refuses
+    video/audio/unknown binaries. Unit test `build_content_validates_attachments`.
+  - Frontend: 📎 button (native multi-file dialog) + **clipboard image paste**
+    in the composer; removable chips; error line (`role=alert`); user bubble
+    lists sent attachment names. Queue/steer carry attachments too —
+    `queued` became `{text, attachments}[]` through enqueue/steerNow/flush.
+- Verified: cargo test **107 passed** (was 103), clippy clean, tsc clean,
+  vite production build clean.
