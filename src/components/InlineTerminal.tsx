@@ -52,6 +52,10 @@ export function InlineTerminal({ command, onExit }: { command: string; onExit?: 
     } catch {
       /* container momentarily zero-sized */
     }
+    // The host panel can mount far from the button that triggered it (e.g.
+    // Install in the browse list, terminal at the section top) — bring it
+    // into view so the click visibly does something.
+    hostRef.current?.scrollIntoView({ block: "nearest" });
 
     const dataSub = term.onData((d) => {
       const id = ptyIdRef.current;
@@ -90,7 +94,13 @@ export function InlineTerminal({ command, onExit }: { command: string; onExit?: 
           return;
         }
         ptyIdRef.current = id;
-        void ptyWrite(id, `${command}\n`);
+        // `; exit` makes this genuinely one-shot: the PTY spawns an
+        // interactive $SHELL, and without it the shell just returns to a
+        // prompt when the command ends — the EOF sentinel never fires, so
+        // onExit (list refresh, "Running…" teardown) never runs. The command
+        // itself stays fully interactive (auth login prompts etc.); the shell
+        // exits only after it finishes (Ctrl-C included).
+        void ptyWrite(id, `${command}; exit\n`);
       } catch {
         if (!disposed) term.write("\r\n\x1b[31m[failed to start terminal]\x1b[0m\r\n");
       }

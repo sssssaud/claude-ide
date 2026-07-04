@@ -1711,3 +1711,18 @@ committed and screenshot-verified.
   pick a different model below"), anything else shows the CLI's text verbatim,
   never silence. Model picker list stays static (the CLI has no
   "which models am I allowed" query; late API error is the CLI's own behavior).
+
+### S15 follow-up 2: plugin Install button "not working" (2026-07-05)
+- Diagnosis (reproduced first-hand): the CLI side was fine — `claude plugin
+  install commit-commands@claude-plugins-official` succeeded in a plain shell
+  (then uninstalled). The bug: InlineTerminal types the command into an
+  interactive `$SHELL` PTY and waits for the EOF sentinel, but the shell just
+  returns to a prompt after the command — EOF never fires, so `onExit` →
+  `finishRun()` → list refresh never ran. Installs actually succeeded but the
+  UI stayed on "Running…" forever and never showed the plugin as installed.
+  Also the terminal panel mounts at the section top, off-screen from the
+  browse-list Install buttons — clicks looked like no-ops.
+- Fix at the root (InlineTerminal, all callers — Plugins, Account, MCP):
+  write `command; exit` so the shell exits when the one-shot command ends
+  (still fully interactive during it, Ctrl-C included), and scrollIntoView on
+  mount so the terminal is visible from wherever it was triggered.
