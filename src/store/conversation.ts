@@ -151,6 +151,19 @@ const makeConversationStore = (cwd: string): StoreApi<ConversationState> =>
   // leaves this false, so neither auto-sends the queue.
   let pendingFlushOnStop = false;
 
+  // Turn an error result's CLI text into UI-appropriate wording. The known
+  // model-access failure ("It may not exist or you may not have access…
+  // Run --model…") gets picker-speak instead of CLI-speak; anything else is
+  // shown as-is — the CLI's message beats silence.
+  const errorNotice = (raw: string | null): string => {
+    const text = (raw ?? "").trim();
+    if (/issue with the selected model/i.test(text)) {
+      const name = text.match(/\(([^)]+)\)/)?.[1];
+      return `${name ? `“${name}”` : "That model"} isn't available on this account — it may need a higher plan. Pick a different model below and resend.`;
+    }
+    return text || "The turn failed with no output. Check the raw log (status bar) for details.";
+  };
+
   const dispatch = (ev: EngineEvent) => {
     set((s) => {
       switch (ev.type) {
@@ -236,12 +249,22 @@ const makeConversationStore = (cwd: string): StoreApi<ConversationState> =>
           // failure) mark the live bubble stopped — capture its id before reset.
           const aid = currentAssistantId;
           currentAssistantId = null;
-          const base =
+          let base =
             ev.is_error && aid
               ? s.items.map((it) =>
                   it.id === aid && it.kind === "assistant" ? { ...it, stopped: true } : it,
                 )
               : s.items;
+          // An error result is often the turn's ONLY output (e.g. a model the
+          // account's plan doesn't include produces no assistant text at all) —
+          // surface it as a notice instead of failing silently, with the CLI's
+          // "run --model" phrasing translated to this UI's model picker.
+          if (ev.is_error) {
+            base = [
+              ...base,
+              { kind: "notice", id: `n-${noticeSeq++}`, text: errorNotice(ev.result) },
+            ];
+          }
           return {
             streaming: false,
             cost: ev.total_cost_usd ?? s.cost,

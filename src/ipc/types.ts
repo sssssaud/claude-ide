@@ -464,6 +464,8 @@ export type EngineEvent =
   | {
       type: "result";
       is_error: boolean;
+      /** CLI summary text — on an error result, often the only explanation. */
+      result: string | null;
       total_cost_usd: number | null;
       usage: Usage;
       session_id: string;

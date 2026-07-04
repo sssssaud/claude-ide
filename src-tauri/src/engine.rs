@@ -66,6 +66,9 @@ pub enum EngineEvent {
     },
     Result {
         is_error: bool,
+        /// The CLI's summary text — on an error result it's often the only
+        /// explanation the user will ever get (no assistant output streamed).
+        result: Option<String>,
         total_cost_usd: Option<f64>,
         usage: Usage,
         session_id: String,
@@ -740,6 +743,10 @@ pub fn parse_events(line: &str) -> Vec<EngineEvent> {
 
         "result" => vec![EngineEvent::Result {
             is_error: v.get("is_error").and_then(Value::as_bool).unwrap_or(false),
+            // The CLI's summary text. On success it duplicates the streamed
+            // assistant text; on error it's often the ONLY explanation (e.g. a
+            // model the account can't use produces no assistant output at all).
+            result: v.get("result").and_then(Value::as_str).map(str::to_owned),
             total_cost_usd: v.get("total_cost_usd").and_then(Value::as_f64),
             usage: Usage {
                 input_tokens: usage_field(&v, "input_tokens"),
@@ -892,7 +899,7 @@ mod tests {
     #[test]
     fn parses_result() {
         match &parse_events(RESULT)[..] {
-            [EngineEvent::Result { is_error, total_cost_usd, usage, session_id }] => {
+            [EngineEvent::Result { is_error, result: _, total_cost_usd, usage, session_id }] => {
                 assert!(!is_error);
                 assert_eq!(*total_cost_usd, Some(0.12));
                 assert_eq!(usage.input_tokens, 100);

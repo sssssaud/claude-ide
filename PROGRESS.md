@@ -1698,3 +1698,16 @@ committed and screenshot-verified.
     `queued` became `{text, attachments}[]` through enqueue/steerNow/flush.
 - Verified: cargo test **107 passed** (was 103), clippy clean, tsc clean,
   vite production build clean.
+
+### S15 follow-up: unavailable-model errors surfaced (2026-07-05)
+- Found while answering "what if the account has no Pro/Max": the `result`
+  event's text was DROPPED (engine.rs), so an error result with no streamed
+  assistant text — exactly what a plan-locked/unknown model produces — failed
+  silently. Probed first-hand: CLI emits `result` `is_error:true` with
+  "There's an issue with the selected model (X)… Run --model…".
+- Fix: `EngineEvent::Result` now carries `result: Option<String>`; the store
+  appends a notice on every error result — model-access errors get
+  picker-speak ("isn't available on this account — may need a higher plan;
+  pick a different model below"), anything else shows the CLI's text verbatim,
+  never silence. Model picker list stays static (the CLI has no
+  "which models am I allowed" query; late API error is the CLI's own behavior).
