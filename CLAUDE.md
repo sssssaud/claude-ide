@@ -54,16 +54,21 @@ and committed.
 - Build: `npm run tauri build`
 
 ## Current status
-- Done: **Phases 0 + 1 + 2 complete.** Phase 0: shell, tokens, Monaco
-  (deferred)/xterm, preflight, perf measured. Phase 1: persistent `claude`
-  stream-json session per workspace (Rust-owned), live conversation pane with
-  streaming + tool cards, interrupt, clean teardown. Phase 2: plain PTY terminal
-  drawer (real `$SHELL` via `portable-pty`, reader thread → `Channel<Vec<u8>>`
-  → xterm, resize/restart). Gates met & verified live (see PROGRESS.md);
-  production build green, zero warnings, 8 parser tests pass.
-- Phase 2 gate caught + fixed two lifecycle bugs (real `ps` inspection): a
-  StrictMode async-open shell leak (frontend epoch guard) and a self-exit
-  zombie (reader thread now reaps on EOF; `PtyRegistry::open` takes `Arc<Self>`).
-  All reap paths — `close`, `reap`, `shutdown_all` — verified zero-zombie.
-- Pending: Phase 3 — Sessions & Timeline Rail, live.
-- Blockers: none.
+- Done: **Phases 0–10 complete** (shell/engine/terminal, Sessions rail,
+  files + editor, permissions/git/search/checkpoints, Usage dashboard, UI
+  polish), plus a full **security-hardening pass**. **Addendum II** (Settings
+  surface, dev command set + Command Palette, agent-bridge, status bar +
+  editor toolbar, remaining settings + bottom-panel tabs, file-explorer
+  extras) complete. **Addendum III** — differentiators beyond the bare CLI —
+  complete through **S15**: S8 project-scoped agent-definition builder +
+  quick-launch, S9 context/compact-full warning banner, S10 rate-limit
+  capture-first instrumentation, S11 Settings → Plugins & Skills (managed,
+  not just linked out), S14 model + effort pickers, marketplace plugin
+  install, steer/queue while a turn streams, S15 composer attachments
+  (image/PDF/text + clipboard paste), global GitHub/HF token store,
+  error-result surfacing, app icon.
+- Full gate-by-gate detail and verified facts live in `PROGRESS.md` — read
+  that first each session; this file is the quick reference, not the log.
+- Blockers: none for development. A full launch audit (2026-07-04) returned
+  NO-GO on the perf dimension + a hardening punch list (see PROGRESS.md);
+  that list gates a v1 "ship" tag, not day-to-day work.
