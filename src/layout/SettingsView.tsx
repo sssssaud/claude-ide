@@ -700,6 +700,7 @@ function AccountSection() {
               </p>
               <InlineTerminal
                 key="settings-login"
+                ariaLabel="Sign-in terminal"
                 command="claude auth login"
                 onExit={() => {
                   setSigningIn(false);

@@ -1776,3 +1776,23 @@ committed and screenshot-verified.
   UI not yet driven live (no synthetic input on this machine) — needs one
   manual pass: Settings → Claude Code, flip a toggle, confirm the key lands
   in `~/.claude/settings.json`.
+
+### S17: "Clean up sessions…" in the Sessions rail (2026-07-05)
+- User ask: delete accidental sessions from a project. Ground truth first:
+  the CLI has NO per-session delete — its only primitive is `claude project
+  purge` (whole project; `-i` prompts per item, `--dry-run` lists). Hand-
+  deleting `~/.claude` transcript files from app code would break the
+  wrapper contract, so the button hosts the CLI's own flow instead:
+  `claude project purge -i <workspace-path>` in an `InlineTerminal` at the
+  bottom of the Sessions rail. The CLI asks before every deletion; the app
+  adds zero deletion logic. The rail's existing FsWatcher picks up whatever
+  purge removed, so the list refreshes itself. Warning copy calls out that
+  the *current* session is in the list too.
+- Drive-by a11y fix: `InlineTerminal`'s hardcoded `aria-label="Sign-in
+  terminal"` (wrong for plugin installs / MCP / purge) became an `ariaLabel`
+  prop defaulting to "Terminal"; the two auth call sites keep the sign-in
+  label explicitly.
+- Verified: tsc clean, vite production build clean. Interactive purge flow
+  itself not driven end-to-end here (needs a real click + y/n answers);
+  `purge --help` confirms `-i` + positional path, and the InlineTerminal
+  one-shot pattern is the same one Plugins/Account/MCP already use live.

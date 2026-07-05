@@ -67,7 +67,8 @@ and committed.
   install, steer/queue while a turn streams, S15 composer attachments
   (image/PDF/text + clipboard paste), global GitHub/HF token store,
   error-result surfacing, app icon, S16 CLI /config panel inside Settings
-  (Settings → Claude Code, edits `~/.claude/settings.json` allow-listed).
+  (Settings → Claude Code, edits `~/.claude/settings.json` allow-listed),
+  S17 session cleanup in the rail (hosts `claude project purge -i`).
 - Full gate-by-gate detail and verified facts live in `PROGRESS.md` — read
   that first each session; this file is the quick reference, not the log.
 - Blockers: none for development. A full launch audit (2026-07-04) returned

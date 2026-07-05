@@ -21,7 +21,15 @@ function token(name: string): string {
 
 /** Runs `command` once on mount. Give it a fresh `key` at the call site to
  *  re-run (it's intentionally one-shot per mount, not reactive to prop changes). */
-export function InlineTerminal({ command, onExit }: { command: string; onExit?: () => void }) {
+export function InlineTerminal({
+  command,
+  onExit,
+  ariaLabel = "Terminal",
+}: {
+  command: string;
+  onExit?: () => void;
+  ariaLabel?: string;
+}) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const ptyIdRef = useRef<string | null>(null);
   // Kept fresh every render but read only inside the mount-effect's callbacks,
@@ -123,7 +131,7 @@ export function InlineTerminal({ command, onExit }: { command: string; onExit?: 
     <div
       ref={hostRef}
       role="group"
-      aria-label="Sign-in terminal"
+      aria-label={ariaLabel}
       style={{
         height: "220px",
         background: "var(--color-bg-recessed)",

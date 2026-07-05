@@ -68,6 +68,7 @@ export function PreflightGate() {
             </p>
             <InlineTerminal
               key="preflight-login"
+              ariaLabel="Sign-in terminal"
               command="claude auth login"
               onExit={() => {
                 setSigningIn(false);

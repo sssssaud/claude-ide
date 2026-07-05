@@ -8,6 +8,8 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import { AgentsSection } from "@/layout/AgentsSection";
+import { InlineTerminal } from "@/components/InlineTerminal";
+import { shellQuote } from "@/lib/shell";
 import { useSessions } from "@/store/sessions";
 import { useActiveConversation } from "@/store/conversation";
 import { activeEditorStore } from "@/store/editor";
@@ -83,8 +85,81 @@ export function SessionsPanel() {
             ))}
           </ol>
         )}
+        {loaded && !error && cwd && sessions.length > 0 && (
+          <CleanupSection cwd={cwd} disabled={streaming} />
+        )}
       </div>
     </aside>
+  );
+}
+
+/** "Clean up sessions…" — hosts the CLI's own `claude project purge -i` in an
+ *  inline terminal (Addendum III S17). The CLI prompts before every deletion;
+ *  the app adds zero deletion logic of its own (wrapper contract: state under
+ *  `~/.claude` is only ever removed by the CLI). The rail's file-watcher picks
+ *  up whatever the purge removed, so the list refreshes itself. */
+function CleanupSection({ cwd, disabled }: { cwd: string; disabled: boolean }) {
+  const [running, setRunning] = useState(false);
+
+  return (
+    <div
+      style={{
+        marginTop: "var(--space-5)",
+        paddingTop: "var(--space-3)",
+        borderTop: "1px solid var(--color-border-subtle)",
+      }}
+    >
+      {running ? (
+        <>
+          <StateNote text="The CLI asks before each deletion — nothing is removed without your yes. The session you're in right now is listed too; answer No to keep it. Ctrl-C aborts." />
+          <div style={{ marginTop: "var(--space-2)" }}>
+            <InlineTerminal
+              key="session-cleanup"
+              ariaLabel="Session cleanup terminal"
+              command={`claude project purge -i ${shellQuote(cwd)}`}
+              onExit={() => setRunning(false)}
+            />
+          </div>
+          <button
+            type="button"
+            onClick={() => setRunning(false)}
+            className="cursor-pointer"
+            style={{
+              marginTop: "var(--space-2)",
+              background: "transparent",
+              border: "none",
+              padding: 0,
+              fontFamily: "var(--font-mono)",
+              fontSize: "var(--text-xs)",
+              color: "var(--color-fg-secondary)",
+            }}
+          >
+            Close
+          </button>
+        </>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setRunning(true)}
+          disabled={disabled}
+          title="Delete sessions for this project via the CLI's own purge flow (asks per item)"
+          aria-label="Clean up sessions for this project"
+          className="cursor-pointer"
+          style={{
+            background: "transparent",
+            border: "none",
+            padding: 0,
+            fontFamily: "var(--font-mono)",
+            fontSize: "var(--text-xs)",
+            letterSpacing: "0.04em",
+            color: disabled ? "var(--color-fg-muted)" : "var(--color-fg-secondary)",
+            cursor: disabled ? "default" : "pointer",
+          }}
+        >
+          CLEAN UP SESSIONS…
+        </button>
+      )}
+    </div>
   );
 }
 
