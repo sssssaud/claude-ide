@@ -44,6 +44,16 @@ use tauri::Manager;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run(startup: Instant) {
     init_tracing();
+    // WebKitGTK's DMA-BUF renderer intermittently heap-corrupts inside the
+    // proprietary NVIDIA driver's EGL teardown (WebKitWebProcess SIGABRT in
+    // __run_exit_handlers → libEGL_nvidia dlclose — seen on the reference
+    // machine, driver 595.71.05). Disabling it keeps the webview off the
+    // NVIDIA EGL path; the standard Tauri-on-NVIDIA mitigation. Set before
+    // any webview exists, and never override the user's own choice.
+    #[cfg(target_os = "linux")]
+    if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
+        std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+    }
     // Resolve the absolute `claude` path once, before any command can spawn the
     // CLI, so every spawn site shares one validated binary (hardening B1).
     claude_bin::init();

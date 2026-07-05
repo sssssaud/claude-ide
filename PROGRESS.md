@@ -1726,3 +1726,24 @@ committed and screenshot-verified.
   write `command; exit` so the shell exits when the one-shot command ends
   (still fully interactive during it, Ctrl-C included), and scrollIntoView on
   mount so the terminal is visible from wherever it was triggered.
+
+### WebKitGTK/NVIDIA crash mitigation + launch-audit record (2026-07-05)
+- The "app crashed" notification after closing the app: coredump shows
+  WebKitWebProcess SIGABRT inside the proprietary NVIDIA driver's EGL teardown
+  (`exit → __run_exit_handlers → libEGL_nvidia dlclose`, driver 595.71.05) — a
+  known WebKitGTK+NVIDIA race at web-process exit, NOT app code. It fires
+  after a clean exit; no data loss. Mitigation in lib.rs: set
+  `WEBKIT_DISABLE_DMABUF_RENDERER=1` on Linux before any webview exists
+  (only when the user hasn't set it themselves) — the standard
+  Tauri-on-NVIDIA fix.
+- Separate sessions ran the full launch audit (`~/Desktop/fable-ide.md`
+  brief). Verdict: **NO-GO** — every data-safety/security blocker PASSED with
+  first-hand evidence (no path to `~/.claude` corruption, data loss, exec, or
+  workspace escape). Blocked on the perf dimension (cold-start 2660 ms vs
+  1.5 s budget, RSS ~500 MB vs 250 MB, 5/7 budgets unmeasured) plus a punch
+  list: no LICENSE (fixed below), focus management, fg-muted AA contrast,
+  CLI min-version gate, silent dead sessions, queue-flush leak, blocking
+  transcript loads, zero frontend tests, unbounded conversation `items[]`.
+  Punch list remains open for a future perf/hardening pass.
+- Publish prep: MIT LICENSE added, README overhauled, CLAUDE.md status
+  refreshed, repo made public with description + topics.
