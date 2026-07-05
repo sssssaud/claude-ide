@@ -42,7 +42,9 @@ CLI's back.
 
 **A real editor around it**
 - Sessions Timeline Rail: every past session, live-watched, resumable,
-  searchable across transcripts.
+  searchable across transcripts — plus **session cleanup** that hosts the
+  CLI's own `claude project purge -i` flow (per-item confirmation; the app
+  itself never deletes Claude data).
 - Monaco editor + diff viewer (loaded locally, no CDN), file explorer
   (create / duplicate / reveal), project-wide search.
 - Git built in: status, staged/unstaged diffs, stage/unstage, commit,
@@ -51,9 +53,14 @@ CLI's back.
 
 **Workshop tools**
 - Command Palette + dev command set, status bar, editor toolbar.
-- Settings surface: CLI settings, permissions editor, keybindings, MCP
-  servers, and a managed **Plugins & Skills** view — browse the marketplace
-  catalog and install from inside the app.
+- Settings surface: permissions editor, keybindings, MCP servers, and a
+  managed **Plugins & Skills** view — browse the marketplace catalog and
+  install from inside the app.
+- **Claude Code config panel**: the CLI's `/config` settings inside the app —
+  default model & reasoning effort, thinking mode, auto-compact, dynamic
+  workflows / ultracode, theme, notifications and more, every key and enum
+  verified against the installed binary, written merge-safe to
+  `~/.claude/settings.json` (keys the app doesn't model are never touched).
 - Project-scoped **agent-definition builder** with quick-launch.
 - **Global API token store** for GitHub / Hugging Face: saved once
   (`0600`-permission file, masked in the UI, never sent over IPC in full),
@@ -103,7 +110,8 @@ npm run tauri dev      # build the Rust backend + launch the app
 
 Feature-complete through the build spec's Phases 0–10 plus two addenda
 (settings surface, command palette, agent bridge, plugin management, model /
-effort pickers, steering, attachments, token store). Built gate-by-gate
+effort pickers, steering, attachments, token store, CLI config panel,
+session cleanup). Built gate-by-gate
 against `Claude_Code_IDE_BUILD_SPEC.md`, with the running log in
 `PROGRESS.md`.
 
