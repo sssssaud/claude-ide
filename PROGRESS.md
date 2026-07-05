@@ -1796,3 +1796,16 @@ committed and screenshot-verified.
   itself not driven end-to-end here (needs a real click + y/n answers);
   `purge --help` confirms `-i` + positional path, and the InlineTerminal
   one-shot pattern is the same one Plugins/Account/MCP already use live.
+
+### CI fix: Backend job red on cargo audit (2026-07-05)
+- GitHub Actions Backend job (clippy · test · audit) failed since publish:
+  `cargo audit` → "2 vulnerabilities found" — quick-xml 0.39.4
+  RUSTSEC-2026-0194/0195 (the DoS-class advisories the launch audit had
+  already flagged), reachable via plist 1.9.0 → tauri-utils. Clippy and
+  tests were green on CI; only the audit gate tripped.
+- Fix: `cargo update -p plist` (1.9.0 → 1.10.0) pulls the patched
+  quick-xml 0.41.0 within existing semver ranges — lockfile-only change,
+  no audit-ignore flags needed in the workflow.
+- Verified: local cargo audit clean (18 allowed warnings, 0 vulns), clippy
+  0 warnings, 112 tests pass; pushed 2a58d38 → CI run 28747317109 fully
+  green (both jobs).
