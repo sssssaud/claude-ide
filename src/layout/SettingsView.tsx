@@ -16,6 +16,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { EmptyState, ErrorState, LoadingState } from "@/components/states";
 import { InlineTerminal } from "@/components/InlineTerminal";
+import { CliConfigSection } from "@/layout/CliConfigSection";
 import { KeybindingsSection } from "@/layout/KeybindingsSection";
 import { PermissionsPanel } from "@/layout/PermissionsPanel";
 import { ThemePicker } from "@/layout/ThemePicker";
@@ -34,7 +35,7 @@ import {
 } from "@/store/settings";
 import { useActiveCwd } from "@/store/workspaces";
 
-type Category = "editor" | "files" | "terminal" | "appearance" | "keybindings" | "account" | "tokens" | "permissions" | "plugins" | "mcp";
+type Category = "editor" | "files" | "terminal" | "appearance" | "keybindings" | "claude" | "account" | "tokens" | "permissions" | "plugins" | "mcp";
 type SettingsCategory = keyof ScopeSettings;
 
 const CATEGORIES: { id: Category; label: string }[] = [
@@ -43,6 +44,7 @@ const CATEGORIES: { id: Category; label: string }[] = [
   { id: "terminal", label: "Terminal" },
   { id: "appearance", label: "Appearance" },
   { id: "keybindings", label: "Keybindings" },
+  { id: "claude", label: "Claude Code" },
   { id: "account", label: "Account" },
   { id: "tokens", label: "API Tokens" },
   { id: "permissions", label: "Permissions" },
@@ -55,7 +57,7 @@ const CATEGORIES: { id: Category; label: string }[] = [
  *  Plugins & Skills, MCP Servers. They skip the generic heading and the
  *  staged-apply footer. (Permissions is workspace-scoped and Account/Plugins/
  *  MCP are user-global, but all four own their own save path.) */
-const ACTION_CATEGORIES: Category[] = ["account", "tokens", "permissions", "plugins", "mcp"];
+const ACTION_CATEGORIES: Category[] = ["claude", "account", "tokens", "permissions", "plugins", "mcp"];
 
 /** Which backend sub-object each control's default lives in, for the "unset"
  *  fallback and the text control's clear-to-placeholder behaviour. Untyped as
@@ -323,6 +325,7 @@ export function SettingsView() {
                     {showAppearance && <ThemeRow />}
                   </div>
                   {!q && category === "keybindings" && <KeybindingsSection />}
+                  {!q && category === "claude" && <CliConfigSection />}
                   {!q && category === "account" && <AccountSection />}
                   {!q && category === "tokens" && <TokensSection />}
                   {!q && category === "permissions" && <PermissionsPanel />}

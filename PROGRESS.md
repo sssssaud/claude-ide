@@ -1747,3 +1747,32 @@ committed and screenshot-verified.
   Punch list remains open for a future perf/hardening pass.
 - Publish prep: MIT LICENSE added, README overhauled, CLAUDE.md status
   refreshed, repo made public with description + topics.
+
+### S16: the CLI /config panel inside the app (2026-07-05)
+- User ask: the /config screen's "huge amount of control" as a Settings
+  section. Probed the installed 2.1.201 first: there is NO `config`
+  subcommand (a bare `claude config list` runs it as a *prompt*) — the
+  /config TUI edits `~/.claude/settings.json` directly, so the app does the
+  same. Every row's key, type, and enum options were extracted from the
+  installed binary itself (ripgrep over the bundled JS): effortLevel
+  low/medium/high/xhigh, editorMode normal/vim (no emacs), theme auto + 6,
+  worktree.baseRef fresh/head, askUserQuestionTimeout never/60s/5m/10m,
+  preferredNotifChannel ×7, etc.
+- Scope: the 24 keys the CLI persists in `~/.claude/settings.json`. Rows the
+  CLI stores in the volatile `~/.claude.json` state file (copy-on-select,
+  terminal progress bar, auto-update channel, checkpoints toggle…) are
+  deliberately excluded — the app never writes that file.
+- Backend `cli_config.rs`: allow-list + per-kind validation (bool / enum /
+  free text with trim, 200-char cap, control-char reject), read-modify-write
+  that preserves every unmodelled key (env, hooks, statusLine, permissions…),
+  refuses a non-object file, handles nested `worktree.baseRef` with
+  empty-object pruning. IPC: `cli_config_read` / `cli_config_set` (set
+  returns the fresh doc — UI re-syncs from disk truth each write).
+- Frontend `CliConfigSection.tsx` (Settings → Claude Code): grouped rows +
+  filter box, tri-state selects where "CLI default" *removes* the key
+  (never freezes today's default), text rows with Set/Reset, per-row
+  `role=alert` errors. Changes apply to sessions started afterwards.
+- Verified: cargo test **112 passed** (5 new), clippy clean, tsc clean.
+  UI not yet driven live (no synthetic input on this machine) — needs one
+  manual pass: Settings → Claude Code, flip a toggle, confirm the key lands
+  in `~/.claude/settings.json`.

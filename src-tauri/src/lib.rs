@@ -9,6 +9,7 @@ mod agents;
 mod auth;
 mod checkpoints;
 mod claude_bin;
+mod cli_config;
 mod commands;
 mod engine;
 mod error;
@@ -138,6 +139,8 @@ pub fn run(startup: Instant) {
             commands::tokens_status,
             commands::token_set,
             commands::token_clear,
+            commands::cli_config_read,
+            commands::cli_config_set,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

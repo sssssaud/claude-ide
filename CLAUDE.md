@@ -66,7 +66,8 @@ and committed.
   not just linked out), S14 model + effort pickers, marketplace plugin
   install, steer/queue while a turn streams, S15 composer attachments
   (image/PDF/text + clipboard paste), global GitHub/HF token store,
-  error-result surfacing, app icon.
+  error-result surfacing, app icon, S16 CLI /config panel inside Settings
+  (Settings → Claude Code, edits `~/.claude/settings.json` allow-listed).
 - Full gate-by-gate detail and verified facts live in `PROGRESS.md` — read
   that first each session; this file is the quick reference, not the log.
 - Blockers: none for development. A full launch audit (2026-07-04) returned

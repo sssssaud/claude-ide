@@ -665,3 +665,25 @@ pub async fn list_agents(include_completed: bool) -> IpcResult<Vec<AgentSession>
 pub fn daemon_status() -> IpcResult<DaemonStatus> {
     crate::agents::daemon_status()
 }
+
+// ----- Claude Code CLI config (Addendum III S16) ------------------------------
+// A faithful editor over the user-global `~/.claude/settings.json` — the same
+// keys the CLI's /config panel manages. The allow-list + validation live in
+// `cli_config.rs`; unknown keys in the file are always preserved.
+
+/// Read the modelled keys currently set in `~/.claude/settings.json`.
+#[tauri::command]
+pub fn cli_config_read() -> IpcResult<crate::cli_config::CliConfigDoc> {
+    crate::cli_config::read()
+}
+
+/// Set (`value`) or clear (`null`) one allow-listed key, then return the fresh
+/// document so the UI re-syncs from disk truth in one round-trip.
+#[tauri::command]
+pub fn cli_config_set(
+    key: String,
+    value: Option<serde_json::Value>,
+) -> IpcResult<crate::cli_config::CliConfigDoc> {
+    crate::cli_config::set(&key, value)?;
+    crate::cli_config::read()
+}

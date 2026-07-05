@@ -350,6 +350,15 @@ export interface TokenStatus {
   envOverridden: boolean;
 }
 
+/** Mirror of Rust `CliConfigDoc` — the user-global `~/.claude/settings.json`
+ *  keys the CLI's /config panel manages. A key absent from `values` means
+ *  "CLI default". */
+export interface CliConfigDoc {
+  exists: boolean;
+  values: Record<string, unknown>;
+  path: string;
+}
+
 /** Mirror of Rust `ScopeSettings` — one scope's settings, every category. */
 export interface ScopeSettings {
   editor: EditorSettings;

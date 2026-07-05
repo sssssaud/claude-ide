@@ -18,6 +18,7 @@ import type {
   AvailablePlugin,
   CheckpointDiff,
   CheckpointTimeline,
+  CliConfigDoc,
   DaemonStatus,
   DirEntry,
   EngineEvent,
@@ -641,6 +642,26 @@ export async function tokenSet(provider: TokenProvider, token: string): Promise<
 export async function tokenClear(provider: TokenProvider): Promise<void> {
   try {
     await invoke<void>("token_clear", { provider });
+  } catch (e) {
+    normalizeError(e);
+  }
+}
+
+/** The Claude Code CLI's user-global config (`~/.claude/settings.json`) —
+ *  only the allow-listed keys the backend models. */
+export async function cliConfigRead(): Promise<CliConfigDoc> {
+  try {
+    return await invoke<CliConfigDoc>("cli_config_read");
+  } catch (e) {
+    normalizeError(e);
+  }
+}
+
+/** Set (or clear with `null`) one allow-listed CLI config key; returns the
+ *  fresh document read back from disk. */
+export async function cliConfigSet(key: string, value: boolean | string | null): Promise<CliConfigDoc> {
+  try {
+    return await invoke<CliConfigDoc>("cli_config_set", { key, value });
   } catch (e) {
     normalizeError(e);
   }
