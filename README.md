@@ -2,16 +2,16 @@
   <img src="src-tauri/icons/128x128.png" alt="Claude IDE icon" width="96" height="96" />
 </p>
 
-<h1 align="center">Claude IDE</h1>
+<h1 align="center">Claude IDE Linux</h1>
 
 <p align="center">
-  A native, agent-first desktop IDE that <strong>wraps the Claude Code CLI</strong> —
+  A native Linux, agent-first desktop IDE that <strong>wraps the Claude Code CLI</strong> —
   drive the agent loop, edit real code, and stay in one calm, fast, trustworthy app.
 </p>
 
 ---
 
-Claude IDE makes the agent loop the center of gravity while remaining a real
+Claude IDE Linux makes the agent loop the center of gravity while remaining a real
 code editor. It is a control surface for running, steering, reviewing, and
 *trusting* Claude Code's work — with editing, git, terminal, and search around
 it so you never have to leave. It replaces the "VS Code + a terminal + the
