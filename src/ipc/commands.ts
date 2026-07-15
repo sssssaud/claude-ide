@@ -29,6 +29,7 @@ import type {
   MarketplaceEntry,
   McpServerEntry,
   MemoryHealth,
+  MovedProject,
   PerfStats,
   PluginEntry,
   PreflightReport,
@@ -354,6 +355,30 @@ export async function watchSessions(
   channel.onmessage = onChange;
   try {
     await invoke<void>("watch_sessions", { cwd, onChange: channel });
+  } catch (e) {
+    normalizeError(e);
+  }
+}
+
+/**
+ * Detect sessions left behind at a previous location of this folder (moved or
+ * renamed). Read-only; empty when nothing looks moved.
+ */
+export async function detectMovedSessions(cwd?: string): Promise<MovedProject[]> {
+  try {
+    return await invoke<MovedProject[]>("detect_moved_sessions", { cwd });
+  } catch (e) {
+    normalizeError(e);
+  }
+}
+
+/**
+ * Restore a moved project's sessions into this location by copying the CLI's own
+ * transcripts (never deletes/overwrites). Returns the number copied.
+ */
+export async function relinkMovedSessions(slug: string, cwd?: string): Promise<number> {
+  try {
+    return await invoke<number>("relink_moved_sessions", { cwd, slug });
   } catch (e) {
     normalizeError(e);
   }
