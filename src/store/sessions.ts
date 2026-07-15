@@ -7,8 +7,13 @@
  */
 
 import { create } from "zustand";
-import { listSessions, watchSessions } from "@/ipc/commands";
-import type { SessionMeta } from "@/ipc/types";
+import {
+  detectMovedSessions,
+  listSessions,
+  relinkMovedSessions,
+  watchSessions,
+} from "@/ipc/commands";
+import type { MovedProject, SessionMeta } from "@/ipc/types";
 import { isIpcError } from "@/ipc/types";
 
 /** One workspace's session list + its load state. */
@@ -20,9 +25,16 @@ export interface SessionsSlice {
 
 interface SessionsState {
   byCwd: Record<string, SessionsSlice>;
+  /** Per-cwd: prior locations of this folder that still hold unrestored sessions. */
+  movedByCwd: Record<string, MovedProject[]>;
   /** Load + start watching a workspace's sessions. Idempotent per cwd (safe
    *  under StrictMode remounts and repeated focus). */
   init: (cwd: string) => Promise<void>;
+  /** Re-scan for moved sessions (on open, and after a restore). */
+  detectMoved: (cwd: string) => Promise<void>;
+  /** Copy a moved project's sessions into this location, then refresh. Throws on
+   *  failure so the caller can surface it. */
+  relink: (cwd: string, slug: string) => Promise<void>;
 }
 
 // Module-local guard: list + watch run exactly once per workspace cwd (not once
@@ -30,8 +42,9 @@ interface SessionsState {
 // number of workspaces opened this run.
 const watching = new Set<string>();
 
-export const useSessions = create<SessionsState>((set) => ({
+export const useSessions = create<SessionsState>((set, get) => ({
   byCwd: {},
+  movedByCwd: {},
 
   init: async (cwd) => {
     if (watching.has(cwd)) return;
@@ -39,6 +52,7 @@ export const useSessions = create<SessionsState>((set) => ({
     try {
       const sessions = await listSessions(cwd);
       set((s) => ({ byCwd: { ...s.byCwd, [cwd]: { sessions, loaded: true, error: null } } }));
+      void get().detectMoved(cwd);
       // Push refreshed lists straight into this cwd's slice as sessions change.
       await watchSessions(
         (next) =>
@@ -58,5 +72,22 @@ export const useSessions = create<SessionsState>((set) => ({
         },
       }));
     }
+  },
+
+  detectMoved: async (cwd) => {
+    try {
+      const moved = await detectMovedSessions(cwd);
+      set((s) => ({ movedByCwd: { ...s.movedByCwd, [cwd]: moved } }));
+    } catch {
+      // Non-critical: a detection failure just means no restore prompt.
+      set((s) => ({ movedByCwd: { ...s.movedByCwd, [cwd]: [] } }));
+    }
+  },
+
+  relink: async (cwd, slug) => {
+    await relinkMovedSessions(slug, cwd);
+    // The fs-watcher refreshes the list from the copied files; re-scan so the
+    // prompt clears once everything is present here.
+    await get().detectMoved(cwd);
   },
 }));

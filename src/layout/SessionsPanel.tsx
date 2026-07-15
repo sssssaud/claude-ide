@@ -16,7 +16,15 @@ import { activeEditorStore } from "@/store/editor";
 import { useLayout } from "@/store/layout";
 import { useActiveCwd } from "@/store/workspaces";
 import { checkpointTimeline } from "@/ipc/commands";
-import { isIpcError, type CheckpointEntry, type SessionMeta } from "@/ipc/types";
+import {
+  isIpcError,
+  type CheckpointEntry,
+  type MovedProject,
+  type SessionMeta,
+} from "@/ipc/types";
+
+/** Stable empty reference so the store selector doesn't churn renders. */
+const NO_MOVED: MovedProject[] = [];
 
 export function SessionsPanel() {
   const cwd = useActiveCwd();
@@ -28,6 +36,8 @@ export function SessionsPanel() {
   const streaming = useActiveConversation((s) => s.streaming);
   const resume = useActiveConversation((s) => s.resume);
   const newSession = useActiveConversation((s) => s.newSession);
+  const moved = useSessions((s) => (cwd ? s.movedByCwd[cwd] ?? NO_MOVED : NO_MOVED));
+  const relink = useSessions((s) => s.relink);
   // The session-load + auto-continue effects live in `useSessionBootstrap`
   // (mounted in the shell), so they run even when this view isn't open.
 
@@ -62,6 +72,9 @@ export function SessionsPanel() {
         }
       />
       <div className="min-h-0 flex-1 overflow-y-auto" style={{ padding: "var(--space-4)" }}>
+        {cwd && moved.length > 0 && (
+          <MovedBanner cwd={cwd} groups={moved} onRestore={relink} />
+        )}
         <AgentsSection currentSessionId={activeId} />
         {error ? (
           <StateNote text={error} tone="error" />
@@ -90,6 +103,115 @@ export function SessionsPanel() {
         )}
       </div>
     </aside>
+  );
+}
+
+/** Restore prompt shown when this folder was moved/renamed and its earlier
+ *  location still holds sessions. Reading them already works (the rail resolves a
+ *  single moved match); Restore copies the CLI's transcripts into the new
+ *  location so `--resume` works too. Copy-only — nothing is deleted. */
+function MovedBanner({
+  cwd,
+  groups,
+  onRestore,
+}: {
+  cwd: string;
+  groups: MovedProject[];
+  onRestore: (cwd: string, slug: string) => Promise<void>;
+}) {
+  return (
+    <div
+      role="status"
+      style={{
+        marginBottom: "var(--space-4)",
+        padding: "var(--space-3)",
+        borderRadius: "var(--radius-md)",
+        border: "1px solid var(--color-border-strong)",
+        background: "var(--color-bg-raised)",
+      }}
+    >
+      <div
+        style={{
+          fontSize: "var(--text-sm)",
+          color: "var(--color-fg-primary)",
+          marginBottom: "var(--space-2)",
+          lineHeight: 1.4,
+        }}
+      >
+        Sessions from a previous location of this folder. Restore to resume them here.
+      </div>
+      <div className="flex flex-col gap-[var(--space-3)]">
+        {groups.map((g) => (
+          <MovedRow key={g.slug} cwd={cwd} group={g} onRestore={onRestore} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function MovedRow({
+  cwd,
+  group,
+  onRestore,
+}: {
+  cwd: string;
+  group: MovedProject;
+  onRestore: (cwd: string, slug: string) => Promise<void>;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const count = group.sessionCount;
+
+  const restore = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await onRestore(cwd, group.slug);
+      // On success this group is re-detected away, so the row unmounts.
+    } catch (e) {
+      setError(isIpcError(e) ? e.message : "Could not restore sessions");
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-[var(--space-1)]">
+      <div
+        title={group.oldCwd}
+        style={{
+          fontFamily: "var(--font-mono)",
+          fontSize: "var(--text-xs)",
+          color: "var(--color-fg-muted)",
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+        }}
+      >
+        {group.oldCwd}
+      </div>
+      <div className="flex items-center gap-[var(--space-2)]">
+        <button
+          type="button"
+          onClick={() => void restore()}
+          disabled={busy}
+          aria-label={`Restore ${count} session${count === 1 ? "" : "s"} from ${group.oldCwd}`}
+          className="cursor-pointer"
+          style={{
+            background: "transparent",
+            border: "1px solid var(--color-border-strong)",
+            borderRadius: "var(--radius-sm)",
+            padding: "2px var(--space-2)",
+            fontFamily: "var(--font-mono)",
+            fontSize: "var(--text-xs)",
+            color: busy ? "var(--color-fg-muted)" : "var(--color-fg-secondary)",
+            cursor: busy ? "default" : "pointer",
+          }}
+        >
+          {busy ? "Restoring…" : `Restore ${count} session${count === 1 ? "" : "s"}`}
+        </button>
+      </div>
+      {error && <StateNote text={error} tone="error" />}
+    </div>
   );
 }
 

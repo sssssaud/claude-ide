@@ -13,7 +13,7 @@
 //! (an active transcript being appended) are ignored so a live session doesn't
 //! cause churn.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
@@ -40,6 +40,23 @@ pub struct SessionMeta {
     /// Git branch the session ran on, if recorded.
     pub git_branch: Option<String>,
     /// File mtime (ms since epoch) — used to sort by most-recent activity.
+    pub last_active_ms: u64,
+}
+
+/// A project dir whose sessions were recorded at a now-missing path that shares
+/// this workspace's folder name — i.e. the folder was moved or renamed. Surfaced
+/// so the rail can offer a one-time restore (copy) into the new location.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MovedProject {
+    /// The cwd recorded inside those transcripts (no longer present on disk).
+    pub old_cwd: String,
+    /// The `~/.claude/projects/` dir name holding them — used only to name the
+    /// restore source; validated as a single path component server-side.
+    pub slug: String,
+    /// Sessions here that are not yet present at the current location.
+    pub session_count: usize,
+    /// Newest activity across those sessions (ms since epoch).
     pub last_active_ms: u64,
 }
 
@@ -401,8 +418,18 @@ pub(crate) fn claude_projects_dir() -> Option<PathBuf> {
 /// Find the project dir whose transcripts record `target` as their cwd. Reads
 /// the CLI's own data instead of reversing the lossy slug (spec 3.2). Reused by
 /// the checkpoint timeline to locate a session's transcript.
+///
+/// If no dir records `target` exactly, fall back to a single moved-folder match
+/// (see `single_moved_dir`) so a renamed/moved workspace still shows its old
+/// sessions. Resuming them still needs an explicit copy (`relink_moved`).
 pub(crate) fn resolve_project_dir(projects: &Path, target: &Path) -> Option<PathBuf> {
     let target_canon = fs::canonicalize(target).unwrap_or_else(|_| target.to_path_buf());
+    resolve_exact(projects, &target_canon).or_else(|| single_moved_dir(projects, &target_canon))
+}
+
+/// The dir whose transcripts record `target_canon` as their cwd, exactly. This
+/// is the CLI's live location for `target` — always preferred over any bridge.
+fn resolve_exact(projects: &Path, target_canon: &Path) -> Option<PathBuf> {
     for entry in fs::read_dir(projects).ok()? {
         let dir = match entry {
             Ok(e) => e.path(),
@@ -414,12 +441,228 @@ pub(crate) fn resolve_project_dir(projects: &Path, target: &Path) -> Option<Path
         if let Some(cwd) = dir_recorded_cwd(&dir) {
             let recorded = PathBuf::from(&cwd);
             let recorded_canon = fs::canonicalize(&recorded).unwrap_or(recorded);
-            if recorded_canon == target_canon {
+            if recorded_canon == *target_canon {
                 return Some(dir);
             }
         }
     }
     None
+}
+
+/// The single project dir that looks like an earlier location of `target_canon`:
+/// same folder name, recorded path now gone, and not `target`'s own canonical
+/// slug dir (where a restore copies *into*). Returns `None` if zero or more than
+/// one match — an ambiguous same-name orphan is never auto-bridged.
+fn single_moved_dir(projects: &Path, target_canon: &Path) -> Option<PathBuf> {
+    let target_base = target_canon.file_name()?;
+    let self_slug = claude_slug(target_canon);
+    let mut found: Option<PathBuf> = None;
+    for entry in fs::read_dir(projects).ok()? {
+        let dir = match entry {
+            Ok(e) => e.path(),
+            Err(_) => continue,
+        };
+        if !dir.is_dir() {
+            continue;
+        }
+        if dir.file_name().and_then(|n| n.to_str()) == Some(self_slug.as_str()) {
+            continue;
+        }
+        let cwd = match dir_recorded_cwd(&dir) {
+            Some(c) => c,
+            None => continue,
+        };
+        let recorded = PathBuf::from(&cwd);
+        if recorded.file_name() != Some(target_base) || recorded.exists() {
+            continue;
+        }
+        if found.is_some() {
+            return None; // ambiguous → no auto-bridge
+        }
+        found = Some(dir);
+    }
+    found
+}
+
+/// Mirror the CLI's project-dir naming: the absolute path with every
+/// non-alphanumeric byte replaced by `-` (observed: `/home/saud/x` →
+/// `-home-saud-x`). ponytail: only used as a fallback when no live project dir
+/// exists yet for `target`, so a drifting CLI rule degrades to "restored
+/// sessions appear after the next turn", never data loss.
+fn claude_slug(path: &Path) -> String {
+    path.to_string_lossy()
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect()
+}
+
+/// The session ids (transcript filename stems) present in `dir`.
+fn session_ids_in(dir: &Path) -> HashSet<String> {
+    let mut ids = HashSet::new();
+    if let Ok(entries) = fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) == Some("jsonl") {
+                if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                    ids.insert(stem.to_string());
+                }
+            }
+        }
+    }
+    ids
+}
+
+/// A valid `~/.claude/projects/` dir name: one path component, no separators or
+/// traversal. Guards `relink_moved` against a frontend-supplied slug escaping
+/// the projects dir.
+fn valid_slug_component(slug: &str) -> bool {
+    !slug.is_empty()
+        && slug != "."
+        && slug != ".."
+        && !slug.contains('/')
+        && !slug.contains('\\')
+        && !slug.contains('\0')
+}
+
+/// Detect sessions left behind at a previous location of this workspace (folder
+/// moved/renamed). Read-only. Counts only sessions not already present here, so
+/// the rail's restore prompt clears itself once a restore is complete.
+pub fn detect_moved(cwd: Option<String>) -> IpcResult<Vec<MovedProject>> {
+    let target = crate::workspace::resolve_cwd(cwd)?;
+    let target_canon = fs::canonicalize(&target).unwrap_or_else(|_| target.clone());
+    let target_base = match target_canon.file_name() {
+        Some(b) => b.to_os_string(),
+        None => return Ok(Vec::new()),
+    };
+    let projects = match claude_projects_dir() {
+        Some(p) => p,
+        None => return Ok(Vec::new()),
+    };
+    let self_slug = claude_slug(&target_canon);
+    // Sessions already restored to (or native at) the current location are hidden
+    // from the prompt so it can't re-offer work that's already done.
+    let current_ids = resolve_exact(&projects, &target_canon)
+        .map(|d| session_ids_in(&d))
+        .unwrap_or_default();
+
+    let mut out = Vec::new();
+    let entries =
+        fs::read_dir(&projects).map_err(|e| internal(format!("Could not read projects dir: {e}")))?;
+    for entry in entries {
+        let dir = match entry {
+            Ok(e) => e.path(),
+            Err(_) => continue,
+        };
+        if !dir.is_dir() || dir.file_name().and_then(|n| n.to_str()) == Some(self_slug.as_str()) {
+            continue;
+        }
+        let cwd = match dir_recorded_cwd(&dir) {
+            Some(c) => c,
+            None => continue,
+        };
+        let recorded = PathBuf::from(&cwd);
+        if recorded.file_name() != Some(target_base.as_os_str()) || recorded.exists() {
+            continue;
+        }
+        let mut count = 0usize;
+        let mut newest = 0u64;
+        if let Ok(files) = fs::read_dir(&dir) {
+            for f in files.flatten() {
+                let p = f.path();
+                if p.extension().and_then(|e| e.to_str()) != Some("jsonl") {
+                    continue;
+                }
+                let id = match p.file_stem().and_then(|s| s.to_str()) {
+                    Some(s) => s,
+                    None => continue,
+                };
+                if current_ids.contains(id) {
+                    continue;
+                }
+                count += 1;
+                newest = newest.max(mtime_ms(&p));
+            }
+        }
+        if count == 0 {
+            continue;
+        }
+        let slug = match dir.file_name().and_then(|n| n.to_str()) {
+            Some(s) => s.to_string(),
+            None => continue,
+        };
+        out.push(MovedProject {
+            old_cwd: cwd,
+            slug,
+            session_count: count,
+            last_active_ms: newest,
+        });
+    }
+    out.sort_by_key(|m| std::cmp::Reverse(m.last_active_ms));
+    Ok(out)
+}
+
+/// Restore a moved project's sessions into this workspace's current location by
+/// copying the CLI's own transcripts, so `claude --resume` finds them again.
+/// Copy-only: never overwrites a live transcript, never deletes the source (the
+/// wrapper removes nothing under `~/.claude`). `slug` must be a dir flagged by
+/// `detect_moved` for this cwd — re-verified here, never trusted from the caller.
+pub fn relink_moved(cwd: Option<String>, slug: String) -> IpcResult<usize> {
+    if !valid_slug_component(&slug) {
+        return Err(IpcError::new(IpcErrorKind::InvalidInput, "Invalid session folder"));
+    }
+    let target = crate::workspace::resolve_cwd(cwd.clone())?;
+    if !detect_moved(cwd)?.iter().any(|m| m.slug == slug) {
+        return Err(IpcError::new(
+            IpcErrorKind::InvalidInput,
+            "No moved sessions to restore here",
+        ));
+    }
+    let projects = claude_projects_dir()
+        .ok_or_else(|| IpcError::new(IpcErrorKind::InvalidInput, "No Claude sessions on disk"))?;
+    let source = projects.join(&slug);
+    let target_canon = fs::canonicalize(&target).unwrap_or_else(|_| target.clone());
+    // Where the CLI will look at the new location: its live dir if one already
+    // exists, else the derived slug dir (created now; the CLI reuses it).
+    let dest = resolve_exact(&projects, &target_canon)
+        .unwrap_or_else(|| projects.join(claude_slug(&target_canon)));
+    fs::create_dir_all(&dest)
+        .map_err(|e| internal(format!("Could not create the project dir: {e}")))?;
+
+    // Defense in depth: both endpoints must stay under projects/.
+    let proj_canon = fs::canonicalize(&projects).unwrap_or_else(|_| projects.clone());
+    for p in [&source, &dest] {
+        let c = fs::canonicalize(p).unwrap_or_else(|_| p.clone());
+        if !c.starts_with(&proj_canon) {
+            return Err(IpcError::new(
+                IpcErrorKind::InvalidInput,
+                "Path escapes the projects dir",
+            ));
+        }
+    }
+
+    let mut copied = 0usize;
+    let entries =
+        fs::read_dir(&source).map_err(|e| internal(format!("Could not read the moved project: {e}")))?;
+    for entry in entries {
+        let sp = match entry {
+            Ok(e) => e.path(),
+            Err(_) => continue,
+        };
+        if sp.extension().and_then(|e| e.to_str()) != Some("jsonl") {
+            continue;
+        }
+        let name = match sp.file_name() {
+            Some(n) => n,
+            None => continue,
+        };
+        let dp = dest.join(name);
+        if dp.exists() {
+            continue; // never clobber a live transcript
+        }
+        fs::copy(&sp, &dp).map_err(|e| internal(format!("Could not copy a session: {e}")))?;
+        copied += 1;
+    }
+    Ok(copied)
 }
 
 /// The first non-null `cwd` recorded in any transcript in `dir`.
@@ -611,6 +854,63 @@ mod tests {
 
     fn lines(raw: &[&str]) -> Vec<String> {
         raw.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn claude_slug_replaces_non_alnum() {
+        assert_eq!(
+            claude_slug(Path::new("/home/saud/Desktop/claude-ide")),
+            "-home-saud-Desktop-claude-ide"
+        );
+    }
+
+    #[test]
+    fn valid_slug_component_rejects_traversal() {
+        assert!(valid_slug_component("-home-saud-x"));
+        assert!(!valid_slug_component(""));
+        assert!(!valid_slug_component("."));
+        assert!(!valid_slug_component(".."));
+        assert!(!valid_slug_component("a/b"));
+        assert!(!valid_slug_component("a\\b"));
+    }
+
+    #[test]
+    fn single_moved_dir_matches_one_same_name_orphan() {
+        let base =
+            std::env::temp_dir().join(format!("cide-smd-{}-{}", std::process::id(), line!()));
+        let _ = fs::remove_dir_all(&base);
+        let projects = base.join("projects");
+        fs::create_dir_all(&projects).unwrap();
+        // New (current) location exists so it canonicalizes; old one is gone.
+        let newloc = base.join("new").join("proj");
+        fs::create_dir_all(&newloc).unwrap();
+        let oldloc = base.join("old").join("proj");
+        let old_slug = projects.join("oldslug");
+        fs::create_dir_all(&old_slug).unwrap();
+        fs::write(
+            old_slug.join("s1.jsonl"),
+            format!("{{\"cwd\":\"{}\"}}\n", oldloc.display()),
+        )
+        .unwrap();
+
+        let tc = fs::canonicalize(&newloc).unwrap();
+        assert_eq!(
+            single_moved_dir(&projects, &tc).as_deref(),
+            Some(old_slug.as_path())
+        );
+
+        // A second same-name orphan makes it ambiguous → no auto-bridge.
+        let old_slug2 = projects.join("oldslug2");
+        fs::create_dir_all(&old_slug2).unwrap();
+        let oldloc2 = base.join("older").join("proj");
+        fs::write(
+            old_slug2.join("s2.jsonl"),
+            format!("{{\"cwd\":\"{}\"}}\n", oldloc2.display()),
+        )
+        .unwrap();
+        assert!(single_moved_dir(&projects, &tc).is_none());
+
+        let _ = fs::remove_dir_all(&base);
     }
 
     #[test]
