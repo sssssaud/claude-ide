@@ -127,10 +127,9 @@ function ActivityButton({
       aria-selected={selected}
       aria-controls="side-panel"
       aria-label={label}
-      title={label}
       tabIndex={selected ? 0 : -1}
       onClick={onClick}
-      className="relative flex cursor-pointer items-center justify-center"
+      className="activity-btn relative flex cursor-pointer items-center justify-center"
       style={{
         width: "var(--space-8)",
         height: "var(--space-8)",
@@ -155,6 +154,9 @@ function ActivityButton({
         />
       )}
       {icon}
+      <span className="activity-tip" aria-hidden="true">
+        {label}
+      </span>
       {badge ? (
         <span
           aria-hidden="true"
@@ -200,9 +202,8 @@ function ActionButton({
       type="button"
       aria-label={label}
       aria-pressed={active}
-      title={label}
       onClick={onClick}
-      className="relative flex cursor-pointer items-center justify-center"
+      className="activity-btn relative flex cursor-pointer items-center justify-center"
       style={{
         width: "var(--space-8)",
         height: "var(--space-8)",
@@ -227,6 +228,9 @@ function ActionButton({
         />
       )}
       {icon}
+      <span className="activity-tip" aria-hidden="true">
+        {label}
+      </span>
     </button>
   );
 }
