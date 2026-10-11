@@ -95,6 +95,8 @@ pub fn run(startup: Instant) {
             commands::pty_close,
             commands::list_sessions,
             commands::watch_sessions,
+            commands::detect_moved_sessions,
+            commands::relink_moved_sessions,
             commands::checkpoint_timeline,
             commands::checkpoint_diff,
             commands::workspace_usage,

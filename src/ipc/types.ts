@@ -64,6 +64,15 @@ export interface SessionMeta {
   lastActiveMs: number;
 }
 
+/** Mirror of Rust `MovedProject` — sessions left at a previous location of this
+ *  folder (moved/renamed), offered for a one-time restore. */
+export interface MovedProject {
+  oldCwd: string;
+  slug: string;
+  sessionCount: number;
+  lastActiveMs: number;
+}
+
 /** Mirror of Rust `DirEntry` (Phase 4) — one file-explorer node. */
 export interface DirEntry {
   name: string;

@@ -1809,3 +1809,34 @@ committed and screenshot-verified.
 - Verified: local cargo audit clean (18 allowed warnings, 0 vulns), clippy
   0 warnings, 112 tests pass; pushed 2a58d38 → CI run 28747317109 fully
   green (both jobs).
+
+### Moved-folder session recovery in the Sessions rail (2026-07-16)
+- Problem: `claude` keys sessions by the project's absolute path
+  (`~/.claude/projects/<slug>/`). Move or rename a project folder and the
+  rail goes empty — the CLI, and the IDE (which resolves by the cwd recorded
+  *inside* transcripts), no longer match the old location. Hit for real when
+  the repo moved `~/Desktop/claude-ide` → `~/Desktop/Projects/claude-ide`.
+- Fix — read bridge + explicit copy, all in `sessions.rs`:
+  - `resolve_project_dir` gains a guarded fallback: no exact cwd match AND
+    exactly one orphaned dir recorded a now-missing path with the same folder
+    name (and not this path's own slug) → use it, so a moved workspace still
+    shows and reads its old sessions. Ambiguous (2+ same-name orphans) → no
+    bridge. `list`/`read_transcript`/usage/memory/checkpoints all inherit it.
+  - `detect_moved` (read-only) powers a rail banner; counts only sessions not
+    already present here, so the prompt self-clears once a restore is done.
+  - `relink_moved` copies the CLI's transcripts into the current path's slug
+    dir so `claude --resume` finds them again. Copy-only: never overwrites a
+    live transcript, never deletes the source (zero-deletion posture holds).
+    Slug re-validated server-side as a genuine detected candidate + both
+    endpoints contained under `projects/`.
+  - Two commands (`detect_moved_sessions`, `relink_moved_sessions`) → 61
+    total. No new arbitrary-exec surface, no CSP/capability change.
+- Frontend: `MovedBanner` in `SessionsPanel` (per-location Restore button,
+  busy/error states, tokens only) wired through `store/sessions.ts`
+  (`detectMoved`/`relink`), IPC in `ipc/commands.ts` + `MovedProject` type.
+- Verified: 3 new Rust unit tests (slug rule, traversal guard, single-moved
+  match + ambiguity) + full suite **115 pass**; clippy 0 warnings; tsc + vite
+  build clean. Validated against the real move: old dir records the missing
+  `~/Desktop/claude-ide`, 18 sessions there vs 2 at the new path → banner
+  offers the ~16 not yet restored. Live click-through in `tauri dev` not yet
+  exercised.

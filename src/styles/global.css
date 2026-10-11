@@ -108,3 +108,34 @@ body {
   transition-duration: 0.01ms !important;
   scroll-behavior: auto !important;
 }
+
+/*
+ * Activity-bar icon tooltips: an instant, on-brand label replacing the native
+ * `title` tooltip's ~1s OS hover delay. Appears the moment the cursor hovers
+ * (or the button is keyboard-focused), to the right of the icon strip. No
+ * transition — instant is the whole point. `--elev-3` supplies the border ring.
+ */
+.activity-tip {
+  position: absolute;
+  left: calc(100% + var(--space-1));
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 60;
+  white-space: nowrap;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-raised);
+  color: var(--color-fg-primary);
+  box-shadow: var(--elev-3);
+  font-family: var(--font-sans);
+  font-size: var(--text-xs);
+  line-height: var(--text-xs--line-height);
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+}
+.activity-btn:hover > .activity-tip,
+.activity-btn:focus-visible > .activity-tip {
+  opacity: 1;
+  visibility: visible;
+}

@@ -29,7 +29,7 @@ use crate::pty::PtyRegistry;
 use crate::search::SearchResults;
 use crate::session_search::SessionSearchResults;
 use crate::settings::{Scope, ScopeSettings, SettingsDoc};
-use crate::sessions::{SessionMeta, SessionTranscript, SessionsRegistry};
+use crate::sessions::{MovedProject, SessionMeta, SessionTranscript, SessionsRegistry};
 use crate::state::AppState;
 use crate::usage::UsageReport;
 
@@ -267,6 +267,21 @@ pub fn watch_sessions(
     registry: State<'_, Arc<SessionsRegistry>>,
 ) -> IpcResult<()> {
     registry.watch(cwd, on_change)
+}
+
+/// Detect sessions left behind at a previous location of this workspace (the
+/// folder was moved or renamed). Read-only; drives the rail's restore prompt.
+#[tauri::command]
+pub fn detect_moved_sessions(cwd: Option<String>) -> IpcResult<Vec<MovedProject>> {
+    crate::sessions::detect_moved(cwd)
+}
+
+/// Restore a moved project's sessions into this workspace's current location by
+/// copying the CLI's own transcripts (never deletes or overwrites). `slug` must
+/// be one returned by `detect_moved_sessions`. Returns the number copied.
+#[tauri::command]
+pub fn relink_moved_sessions(cwd: Option<String>, slug: String) -> IpcResult<usize> {
+    crate::sessions::relink_moved(cwd, slug)
 }
 
 // ----- Checkpoint timeline (spec 5.P2, Phase 7) ------------------------------
